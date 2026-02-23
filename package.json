@@ -1,0 +1,61 @@
+{
+  "name": "pnpm-vue-electron",
+  "version": "1.0.0",
+  "description": "A TypeScript-based Electron application with Vue 3",
+  "main": "out/main/index.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "pack": "electron-builder",
+    "dist": "pnpm build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [
+    "electron",
+    "vue",
+    "typescript",
+    "vite"
+  ],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.23.0",
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/tsconfig": "^0.8.1",
+    "@vueuse/core": "^14.2.0",
+    "electron": "^39.5.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "unplugin-auto-import": "^21.0.0",
+    "unplugin-vue-components": "^31.0.0",
+    "vite": "^7.3.1",
+    "vue": "^3.5.27",
+    "vue-icons-plus": "^0.1.8",
+    "vue-tsc": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.yricky.init",
+    "productName": "pnpm-vue-electron",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "asar": true,
+    "mac": {
+      "target": "dir"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+  }
+}
