@@ -14,6 +14,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app">
+    Hello!
   </div>
 </template>
 

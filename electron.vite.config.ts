@@ -5,8 +5,15 @@ import { resolve } from 'path'
 export default defineConfig({
   main: {
     build: {
+      minify: 'oxc',
       rollupOptions: {
-        external: ['electron']
+        external: ['electron'],
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+        },
+        output: {
+          format: 'cjs'
+        }
       }
     },
     resolve: {
@@ -17,8 +24,15 @@ export default defineConfig({
   },
   preload: {
     build: {
+      minify: 'oxc',
       rollupOptions: {
-        external: ['electron']
+        external: ['electron'],
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+        },
+        output: {
+          format: 'cjs'
+        }
       }
     },
     resolve: {
@@ -29,8 +43,12 @@ export default defineConfig({
   },
   renderer: {
     build: {
+      minify: 'oxc',
       rollupOptions: {
-        external: ['electron']
+        external: ['electron'],
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html')
+        }
       }
     },
     plugins: [vue()],

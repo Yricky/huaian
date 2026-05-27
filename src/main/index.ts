@@ -45,6 +45,15 @@ function createWindow(config: AppConfig): void {
       preload: join(__dirname, '../preload/index.js')
     }
   })
+  // 加载页面
+  if (isDev) {
+    // 开发环境：加载 Vite 开发服务器
+    mainWindow.loadURL('http://localhost:5173')
+    mainWindow.webContents.openDevTools({ mode: 'detach', title: 'ITM Devtool' })
+  } else {
+    // 生产环境：加载打包后的文件
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
   mainWindow.show()
 
 }
