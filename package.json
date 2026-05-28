@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "pack": "electron-builder",
     "dist": "pnpm build && electron-builder",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "node scripts/rebuild-native.mjs"
   },
   "keywords": [
     "electron",
@@ -57,5 +57,7 @@
     }
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "pretext": "^0.3.0"
   }
 }

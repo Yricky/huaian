@@ -7,7 +7,7 @@ export default defineConfig({
     build: {
       minify: 'oxc',
       rollupOptions: {
-        external: ['electron'],
+        external: ['electron', 'better-sqlite3'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
         },
