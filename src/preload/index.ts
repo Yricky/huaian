@@ -4,10 +4,11 @@ import type {
   CharacterUpdatePayload,
   ExportResult,
   IpcJsonPayload,
-  ProjectConfig,
   ProjectSnapshot,
-  WorldBookExportConfig,
+  WorldBook,
+  WorldBookUpdatePayload,
   WorldEntry,
+  WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
 
@@ -18,16 +19,18 @@ const electronAPI = {
   updateCharacter: (payload: IpcJsonPayload<CharacterUpdatePayload>): Promise<CharacterEntry> =>
     ipcRenderer.invoke('project:updateCharacter', payload),
   deleteCharacter: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteCharacter', id),
-  createWorldEntry: (): Promise<WorldEntry> => ipcRenderer.invoke('project:createWorldEntry'),
+  createWorldEntry: (worldBookId: number): Promise<WorldEntry> => ipcRenderer.invoke('project:createWorldEntry', worldBookId),
   updateWorldEntry: (payload: IpcJsonPayload<WorldEntryUpdatePayload>): Promise<WorldEntry> =>
     ipcRenderer.invoke('project:updateWorldEntry', payload),
   deleteWorldEntry: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteWorldEntry', id),
-  createWorldBookExport: (): Promise<ProjectConfig> => ipcRenderer.invoke('project:createWorldBookExport'),
-  updateWorldBookExport: (payload: IpcJsonPayload<WorldBookExportConfig>): Promise<ProjectConfig> =>
-    ipcRenderer.invoke('project:updateWorldBookExport', payload),
-  deleteWorldBookExport: (id: string): Promise<ProjectConfig> => ipcRenderer.invoke('project:deleteWorldBookExport', id),
+  reorderWorldEntries: (payload: IpcJsonPayload<WorldEntryOrderPayload>): Promise<ProjectSnapshot> =>
+    ipcRenderer.invoke('project:reorderWorldEntries', payload),
+  createWorldBook: (): Promise<WorldBook> => ipcRenderer.invoke('project:createWorldBook'),
+  updateWorldBook: (payload: IpcJsonPayload<WorldBookUpdatePayload>): Promise<WorldBook> =>
+    ipcRenderer.invoke('project:updateWorldBook', payload),
+  deleteWorldBook: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteWorldBook', id),
   exportCharacter: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportCharacter', id),
-  exportWorldBook: (id: string): Promise<ExportResult> => ipcRenderer.invoke('project:exportWorldBook', id),
+  exportWorldBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportWorldBook', id),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   getAppName: (): Promise<string> => ipcRenderer.invoke('app:getName'),
   quit: (): Promise<void> => ipcRenderer.invoke('app:quit')

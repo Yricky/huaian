@@ -2,22 +2,24 @@ import { app, dialog, ipcMain } from 'electron'
 import type {
   CharacterUpdatePayload,
   IpcJsonPayload,
-  WorldBookExportConfig,
+  WorldBookUpdatePayload,
+  WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
 import { exportCharacter, exportWorldBook } from './project/exporters'
 import { hasProject } from './project/state'
 import {
   createCharacter,
-  createWorldBookExport,
+  createWorldBook,
   createWorldEntry,
   deleteCharacter,
-  deleteWorldBookExport,
+  deleteWorldBook,
   deleteWorldEntry,
   getProjectSnapshot,
   openProjectAt,
+  reorderWorldEntries,
   updateCharacter,
-  updateWorldBookExport,
+  updateWorldBook,
   updateWorldEntry
 } from './project/store'
 
@@ -39,20 +41,23 @@ export function registerIpcHandlers(): void {
   ))
   ipcMain.handle('project:deleteCharacter', (_, id: number) => deleteCharacter(id))
 
-  ipcMain.handle('project:createWorldEntry', () => createWorldEntry())
+  ipcMain.handle('project:createWorldEntry', (_, worldBookId: number) => createWorldEntry(worldBookId))
   ipcMain.handle('project:updateWorldEntry', (_, payload: IpcJsonPayload<WorldEntryUpdatePayload>) => (
     updateWorldEntry(parseIpcPayload(payload))
   ))
   ipcMain.handle('project:deleteWorldEntry', (_, id: number) => deleteWorldEntry(id))
-
-  ipcMain.handle('project:createWorldBookExport', () => createWorldBookExport())
-  ipcMain.handle('project:updateWorldBookExport', (_, payload: IpcJsonPayload<WorldBookExportConfig>) => (
-    updateWorldBookExport(parseIpcPayload(payload))
+  ipcMain.handle('project:reorderWorldEntries', (_, payload: IpcJsonPayload<WorldEntryOrderPayload>) => (
+    reorderWorldEntries(parseIpcPayload(payload))
   ))
-  ipcMain.handle('project:deleteWorldBookExport', (_, id: string) => deleteWorldBookExport(id))
+
+  ipcMain.handle('project:createWorldBook', () => createWorldBook())
+  ipcMain.handle('project:updateWorldBook', (_, payload: IpcJsonPayload<WorldBookUpdatePayload>) => (
+    updateWorldBook(parseIpcPayload(payload))
+  ))
+  ipcMain.handle('project:deleteWorldBook', (_, id: number) => deleteWorldBook(id))
 
   ipcMain.handle('project:exportCharacter', (_, id: number) => exportCharacter(id))
-  ipcMain.handle('project:exportWorldBook', (_, id: string) => exportWorldBook(id))
+  ipcMain.handle('project:exportWorldBook', (_, id: number) => exportWorldBook(id))
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:getName', () => app.getName())

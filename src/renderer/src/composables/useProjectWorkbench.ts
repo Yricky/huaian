@@ -2,10 +2,9 @@ import { computed, inject, onMounted, provide, ref, type InjectionKey } from 'vu
 import type {
   CharacterEntry,
   ExportResult,
-  ProjectConfig,
   ProjectSnapshot,
   SidebarView,
-  WorldBookExportConfig,
+  WorldBook,
   WorldEntry
 } from '@/shared/types'
 
@@ -21,8 +20,8 @@ export function createProjectWorkbench() {
   const project = ref<ProjectSnapshot | null>(null)
   const activeView = ref<SidebarView>('characters')
   const selectedCharacter = ref<CharacterEntry | null>(null)
+  const selectedWorldBook = ref<WorldBook | null>(null)
   const selectedWorldEntry = ref<WorldEntry | null>(null)
-  const selectedWorldBook = ref<WorldBookExportConfig | null>(null)
 
   const characterTagsText = ref('')
   const characterGreetingsText = ref('')
@@ -35,14 +34,16 @@ export function createProjectWorkbench() {
   const worldEntryProbability = ref(100)
   const worldEntryAdvancedJson = ref('')
 
-  const draggingCharacterWorldIndex = ref<number | null>(null)
   const draggingWorldBookIndex = ref<number | null>(null)
   const toasts = ref<ToastMessage[]>([])
   let toastId = 0
+  let characterSaveSnapshot = ''
+  let worldEntrySaveSnapshot = ''
+  let worldBookSaveSnapshot = ''
 
   const characters = computed(() => project.value?.characters ?? [])
+  const worldBooks = computed(() => project.value?.worldBooks ?? [])
   const worldEntries = computed(() => project.value?.worldEntries ?? [])
-  const worldBooks = computed(() => project.value?.config.worldBookExports ?? [])
 
   const characterData = computed<Record<string, any>>(() => selectedCharacter.value?.stData?.data as Record<string, any> ?? {})
   const characterExtensions = computed<Record<string, any>>(() => characterData.value.extensions ?? {})
@@ -50,14 +51,23 @@ export function createProjectWorkbench() {
   const worldEntryData = computed<Record<string, any>>(() => selectedWorldEntry.value?.stData as Record<string, any> ?? {})
   const worldEntryExtensions = computed<Record<string, any>>(() => worldEntryData.value.extensions ?? {})
 
-  const characterSelectedWorldEntries = computed(() => {
-    const ids = selectedCharacter.value?.forgeData.worldEntryIds ?? []
-    return ids.map(id => worldEntries.value.find(entry => entry.id === id)).filter(Boolean) as WorldEntry[]
+  const selectedWorldBookEntries = computed(() => {
+    const worldBookId = selectedWorldBook.value?.id
+    if (!worldBookId) return []
+    return worldEntries.value
+      .filter(entry => entry.worldBookId === worldBookId)
+      .sort((a, b) => {
+        const orderDelta = a.stData.insertion_order - b.stData.insertion_order
+        if (orderDelta !== 0) return orderDelta
+        return a.id - b.id
+      })
   })
 
-  const worldBookSelectedEntries = computed(() => {
-    const ids = selectedWorldBook.value?.worldEntryIds ?? []
-    return ids.map(id => worldEntries.value.find(entry => entry.id === id)).filter(Boolean) as WorldEntry[]
+  const characterSelectedWorldBook = computed(() => {
+    const worldBookId = selectedCharacter.value?.forgeData.worldBookId
+    return worldBookId === null || worldBookId === undefined
+      ? null
+      : worldBooks.value.find(book => book.id === worldBookId) ?? null
   })
 
   function clone<T>(value: T): T {
@@ -68,8 +78,81 @@ export function createProjectWorkbench() {
     return JSON.stringify(value)
   }
 
+  function snapshot(value: unknown): string {
+    return JSON.stringify(value)
+  }
+
   function asRecord(value: unknown): Record<string, any> {
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
+  }
+
+  function splitCommaList(value: string): string[] {
+    return value.split(',').map(item => item.trim()).filter(Boolean)
+  }
+
+  function splitGreetings(value: string): string[] {
+    return value
+      .split(/\n---+\n/g)
+      .map(item => item.trim())
+      .filter(Boolean)
+  }
+
+  function characterSavePayload() {
+    if (!selectedCharacter.value) return null
+    const payload = clone({
+      id: selectedCharacter.value.id,
+      stData: selectedCharacter.value.stData,
+      forgeData: selectedCharacter.value.forgeData
+    })
+    const stData = asRecord(payload.stData)
+    const data = asRecord(stData.data)
+    stData.data = data
+    data.tags = splitCommaList(characterTagsText.value)
+    data.alternate_greetings = splitGreetings(characterGreetingsText.value)
+    return payload
+  }
+
+  function rememberCharacterSnapshot() {
+    const payload = characterSavePayload()
+    characterSaveSnapshot = payload ? snapshot(payload) : ''
+  }
+
+  function worldEntrySavePayload() {
+    if (!selectedWorldEntry.value) return null
+    const payload = clone({
+      id: selectedWorldEntry.value.id,
+      worldBookId: selectedWorldEntry.value.worldBookId,
+      stData: selectedWorldEntry.value.stData,
+      forgeData: selectedWorldEntry.value.forgeData
+    })
+    const data = payload.stData
+    data.keys = splitCommaList(worldEntryKeysText.value)
+    data.secondary_keys = splitCommaList(worldEntrySecondaryKeysText.value)
+    data.position = Number(worldEntryPosition.value) === 1 ? 'after_char' : 'before_char'
+    data.extensions = {
+      ...asRecord(data.extensions),
+      position: Number(worldEntryPosition.value),
+      role: Number(worldEntryRole.value),
+      depth: Number(worldEntryDepth.value),
+      probability: Number(worldEntryProbability.value)
+    }
+    return payload
+  }
+
+  function rememberWorldEntrySnapshot() {
+    const payload = worldEntrySavePayload()
+    worldEntrySaveSnapshot = payload ? snapshot(payload) : ''
+  }
+
+  function worldBookSavePayload() {
+    return selectedWorldBook.value
+      ? clone({ id: selectedWorldBook.value.id, name: selectedWorldBook.value.name })
+      : null
+  }
+
+  function rememberWorldBookSnapshot() {
+    const payload = worldBookSavePayload()
+    worldBookSaveSnapshot = payload ? snapshot(payload) : ''
   }
 
   function characterListData(entry: CharacterEntry): Record<string, any> {
@@ -108,11 +191,24 @@ export function createProjectWorkbench() {
     return error instanceof Error ? error.message : String(error)
   }
 
+  function refreshSelectedCharacter() {
+    if (!selectedCharacter.value) return
+    const fresh = characters.value.find(item => item.id === selectedCharacter.value?.id)
+    selectedCharacter.value = fresh ? clone(fresh) : null
+    if (selectedCharacter.value) selectCharacter(selectedCharacter.value)
+  }
+
+  function refreshSelectedWorldBook() {
+    if (!selectedWorldBook.value) return
+    const fresh = worldBooks.value.find(item => item.id === selectedWorldBook.value?.id)
+    selectedWorldBook.value = fresh ? clone(fresh) : null
+    if (selectedWorldBook.value) rememberWorldBookSnapshot()
+  }
+
   async function loadProject() {
     project.value = await window.electronAPI.getProject()
     if (project.value) {
       if (!selectedCharacter.value && characters.value.length) selectCharacter(characters.value[0])
-      if (!selectedWorldEntry.value && worldEntries.value.length) selectWorldEntry(worldEntries.value[0])
       if (!selectedWorldBook.value && worldBooks.value.length) selectWorldBook(worldBooks.value[0])
     }
   }
@@ -123,10 +219,9 @@ export function createProjectWorkbench() {
       if (snapshot) {
         project.value = snapshot
         selectedCharacter.value = null
-        selectedWorldEntry.value = null
         selectedWorldBook.value = null
+        selectedWorldEntry.value = null
         if (characters.value.length) selectCharacter(characters.value[0])
-        if (worldEntries.value.length) selectWorldEntry(worldEntries.value[0])
         if (worldBooks.value.length) selectWorldBook(worldBooks.value[0])
         showToast('项目已打开', 'success')
       }
@@ -151,11 +246,16 @@ export function createProjectWorkbench() {
     return entry.stData.content.split(/\r?\n/).filter(Boolean).slice(0, 2).join(' ')
   }
 
+  function worldBookEntryCount(book: WorldBook) {
+    return worldEntries.value.filter(entry => entry.worldBookId === book.id).length
+  }
+
   function selectCharacter(entry: CharacterEntry) {
     selectedCharacter.value = clone(entry)
     characterTagsText.value = (characterData.value.tags ?? []).join(', ')
     characterGreetingsText.value = (characterData.value.alternate_greetings ?? []).join('\n---\n')
     characterAdvancedJson.value = JSON.stringify(selectedCharacter.value.stData, null, 2)
+    rememberCharacterSnapshot()
   }
 
   function replaceCharacter(entry: CharacterEntry) {
@@ -178,18 +278,12 @@ export function createProjectWorkbench() {
   }
 
   async function saveCharacter() {
-    if (!selectedCharacter.value) return
+    const payload = characterSavePayload()
+    if (!selectedCharacter.value || !payload) return
+    const nextSnapshot = snapshot(payload)
+    if (nextSnapshot === characterSaveSnapshot) return
     try {
-      characterData.value.tags = characterTagsText.value.split(',').map(item => item.trim()).filter(Boolean)
-      characterData.value.alternate_greetings = characterGreetingsText.value
-        .split(/\n---+\n/g)
-        .map(item => item.trim())
-        .filter(Boolean)
-      const saved = await window.electronAPI.updateCharacter(toIpcJson({
-        id: selectedCharacter.value.id,
-        stData: selectedCharacter.value.stData,
-        forgeData: selectedCharacter.value.forgeData
-      }))
+      const saved = await window.electronAPI.updateCharacter(toIpcJson(payload))
       replaceCharacter(saved)
       showToast('已保存', 'success')
     } catch (error) {
@@ -200,7 +294,11 @@ export function createProjectWorkbench() {
   async function saveCharacterAdvanced() {
     if (!selectedCharacter.value) return
     try {
-      selectedCharacter.value.stData = JSON.parse(characterAdvancedJson.value)
+      const parsed = JSON.parse(characterAdvancedJson.value)
+      if (snapshot(parsed) === snapshot(selectedCharacter.value.stData)) return
+      selectedCharacter.value.stData = parsed
+      characterTagsText.value = (characterData.value.tags ?? []).join(', ')
+      characterGreetingsText.value = (characterData.value.alternate_greetings ?? []).join('\n---\n')
       await saveCharacter()
     } catch {
       showToast('高级 JSON 格式不正确，未保存', 'error')
@@ -229,26 +327,19 @@ export function createProjectWorkbench() {
     }
   }
 
-  function isCharacterWorldSelected(id: number) {
-    return selectedCharacter.value?.forgeData.worldEntryIds.includes(id) ?? false
+  function isCharacterWorldBookSelected(id: number) {
+    return selectedCharacter.value?.forgeData.worldBookId === id
   }
 
-  async function toggleCharacterWorldEntry(id: number) {
+  async function selectCharacterWorldBook(id: number) {
     if (!selectedCharacter.value) return
-    const ids = selectedCharacter.value.forgeData.worldEntryIds
-    selectedCharacter.value.forgeData.worldEntryIds = ids.includes(id)
-      ? ids.filter(item => item !== id)
-      : [...ids, id]
+    selectedCharacter.value.forgeData.worldBookId = id
     await saveCharacter()
   }
 
-  async function moveCharacterWorldEntry(toIndex: number) {
-    if (!selectedCharacter.value || draggingCharacterWorldIndex.value === null) return
-    const ids = [...selectedCharacter.value.forgeData.worldEntryIds]
-    const [item] = ids.splice(draggingCharacterWorldIndex.value, 1)
-    ids.splice(toIndex, 0, item)
-    selectedCharacter.value.forgeData.worldEntryIds = ids
-    draggingCharacterWorldIndex.value = null
+  async function clearCharacterWorldBook() {
+    if (!selectedCharacter.value) return
+    selectedCharacter.value.forgeData.worldBookId = null
     await saveCharacter()
   }
 
@@ -261,51 +352,39 @@ export function createProjectWorkbench() {
     worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
     worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
     worldEntryAdvancedJson.value = JSON.stringify(selectedWorldEntry.value.stData, null, 2)
+    rememberWorldEntrySnapshot()
   }
 
   function replaceWorldEntry(entry: WorldEntry) {
     if (!project.value) return
     const index = project.value.worldEntries.findIndex(item => item.id === entry.id)
     if (index >= 0) project.value.worldEntries[index] = entry
-    else project.value.worldEntries.unshift(entry)
+    else project.value.worldEntries.push(entry)
     selectWorldEntry(entry)
   }
 
   async function createWorldEntry() {
+    if (!selectedWorldBook.value) {
+      showToast('请先选择或创建世界书', 'error')
+      return
+    }
     try {
-      const entry = await window.electronAPI.createWorldEntry()
+      const entry = await window.electronAPI.createWorldEntry(selectedWorldBook.value.id)
       replaceWorldEntry(entry)
-      activeView.value = 'worldEntries'
+      activeView.value = 'worldBooks'
       showToast('世界书条目已创建', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  function applyWorldEntryForm() {
-    if (!selectedWorldEntry.value) return
-    const data = selectedWorldEntry.value.stData
-    data.keys = worldEntryKeysText.value.split(',').map(item => item.trim()).filter(Boolean)
-    data.secondary_keys = worldEntrySecondaryKeysText.value.split(',').map(item => item.trim()).filter(Boolean)
-    data.position = Number(worldEntryPosition.value) === 1 ? 'after_char' : 'before_char'
-    data.extensions = {
-      ...data.extensions,
-      position: Number(worldEntryPosition.value),
-      role: Number(worldEntryRole.value),
-      depth: Number(worldEntryDepth.value),
-      probability: Number(worldEntryProbability.value)
-    }
-  }
-
   async function saveWorldEntry() {
-    if (!selectedWorldEntry.value) return
+    const payload = worldEntrySavePayload()
+    if (!selectedWorldEntry.value || !payload) return
+    const nextSnapshot = snapshot(payload)
+    if (nextSnapshot === worldEntrySaveSnapshot) return
     try {
-      applyWorldEntryForm()
-      const saved = await window.electronAPI.updateWorldEntry(toIpcJson({
-        id: selectedWorldEntry.value.id,
-        stData: selectedWorldEntry.value.stData,
-        forgeData: selectedWorldEntry.value.forgeData
-      }))
+      const saved = await window.electronAPI.updateWorldEntry(toIpcJson(payload))
       replaceWorldEntry(saved)
       showToast('已保存', 'success')
     } catch (error) {
@@ -316,7 +395,15 @@ export function createProjectWorkbench() {
   async function saveWorldEntryAdvanced() {
     if (!selectedWorldEntry.value) return
     try {
-      selectedWorldEntry.value.stData = JSON.parse(worldEntryAdvancedJson.value)
+      const parsed = JSON.parse(worldEntryAdvancedJson.value)
+      if (snapshot(parsed) === snapshot(selectedWorldEntry.value.stData)) return
+      selectedWorldEntry.value.stData = parsed
+      worldEntryKeysText.value = selectedWorldEntry.value.stData.keys.join(', ')
+      worldEntrySecondaryKeysText.value = selectedWorldEntry.value.stData.secondary_keys?.join(', ') ?? ''
+      worldEntryPosition.value = String(selectedWorldEntry.value.stData.extensions.position ?? 0)
+      worldEntryRole.value = String(selectedWorldEntry.value.stData.extensions.role ?? 0)
+      worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
+      worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
       await saveWorldEntry()
     } catch {
       showToast('高级 JSON 格式不正确，未保存', 'error')
@@ -324,55 +411,53 @@ export function createProjectWorkbench() {
   }
 
   async function deleteSelectedWorldEntry() {
-    if (!selectedWorldEntry.value || !window.confirm('删除当前世界书条目？相关配置中的引用会被移除。')) return
+    if (!selectedWorldEntry.value || !window.confirm('删除当前世界书条目？')) return
+    const worldBookId = selectedWorldEntry.value.worldBookId
     try {
       project.value = await window.electronAPI.deleteWorldEntry(selectedWorldEntry.value.id)
-      selectedWorldEntry.value = worldEntries.value[0] ? clone(worldEntries.value[0]) : null
-      if (selectedWorldEntry.value) selectWorldEntry(selectedWorldEntry.value)
-      if (selectedCharacter.value) {
-        const fresh = characters.value.find(item => item.id === selectedCharacter.value?.id)
-        if (fresh) selectCharacter(fresh)
-      }
-      if (selectedWorldBook.value) {
-        const fresh = worldBooks.value.find(item => item.id === selectedWorldBook.value?.id)
-        if (fresh) selectWorldBook(fresh)
-      }
+      selectedWorldEntry.value = null
+      const fresh = worldBooks.value.find(item => item.id === worldBookId)
+      if (fresh) selectWorldBook(fresh)
       showToast('世界书条目已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  function selectWorldBook(config: WorldBookExportConfig) {
-    selectedWorldBook.value = clone(config)
+  function selectWorldBook(book: WorldBook) {
+    selectedWorldBook.value = clone(book)
+    selectedWorldEntry.value = null
+    rememberWorldBookSnapshot()
   }
 
-  function replaceProjectConfig(config: ProjectConfig) {
+  function replaceWorldBook(book: WorldBook) {
     if (!project.value) return
-    project.value.config = config
-    if (selectedWorldBook.value) {
-      const fresh = config.worldBookExports.find(item => item.id === selectedWorldBook.value?.id)
-      selectedWorldBook.value = fresh ? clone(fresh) : null
-    }
+    const index = project.value.worldBooks.findIndex(item => item.id === book.id)
+    if (index >= 0) project.value.worldBooks[index] = book
+    else project.value.worldBooks.unshift(book)
+    selectedWorldBook.value = clone(book)
+    rememberWorldBookSnapshot()
   }
 
   async function createWorldBook() {
     try {
-      const config = await window.electronAPI.createWorldBookExport()
-      replaceProjectConfig(config)
-      if (config.worldBookExports[0]) selectWorldBook(config.worldBookExports[0])
+      const book = await window.electronAPI.createWorldBook()
+      replaceWorldBook(book)
       activeView.value = 'worldBooks'
-      showToast('世界书配置已创建', 'success')
+      showToast('世界书已创建', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
   async function saveWorldBook() {
-    if (!selectedWorldBook.value) return
+    const payload = worldBookSavePayload()
+    if (!selectedWorldBook.value || !payload) return
+    const nextSnapshot = snapshot(payload)
+    if (nextSnapshot === worldBookSaveSnapshot) return
     try {
-      const config = await window.electronAPI.updateWorldBookExport(toIpcJson(selectedWorldBook.value))
-      replaceProjectConfig(config)
+      const book = await window.electronAPI.updateWorldBook(toIpcJson(payload))
+      replaceWorldBook(book)
       showToast('已保存', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -380,12 +465,14 @@ export function createProjectWorkbench() {
   }
 
   async function deleteSelectedWorldBook() {
-    if (!selectedWorldBook.value || !window.confirm('删除当前世界书导出配置？')) return
+    if (!selectedWorldBook.value || !window.confirm('删除当前世界书？其中的条目会一同删除，角色中的关联会自动移除。')) return
     try {
-      const config = await window.electronAPI.deleteWorldBookExport(selectedWorldBook.value.id)
-      replaceProjectConfig(config)
+      project.value = await window.electronAPI.deleteWorldBook(selectedWorldBook.value.id)
+      selectedWorldBook.value = null
+      selectedWorldEntry.value = null
       if (worldBooks.value[0]) selectWorldBook(worldBooks.value[0])
-      showToast('世界书配置已删除', 'success')
+      refreshSelectedCharacter()
+      showToast('世界书已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
@@ -405,27 +492,37 @@ export function createProjectWorkbench() {
     showToast(`已导出到 ${result.historyPath}`, 'success')
   }
 
-  function isWorldBookEntrySelected(id: number) {
-    return selectedWorldBook.value?.worldEntryIds.includes(id) ?? false
+  function isWorldEntryExpanded(id: number) {
+    return selectedWorldEntry.value?.id === id
   }
 
-  async function toggleWorldBookEntry(id: number) {
-    if (!selectedWorldBook.value) return
-    const ids = selectedWorldBook.value.worldEntryIds
-    selectedWorldBook.value.worldEntryIds = ids.includes(id)
-      ? ids.filter(item => item !== id)
-      : [...ids, id]
-    await saveWorldBook()
+  function startWorldEntryDrag(index: number) {
+    draggingWorldBookIndex.value = index
+    selectedWorldEntry.value = null
+    worldEntrySaveSnapshot = ''
   }
 
   async function moveWorldBookEntry(toIndex: number) {
     if (!selectedWorldBook.value || draggingWorldBookIndex.value === null) return
-    const ids = [...selectedWorldBook.value.worldEntryIds]
+    const ids = selectedWorldBookEntries.value.map(entry => entry.id)
     const [item] = ids.splice(draggingWorldBookIndex.value, 1)
+    if (item === undefined) {
+      draggingWorldBookIndex.value = null
+      return
+    }
     ids.splice(toIndex, 0, item)
-    selectedWorldBook.value.worldEntryIds = ids
     draggingWorldBookIndex.value = null
-    await saveWorldBook()
+
+    try {
+      project.value = await window.electronAPI.reorderWorldEntries(toIpcJson({
+        worldBookId: selectedWorldBook.value.id,
+        worldEntryIds: ids
+      }))
+      refreshSelectedWorldBook()
+      showToast('条目顺序已更新', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
   }
 
   onMounted(loadProject)
@@ -440,9 +537,10 @@ export function createProjectWorkbench() {
     characterListNotes,
     characterListTags,
     characterListVersion,
-    characterSelectedWorldEntries,
+    characterSelectedWorldBook,
     characterTagsText,
     characters,
+    clearCharacterWorldBook,
     createCharacter,
     createWorldBook,
     createWorldEntry,
@@ -450,16 +548,14 @@ export function createProjectWorkbench() {
     deleteSelectedWorldBook,
     deleteSelectedWorldEntry,
     depthPrompt,
-    draggingCharacterWorldIndex,
     draggingWorldBookIndex,
     entrySummary,
     entryTitle,
     exportSelectedCharacter,
     exportSelectedWorldBook,
     formatDate,
-    isCharacterWorldSelected,
-    isWorldBookEntrySelected,
-    moveCharacterWorldEntry,
+    isCharacterWorldBookSelected,
+    isWorldEntryExpanded,
     moveWorldBookEntry,
     openProject,
     project,
@@ -471,14 +567,15 @@ export function createProjectWorkbench() {
     selectCharacter,
     selectedCharacter,
     selectedWorldBook,
+    selectedWorldBookEntries,
     selectedWorldEntry,
+    selectCharacterWorldBook,
     selectWorldBook,
     selectWorldEntry,
     showToast,
+    startWorldEntryDrag,
     toasts,
-    toggleCharacterWorldEntry,
-    toggleWorldBookEntry,
-    worldBookSelectedEntries,
+    worldBookEntryCount,
     worldBooks,
     worldEntries,
     worldEntryAdvancedJson,

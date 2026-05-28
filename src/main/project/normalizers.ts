@@ -1,16 +1,13 @@
-import { randomUUID } from 'node:crypto'
 import type {
   CharacterBookEntryData,
   CharacterForgeData,
   JsonRecord,
-  ProjectConfig,
-  WorldBookExportConfig
+  ProjectConfig
 } from '../../shared/types'
 
 export function defaultProjectConfig(): ProjectConfig {
   return {
-    schemaVersion: 1,
-    worldBookExports: []
+    schemaVersion: 1
   }
 }
 
@@ -50,10 +47,12 @@ export function toBoolean(value: unknown, fallback: boolean): boolean {
 
 export function normalizeCharacterForgeData(value: unknown): CharacterForgeData {
   const data = asRecord(value)
+  const rawWorldBookId = data.worldBookId
+  const worldBookId = Number(rawWorldBookId)
   return {
-    worldEntryIds: Array.isArray(data.worldEntryIds)
-      ? data.worldEntryIds.map(Number).filter(Number.isInteger)
-      : [],
+    worldBookId: rawWorldBookId === null || rawWorldBookId === undefined || !Number.isInteger(worldBookId)
+      ? null
+      : worldBookId,
     exportFileName: toString(data.exportFileName),
     characterBookName: toString(data.characterBookName)
   }
@@ -145,19 +144,4 @@ export function normalizeWorldEntryData(value: unknown): CharacterBookEntryData 
 
 export function defaultWorldEntry(): CharacterBookEntryData {
   return normalizeWorldEntryData({})
-}
-
-export function normalizeWorldBookExportConfig(value: unknown): WorldBookExportConfig {
-  const data = asRecord(value)
-  const now = new Date().toISOString()
-  return {
-    id: toString(data.id, randomUUID()),
-    name: toString(data.name, 'Untitled World Book'),
-    worldEntryIds: Array.isArray(data.worldEntryIds)
-      ? data.worldEntryIds.map(Number).filter(Number.isInteger)
-      : [],
-    exportFileName: toString(data.exportFileName),
-    createdAt: toString(data.createdAt, now),
-    updatedAt: toString(data.updatedAt, now)
-  }
 }

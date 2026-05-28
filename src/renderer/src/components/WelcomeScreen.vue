@@ -13,3 +13,30 @@ const { openProject } = useProjectWorkbench()
     </div>
   </div>
 </template>
+
+<style scoped>
+.welcome {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.welcome-panel {
+  width: min(440px, 100%);
+  border: 1px solid #cfd6df;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.welcome-panel h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.welcome-panel p {
+  margin: 0 0 18px;
+  color: #5a6573;
+}
+</style>

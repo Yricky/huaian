@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { access, mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type {
@@ -6,13 +5,15 @@ import type {
   CharacterUpdatePayload,
   ProjectConfig,
   ProjectSnapshot,
-  WorldBookExportConfig,
+  WorldBook,
+  WorldBookUpdatePayload,
   WorldEntry,
+  WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../../shared/types'
 import { readConfig, saveConfig } from './app-config'
 import { DATABASE_FILE, EXPORTS_DIR, PROJECT_FILE } from './constants'
-import { initDatabase, rowToCharacter, rowToWorldEntry } from './database'
+import { initDatabase, rowToCharacter, rowToWorldBook, rowToWorldEntry } from './database'
 import {
   asRecord,
   defaultCharacterCard,
@@ -20,7 +21,6 @@ import {
   defaultWorldEntry,
   normalizeCharacterCard,
   normalizeCharacterForgeData,
-  normalizeWorldBookExportConfig,
   normalizeWorldEntryData,
   toNumber
 } from './normalizers'
@@ -40,9 +40,6 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig> {
     const raw = JSON.parse(await readFile(configPath, 'utf-8'))
     const config = defaultProjectConfig()
     config.schemaVersion = toNumber(raw.schemaVersion, 1)
-    config.worldBookExports = Array.isArray(raw.worldBookExports)
-      ? raw.worldBookExports.map((item: unknown) => normalizeWorldBookExportConfig(item))
-      : []
     return config
   } catch {
     return defaultProjectConfig()
@@ -99,9 +96,36 @@ export function listCharacters(): CharacterEntry[] {
   return project.db.prepare('SELECT * FROM character_entries ORDER BY updated_at DESC, id DESC').all().map(rowToCharacter)
 }
 
+export function listWorldBooks(): WorldBook[] {
+  const project = ensureProject()
+  return project.db.prepare('SELECT * FROM world_books ORDER BY updated_at DESC, id DESC').all().map(rowToWorldBook)
+}
+
+function sortWorldEntries(entries: WorldEntry[]): WorldEntry[] {
+  return [...entries].sort((a, b) => {
+    const orderDelta = a.stData.insertion_order - b.stData.insertion_order
+    if (orderDelta !== 0) return orderDelta
+    return a.id - b.id
+  })
+}
+
 export function listWorldEntries(): WorldEntry[] {
   const project = ensureProject()
-  return project.db.prepare('SELECT * FROM world_entries ORDER BY updated_at DESC, id DESC').all().map(rowToWorldEntry)
+  const entries = project.db.prepare('SELECT * FROM world_entries').all().map(rowToWorldEntry)
+  return [...entries].sort((a, b) => {
+    const bookDelta = a.worldBookId - b.worldBookId
+    if (bookDelta !== 0) return bookDelta
+    const orderDelta = a.stData.insertion_order - b.stData.insertion_order
+    if (orderDelta !== 0) return orderDelta
+    return a.id - b.id
+  })
+}
+
+export function listWorldEntriesForBook(worldBookId: number): WorldEntry[] {
+  const project = ensureProject()
+  return sortWorldEntries(
+    project.db.prepare('SELECT * FROM world_entries WHERE world_book_id = ?').all(worldBookId).map(rowToWorldEntry)
+  )
 }
 
 export function getCharacter(id: number): CharacterEntry {
@@ -109,6 +133,13 @@ export function getCharacter(id: number): CharacterEntry {
   const row = project.db.prepare('SELECT * FROM character_entries WHERE id = ?').get(id)
   if (!row) throw new Error('角色卡不存在。')
   return rowToCharacter(row)
+}
+
+export function getWorldBook(id: number): WorldBook {
+  const project = ensureProject()
+  const row = project.db.prepare('SELECT * FROM world_books WHERE id = ?').get(id)
+  if (!row) throw new Error('世界书不存在。')
+  return rowToWorldBook(row)
 }
 
 export function getWorldEntry(id: number): WorldEntry {
@@ -124,6 +155,7 @@ export function getProjectSnapshot(): ProjectSnapshot {
     path: project.path,
     config: project.config,
     characters: listCharacters(),
+    worldBooks: listWorldBooks(),
     worldEntries: listWorldEntries()
   }
 }
@@ -135,7 +167,7 @@ export function createCharacter(): CharacterEntry {
     INSERT INTO character_entries (created_at, updated_at, st_data, forge_data)
     VALUES (?, ?, ?, ?)
   `).run(now, now, JSON.stringify(defaultCharacterCard()), JSON.stringify({
-    worldEntryIds: [],
+    worldBookId: null,
     exportFileName: '',
     characterBookName: ''
   }))
@@ -159,74 +191,118 @@ export async function deleteCharacter(id: number): Promise<ProjectSnapshot> {
   return getProjectSnapshot()
 }
 
-export function createWorldEntry(): WorldEntry {
+export function createWorldBook(): WorldBook {
   const project = ensureProject()
   const now = new Date().toISOString()
   const result = project.db.prepare(`
-    INSERT INTO world_entries (created_at, updated_at, st_data, forge_data)
-    VALUES (?, ?, ?, ?)
-  `).run(now, now, JSON.stringify(defaultWorldEntry()), JSON.stringify({}))
+    INSERT INTO world_books (name, created_at, updated_at)
+    VALUES (?, ?, ?)
+  `).run('Untitled World Book', now, now)
+  return getWorldBook(Number(result.lastInsertRowid))
+}
+
+export function updateWorldBook(book: WorldBookUpdatePayload): WorldBook {
+  const project = ensureProject()
+  const name = book.name.trim() || 'Untitled World Book'
+  const now = new Date().toISOString()
+  project.db.prepare('UPDATE world_books SET name = ?, updated_at = ? WHERE id = ?').run(name, now, book.id)
+  return getWorldBook(book.id)
+}
+
+export async function deleteWorldBook(id: number): Promise<ProjectSnapshot> {
+  const project = ensureProject()
+  getWorldBook(id)
+
+  const transaction = project.db.transaction(() => {
+    for (const character of listCharacters()) {
+      if (character.forgeData.worldBookId === id) {
+        character.forgeData.worldBookId = null
+        updateCharacter(character)
+      }
+    }
+    project.db.prepare('DELETE FROM world_entries WHERE world_book_id = ?').run(id)
+    project.db.prepare('DELETE FROM world_books WHERE id = ?').run(id)
+  })
+  transaction()
+
+  return getProjectSnapshot()
+}
+
+export function createWorldEntry(worldBookId: number): WorldEntry {
+  const project = ensureProject()
+  getWorldBook(worldBookId)
+  const now = new Date().toISOString()
+  const data = defaultWorldEntry()
+  data.insertion_order = listWorldEntriesForBook(worldBookId).length + 1
+  const result = project.db.prepare(`
+    INSERT INTO world_entries (world_book_id, created_at, updated_at, st_data, forge_data)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(worldBookId, now, now, JSON.stringify(data), JSON.stringify({}))
   return getWorldEntry(Number(result.lastInsertRowid))
 }
 
 export function updateWorldEntry(entry: WorldEntryUpdatePayload): WorldEntry {
   const project = ensureProject()
+  getWorldBook(entry.worldBookId)
   const now = new Date().toISOString()
   project.db.prepare(`
-    UPDATE world_entries SET updated_at = ?, st_data = ?, forge_data = ? WHERE id = ?
-  `).run(now, JSON.stringify(normalizeWorldEntryData(entry.stData)), JSON.stringify(asRecord(entry.forgeData)), entry.id)
+    UPDATE world_entries SET world_book_id = ?, updated_at = ?, st_data = ?, forge_data = ? WHERE id = ?
+  `).run(
+    entry.worldBookId,
+    now,
+    JSON.stringify(normalizeWorldEntryData(entry.stData)),
+    JSON.stringify(asRecord(entry.forgeData)),
+    entry.id
+  )
   return getWorldEntry(entry.id)
+}
+
+function renumberWorldBookEntries(worldBookId: number): void {
+  const project = ensureProject()
+  const now = new Date().toISOString()
+  const update = project.db.prepare('UPDATE world_entries SET updated_at = ?, st_data = ? WHERE id = ?')
+  for (const [index, entry] of listWorldEntriesForBook(worldBookId).entries()) {
+    const data = normalizeWorldEntryData(entry.stData)
+    data.insertion_order = index + 1
+    update.run(now, JSON.stringify(data), entry.id)
+  }
 }
 
 export async function deleteWorldEntry(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
-  const characters = listCharacters()
-  for (const character of characters) {
-    if (character.forgeData.worldEntryIds.includes(id)) {
-      character.forgeData.worldEntryIds = character.forgeData.worldEntryIds.filter(entryId => entryId !== id)
-      updateCharacter(character)
-    }
-  }
-
-  project.config.worldBookExports = project.config.worldBookExports.map(config => ({
-    ...config,
-    worldEntryIds: config.worldEntryIds.filter(entryId => entryId !== id),
-    updatedAt: config.worldEntryIds.includes(id) ? new Date().toISOString() : config.updatedAt
-  }))
-
+  const entry = getWorldEntry(id)
   project.db.prepare('DELETE FROM world_entries WHERE id = ?').run(id)
-  await writeProjectConfig(project)
+  renumberWorldBookEntries(entry.worldBookId)
   return getProjectSnapshot()
 }
 
-export async function createWorldBookExport(): Promise<ProjectConfig> {
+export function reorderWorldEntries(payload: WorldEntryOrderPayload): ProjectSnapshot {
   const project = ensureProject()
+  getWorldBook(payload.worldBookId)
+  const currentEntries = listWorldEntriesForBook(payload.worldBookId)
+  const currentIds = currentEntries.map(entry => entry.id)
+  const requestedIds = payload.worldEntryIds
+  const sameEntries = currentIds.length === requestedIds.length &&
+    currentIds.every(id => requestedIds.includes(id)) &&
+    requestedIds.every(id => currentIds.includes(id))
+
+  if (!sameEntries) {
+    throw new Error('条目排序数据与当前世界书不匹配。')
+  }
+
+  const entryById = new Map(currentEntries.map(entry => [entry.id, entry]))
   const now = new Date().toISOString()
-  project.config.worldBookExports.unshift({
-    id: randomUUID(),
-    name: 'Untitled World Book',
-    worldEntryIds: [],
-    exportFileName: '',
-    createdAt: now,
-    updatedAt: now
+  const update = project.db.prepare('UPDATE world_entries SET updated_at = ?, st_data = ? WHERE id = ?')
+  const transaction = project.db.transaction((ids: number[]) => {
+    ids.forEach((id, index) => {
+      const entry = entryById.get(id)
+      if (!entry) return
+      const data = normalizeWorldEntryData(entry.stData)
+      data.insertion_order = index + 1
+      update.run(now, JSON.stringify(data), id)
+    })
   })
-  await writeProjectConfig(project)
-  return project.config
-}
+  transaction(requestedIds)
 
-export async function updateWorldBookExport(config: WorldBookExportConfig): Promise<ProjectConfig> {
-  const project = ensureProject()
-  const normalized = normalizeWorldBookExportConfig({ ...config, updatedAt: new Date().toISOString() })
-  const index = project.config.worldBookExports.findIndex(item => item.id === normalized.id)
-  if (index === -1) throw new Error('世界书导出配置不存在。')
-  project.config.worldBookExports[index] = normalized
-  await writeProjectConfig(project)
-  return project.config
-}
-
-export async function deleteWorldBookExport(id: string): Promise<ProjectConfig> {
-  const project = ensureProject()
-  project.config.worldBookExports = project.config.worldBookExports.filter(item => item.id !== id)
-  await writeProjectConfig(project)
-  return project.config
+  return getProjectSnapshot()
 }

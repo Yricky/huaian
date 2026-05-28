@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import type { CharacterEntry, WorldEntry } from '../../shared/types'
+import type { CharacterEntry, WorldBook, WorldEntry } from '../../shared/types'
 import {
   asRecord,
   normalizeCharacterCard,
@@ -10,6 +10,7 @@ import {
 export function initDatabase(dbPath: string): any {
   const db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
   db.exec(`
     CREATE TABLE IF NOT EXISTS character_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,8 +20,16 @@ export function initDatabase(dbPath: string): any {
       forge_data TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS world_books (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS world_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      world_book_id INTEGER NOT NULL REFERENCES world_books(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       st_data TEXT NOT NULL,
@@ -48,9 +57,19 @@ export function rowToCharacter(row: any): CharacterEntry {
   }
 }
 
+export function rowToWorldBook(row: any): WorldBook {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
 export function rowToWorldEntry(row: any): WorldEntry {
   return {
     id: row.id,
+    worldBookId: row.world_book_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     stData: normalizeWorldEntryData(parseJsonColumn(row.st_data)),

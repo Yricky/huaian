@@ -11,20 +11,30 @@ export interface CharacterEntry {
 export type CharacterUpdatePayload = Pick<CharacterEntry, 'id' | 'stData' | 'forgeData'>
 
 export interface CharacterForgeData {
-  worldEntryIds: number[]
+  worldBookId: number | null
   exportFileName?: string
   characterBookName?: string
 }
 
+export interface WorldBook {
+  id: number
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorldBookUpdatePayload = Pick<WorldBook, 'id' | 'name'>
+
 export interface WorldEntry {
   id: number
+  worldBookId: number
   createdAt: string
   updatedAt: string
   stData: CharacterBookEntryData
   forgeData: JsonRecord
 }
 
-export type WorldEntryUpdatePayload = Pick<WorldEntry, 'id' | 'stData' | 'forgeData'>
+export type WorldEntryUpdatePayload = Pick<WorldEntry, 'id' | 'worldBookId' | 'stData' | 'forgeData'>
 
 export interface CharacterBookEntryData {
   id?: number
@@ -41,24 +51,20 @@ export interface CharacterBookEntryData {
   extensions: JsonRecord
 }
 
-export interface WorldBookExportConfig {
-  id: string
-  name: string
+export interface WorldEntryOrderPayload {
+  worldBookId: number
   worldEntryIds: number[]
-  exportFileName?: string
-  createdAt: string
-  updatedAt: string
 }
 
 export interface ProjectConfig {
   schemaVersion: number
-  worldBookExports: WorldBookExportConfig[]
 }
 
 export interface ProjectSnapshot {
   path: string
   config: ProjectConfig
   characters: CharacterEntry[]
+  worldBooks: WorldBook[]
   worldEntries: WorldEntry[]
 }
 
@@ -67,6 +73,6 @@ export interface ExportResult {
   savedPath?: string
 }
 
-export type SidebarView = 'characters' | 'worldBooks' | 'worldEntries'
+export type SidebarView = 'characters' | 'worldBooks'
 
 export type IpcJsonPayload<T> = T | string

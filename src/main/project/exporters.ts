@@ -2,7 +2,7 @@ import { dialog } from 'electron'
 import { copyFile, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import type { CharacterBookEntryData, ExportResult, JsonRecord, WorldEntry } from '../../shared/types'
-import { getCharacter, getWorldEntry } from './store'
+import { getCharacter, getWorldBook, listWorldEntriesForBook } from './store'
 import { ensureProject } from './state'
 import {
   asRecord,
@@ -67,13 +67,16 @@ export async function exportCharacter(id: number): Promise<ExportResult> {
   const data = asRecord(card.data)
   const existingBook = asRecord(data.character_book)
   const existingEntries = Array.isArray(existingBook.entries) ? existingBook.entries : []
-  const selectedWorldEntries = character.forgeData.worldEntryIds.map(getWorldEntry)
+  const worldBook = character.forgeData.worldBookId === null ? null : getWorldBook(character.forgeData.worldBookId)
+  const selectedWorldEntries = worldBook ? listWorldEntriesForBook(worldBook.id) : []
   const embeddedEntries = selectedWorldEntries.map((entry, index) => embeddedBookEntry(entry, existingEntries.length + index))
 
   if (existingEntries.length || embeddedEntries.length) {
     data.character_book = {
       ...existingBook,
-      name: character.forgeData.characterBookName || toString(existingBook.name, `${toString(data.name, 'Character')}'s Lorebook`),
+      name: character.forgeData.characterBookName ||
+        worldBook?.name ||
+        toString(existingBook.name, `${toString(data.name, 'Character')}'s Lorebook`),
       extensions: asRecord(existingBook.extensions),
       entries: [...existingEntries, ...embeddedEntries]
     }
@@ -134,17 +137,15 @@ function worldInfoEntry(entry: WorldEntry, uid: number): JsonRecord {
   }
 }
 
-export async function exportWorldBook(id: string): Promise<ExportResult> {
-  const project = ensureProject()
-  const config = project.config.worldBookExports.find(item => item.id === id)
-  if (!config) throw new Error('世界书导出配置不存在。')
-
+export async function exportWorldBook(id: number): Promise<ExportResult> {
+  const worldBook = getWorldBook(id)
+  const worldEntries = listWorldEntriesForBook(id)
   const entries = Object.fromEntries(
-    config.worldEntryIds.map((entryId, index) => [String(index), worldInfoEntry(getWorldEntry(entryId), index)])
+    worldEntries.map((entry, index) => [String(index), worldInfoEntry(entry, index)])
   )
 
-  return writeExportFile(config.exportFileName || config.name, {
-    name: config.name,
+  return writeExportFile(worldBook.name, {
+    name: worldBook.name,
     extensions: {},
     entries
   })
