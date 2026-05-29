@@ -29,12 +29,24 @@ const text = computed(() => props.block.contentParts.filter(part => part.type ==
 const reasoningText = computed(() => props.block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join(''))
 const hasReasoning = computed(() => reasoningText.value.trim().length > 0)
 const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
+const numberFormatter = new Intl.NumberFormat()
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
   if (props.block.kind === 'assistant') return 'assistant'
   if (props.block.kind === 'injection') return `injection → ${props.block.targetRole}`
   return 'user'
 })
+const statusLabel = computed(() => {
+  if (props.block.status === 'generating') return '生成中'
+  if (props.block.status === 'stopped') return '已停止'
+  if (props.block.status === 'error') return '生成失败'
+  if (!props.block.enabled) return '不发送'
+  return ''
+})
+const sentAtLabel = computed(() => formatDateTime(props.block.createdAt))
+const tokenCount = computed(() => tokenCountFromUsage(props.block.metadata.usage))
+const tokenLabel = computed(() => tokenCount.value === null ? 'Token -' : `${numberFormatter.format(tokenCount.value)} tokens`)
+const blockSubMeta = computed(() => [statusLabel.value, sentAtLabel.value, tokenLabel.value].filter(Boolean).join(' · '))
 const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
 const canEdit = computed(() => !props.frozen && props.block.status !== 'generating')
 const showMarkdown = computed(() => !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
@@ -107,6 +119,31 @@ function updateMenuPosition() {
   }
 }
 
+function numberFromMetadata(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function recordFromMetadata(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function tokenCountFromUsage(value: unknown): number | null {
+  const usage = recordFromMetadata(value)
+  const total = numberFromMetadata(usage.totalTokens)
+  if (total !== null) return total
+
+  const input = numberFromMetadata(usage.inputTokens)
+  const output = numberFromMetadata(usage.outputTokens)
+  if (input !== null && output !== null) return input + output
+  return output ?? input
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString()
+}
+
 function startEdit() {
   if (!canEdit.value) return
   draft.value = text.value
@@ -174,14 +211,12 @@ function openDetails() {
     <header class="chat-block-header">
       <div class="block-meta">
         <strong>{{ roleLabel }}</strong>
-        <span v-if="block.status === 'generating'">生成中</span>
-        <span v-else-if="block.status === 'stopped'">已停止</span>
-        <span v-else-if="block.status === 'error'">生成失败</span>
-        <span v-else-if="!block.enabled">不发送</span>
+        <span>{{ blockSubMeta }}</span>
       </div>
 
       <div class="block-actions">
-        <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作" @click.stop="toggleMenu">
+        <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
+          @click.stop="toggleMenu">
           <MdMoreVert class="toolbar-icon" aria-hidden="true" />
         </button>
       </div>
@@ -200,7 +235,7 @@ function openDetails() {
         <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
           <MdPsychology class="reasoning-icon" aria-hidden="true" />
           <span>思考</span>
-          <small>{{ sendsReasoning ? '下次会发送' : '下次不发送' }}</small>
+          <small @click="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
         </button>
         <div v-if="reasoningOpen" class="reasoning-body">
           <MarkdownView :markdown="reasoningText" />
@@ -213,30 +248,30 @@ function openDetails() {
       <button v-if="block.errorText" type="button" class="error-detail" @click="detailOpen = true">错误详情</button>
     </footer>
 
-    <div v-if="detailOpen" class="block-dialog" role="dialog" aria-modal="true">
-      <div class="block-dialog-panel">
-        <header>
-          <strong>块详情</strong>
-          <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="detailOpen = false">
-            <MdClose class="toolbar-icon" aria-hidden="true" />
-          </button>
-        </header>
-        <pre>{{ JSON.stringify({
-          id: block.id,
-          kind: block.kind,
-          targetRole: block.targetRole,
-          enabled: block.enabled,
-          status: block.status,
-          requestBlockIds: block.requestBlockIds,
-          sendReasoning: block.metadata.sendReasoning === true,
-          llmInstanceSnapshot: block.llmInstanceSnapshot,
-          errorText: block.errorText,
-          content: text
-        }, null, 2) }}</pre>
-      </div>
-    </div>
-
     <Teleport to="body">
+      <div v-if="detailOpen" class="block-dialog" role="dialog" aria-modal="true" @click.self="detailOpen = false">
+        <div class="block-dialog-panel">
+          <header>
+            <strong>块详情</strong>
+            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="detailOpen = false">
+              <MdClose class="toolbar-icon" aria-hidden="true" />
+            </button>
+          </header>
+          <pre>{{ JSON.stringify({
+            id: block.id,
+            kind: block.kind,
+            targetRole: block.targetRole,
+            enabled: block.enabled,
+            status: block.status,
+            requestBlockIds: block.requestBlockIds,
+            sendReasoning: block.metadata.sendReasoning === true,
+            llmInstanceSnapshot: block.llmInstanceSnapshot,
+            errorText: block.errorText,
+            content: text
+          }, null, 2) }}</pre>
+        </div>
+      </div>
+
       <div v-if="menuOpen" ref="menuRef" class="block-menu" :style="menuStyle" @click.stop>
         <button v-if="editing" type="button" @click="saveEdit">
           <MdCheck class="menu-icon" aria-hidden="true" />保存
@@ -251,11 +286,8 @@ function openDetails() {
           <component :is="block.enabled ? MdVisibilityOff : MdVisibility" class="menu-icon" aria-hidden="true" />
           {{ block.enabled ? '禁用' : '启用' }}
         </button>
-        <button v-if="hasReasoning && !editing" type="button" :disabled="!canEdit" @click="toggleSendReasoning">
-          <MdPsychology class="menu-icon" aria-hidden="true" />
-          {{ sendsReasoning ? '发送时不含思考' : '发送时包含思考' }}
-        </button>
-        <button v-if="block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen" @click="regenerate">
+        <button v-if="block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen"
+          @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
         </button>
         <button v-if="!editing" type="button" :disabled="!canEdit" @click="startEdit">
@@ -274,6 +306,7 @@ function openDetails() {
 
 <style scoped>
 .chat-block {
+  --chat-block-content-inset: 72px;
   min-width: 0;
   max-width: 100%;
   display: grid;
@@ -310,22 +343,32 @@ function openDetails() {
 }
 
 .block-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
 .block-meta strong {
+  min-width: 0;
   color: #273245;
   font-size: 12px;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
-.block-meta span,
 .block-footer button {
   color: #6b7583;
   font-size: 12px;
+}
+
+.block-meta span {
+  min-width: 0;
+  overflow: hidden;
+  color: #7a8594;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .block-actions {
@@ -381,10 +424,14 @@ function openDetails() {
 }
 
 .block-editor {
+  display: block;
+  width: auto;
+  margin-inline: var(--chat-block-content-inset);
   min-height: 130px;
 }
 
 .block-content {
+  margin-inline: var(--chat-block-content-inset);
   min-width: 0;
   display: grid;
   gap: 8px;
@@ -444,7 +491,8 @@ function openDetails() {
 
 .system-hint,
 .injection-summary {
-  width: 100%;
+  width: auto;
+  margin-inline: var(--chat-block-content-inset);
   border: 1px dashed #cdd6e2;
   border-radius: 8px;
   background: transparent;
@@ -471,6 +519,7 @@ function openDetails() {
 
 .block-footer {
   justify-content: flex-start;
+  margin-inline: var(--chat-block-content-inset);
 }
 
 .block-footer button {
@@ -487,7 +536,7 @@ function openDetails() {
 .block-dialog {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 160;
   display: grid;
   place-items: center;
   background: rgba(25, 31, 39, 0.34);

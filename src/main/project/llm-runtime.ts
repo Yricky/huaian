@@ -1,8 +1,9 @@
 import type { WebContents } from 'electron'
-import { streamText } from 'ai'
+import { streamText, type LanguageModelUsage } from 'ai'
 import type {
   ChatBlock,
   ChatContentPart,
+  ChatBlockTokenUsage,
   ChatGenerationEvent,
   ChatGenerationRequest,
   ChatGenerationStartResult,
@@ -79,6 +80,43 @@ function generationParts(reasoning: string, text: string): ChatContentPart[] {
   if (reasoning.length > 0) parts.push({ type: 'reasoning', text: reasoning })
   parts.push({ type: 'text', text })
   return parts
+}
+
+function usageNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function normalizeUsage(usage: LanguageModelUsage | null | undefined): ChatBlockTokenUsage | null {
+  if (!usage) return null
+  const normalized: ChatBlockTokenUsage = {
+    inputTokens: usageNumber(usage.inputTokens),
+    inputTokenDetails: {
+      noCacheTokens: usageNumber(usage.inputTokenDetails?.noCacheTokens),
+      cacheReadTokens: usageNumber(usage.inputTokenDetails?.cacheReadTokens),
+      cacheWriteTokens: usageNumber(usage.inputTokenDetails?.cacheWriteTokens)
+    },
+    outputTokens: usageNumber(usage.outputTokens),
+    outputTokenDetails: {
+      textTokens: usageNumber(usage.outputTokenDetails?.textTokens),
+      reasoningTokens: usageNumber(usage.outputTokenDetails?.reasoningTokens)
+    },
+    totalTokens: usageNumber(usage.totalTokens)
+  }
+  const raw = asRecord(usage.raw)
+  if (Object.keys(raw).length > 0) normalized.raw = raw
+
+  const hasTokenCount = [
+    normalized.inputTokens,
+    normalized.inputTokenDetails?.noCacheTokens,
+    normalized.inputTokenDetails?.cacheReadTokens,
+    normalized.inputTokenDetails?.cacheWriteTokens,
+    normalized.outputTokens,
+    normalized.outputTokenDetails?.textTokens,
+    normalized.outputTokenDetails?.reasoningTokens,
+    normalized.totalTokens
+  ].some(value => typeof value === 'number')
+
+  return hasTokenCount || normalized.raw ? normalized : null
 }
 
 function sendEvent(webContents: WebContents, event: ChatGenerationEvent): void {
@@ -277,6 +315,8 @@ async function runGeneration(
   let content = ''
   let reasoning = ''
   let lastPersistAt = 0
+  let finishReason = ''
+  let totalUsage: ChatBlockTokenUsage | null = null
   const persist = (force = false) => {
     const now = Date.now()
     if (!force && now - lastPersistAt < 500) return
@@ -293,6 +333,11 @@ async function runGeneration(
     } as any)
 
     for await (const part of result.fullStream) {
+      if (part.type === 'finish') {
+        finishReason = part.finishReason
+        totalUsage = normalizeUsage(part.totalUsage)
+        continue
+      }
       if (part.type !== 'text-delta' && part.type !== 'reasoning-delta') continue
       const text = part.text
       if (part.type === 'reasoning-delta') {
@@ -311,7 +356,29 @@ async function runGeneration(
       })
     }
 
-    const block = updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'idle', content.trim().length > 0)
+    if (!totalUsage) {
+      try {
+        totalUsage = normalizeUsage(await result.totalUsage)
+      } catch {
+        totalUsage = null
+      }
+    }
+    const finishedAt = new Date().toISOString()
+    const metadataPatch: JsonRecord = {
+      generationFinishedAt: finishedAt,
+      usageRecordedAt: finishedAt
+    }
+    if (finishReason) metadataPatch.finishReason = finishReason
+    if (totalUsage) metadataPatch.usage = totalUsage
+
+    const block = updateAssistantGenerationBlock(
+      generationBlock.id,
+      generationParts(reasoning, content),
+      'idle',
+      content.trim().length > 0,
+      '',
+      metadataPatch
+    )
     sendEvent(webContents, { type: 'finished', chatId: generationBlock.chatId, block })
   } catch (error) {
     if (isAbortError(error) || abortController.signal.aborted) {
@@ -319,14 +386,23 @@ async function runGeneration(
         generationBlock.id,
         generationParts(reasoning, content),
         'stopped',
-        content.trim().length > 0
+        content.trim().length > 0,
+        '',
+        { generationFinishedAt: new Date().toISOString() }
       )
       sendEvent(webContents, { type: 'stopped', chatId: generationBlock.chatId, block })
       return
     }
 
     const message = errorText(error)
-    const block = updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'error', false, message)
+    const block = updateAssistantGenerationBlock(
+      generationBlock.id,
+      generationParts(reasoning, content),
+      'error',
+      false,
+      message,
+      { generationFinishedAt: new Date().toISOString() }
+    )
     sendEvent(webContents, { type: 'error', chatId: generationBlock.chatId, block, error: message })
   } finally {
     activeGenerations.delete(generationBlock.chatId)

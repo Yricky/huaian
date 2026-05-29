@@ -34,13 +34,7 @@ const projectDirectoryName = computed(() => {
         </div>
 
         <div class="project-actions" aria-label="项目操作">
-          <button
-            class="toolbar-button"
-            type="button"
-            aria-label="切换项目"
-            data-tooltip="切换项目"
-            @click="openProject"
-          >
+          <button class="toolbar-button" type="button" aria-label="切换项目" data-tooltip="切换项目" @click="openProject">
             <MdFolderOpen class="toolbar-icon" aria-hidden="true" />
           </button>
         </div>
@@ -111,11 +105,5 @@ const projectDirectoryName = computed(() => {
 .content {
   min-width: 0;
   overflow: hidden;
-}
-
-@media (max-width: 980px) {
-  .workspace {
-    grid-template-columns: 88px 1fr;
-  }
 }
 </style>

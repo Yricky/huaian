@@ -1,5 +1,21 @@
 export type JsonRecord = Record<string, unknown>
 
+export interface ChatBlockTokenUsage {
+  inputTokens?: number | null
+  inputTokenDetails?: {
+    noCacheTokens?: number | null
+    cacheReadTokens?: number | null
+    cacheWriteTokens?: number | null
+  }
+  outputTokens?: number | null
+  outputTokenDetails?: {
+    textTokens?: number | null
+    reasoningTokens?: number | null
+  }
+  totalTokens?: number | null
+  raw?: JsonRecord
+}
+
 export interface CharacterEntry {
   id: number
   createdAt: string

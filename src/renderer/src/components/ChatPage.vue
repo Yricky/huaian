@@ -192,12 +192,6 @@ function handleComposerKeydown(event: KeyboardEvent) {
             @blur="saveTitle"
             @keydown.enter.prevent="saveTitle"
           />
-          <select :value="selectedChat.llmInstanceId ?? ''" :disabled="selectedChatFrozen" @change="selectLlmInstance">
-            <option value="">未选择 LLM 实例</option>
-            <option v-for="instance in llmInstances" :key="instance.id" :value="instance.id">
-              {{ instance.name }} · {{ instance.modelId }}
-            </option>
-          </select>
         </div>
 
         <div class="button-row">
@@ -229,25 +223,35 @@ function handleComposerKeydown(event: KeyboardEvent) {
       </VirtualList>
 
       <footer class="composer">
-        <textarea
-          v-model="composerText"
-          :disabled="selectedChatFrozen"
-          rows="3"
-          placeholder="输入用户消息"
-          @keydown="handleComposerKeydown"
-        />
-        <div class="composer-actions">
-          <button class="outline-button" type="button" :disabled="selectedChatFrozen || !composerText.trim()" @click="addOnly">
-            <MdPostAdd class="button-icon" aria-hidden="true" />添加
-          </button>
-          <button
-            class="primary-button"
-            type="button"
-            :disabled="selectedChatFrozen || !selectedChat.llmInstanceId || (!composerText.trim() && !hasSendableBlocks)"
-            @click="send"
-          >
-            <MdPlayArrow class="button-icon" aria-hidden="true" />发送
-          </button>
+        <div class="composer-box">
+          <textarea
+            v-model="composerText"
+            :disabled="selectedChatFrozen"
+            rows="3"
+            placeholder="输入用户消息"
+            @keydown="handleComposerKeydown"
+          />
+          <div class="composer-bottom">
+            <select class="composer-model-select" :value="selectedChat.llmInstanceId ?? ''" :disabled="selectedChatFrozen" aria-label="LLM 实例" @change="selectLlmInstance">
+              <option value="">未选择 LLM 实例</option>
+              <option v-for="instance in llmInstances" :key="instance.id" :value="instance.id">
+                {{ instance.name }} · {{ instance.modelId }}
+              </option>
+            </select>
+            <div class="composer-actions">
+              <button class="outline-button composer-action-button" type="button" :disabled="selectedChatFrozen || !composerText.trim()" @click="addOnly">
+                <MdPostAdd class="button-icon" aria-hidden="true" />添加
+              </button>
+              <button
+                class="primary-button composer-action-button"
+                type="button"
+                :disabled="selectedChatFrozen || !selectedChat.llmInstanceId || (!composerText.trim() && !hasSendableBlocks)"
+                @click="send"
+              >
+                <MdPlayArrow class="button-icon" aria-hidden="true" />发送
+              </button>
+            </div>
+          </div>
         </div>
       </footer>
     </main>
@@ -336,9 +340,7 @@ function handleComposerKeydown(event: KeyboardEvent) {
 
 .chat-title-area {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(220px, 360px);
-  gap: 8px;
+  width: min(360px, 100%);
 }
 
 .chat-title-input {
@@ -354,23 +356,101 @@ function handleComposerKeydown(event: KeyboardEvent) {
 
 .composer {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
   border-top: 1px solid #dce3ec;
   background: #ffffff;
   padding: 10px 12px;
 }
 
-.composer textarea {
-  min-height: 76px;
+.composer-box {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #cfd7e2;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.composer-box:focus-within {
+  border-color: #2f6fca;
+}
+
+.composer-box textarea {
+  min-height: 72px;
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
   resize: none;
+}
+
+.composer-box textarea:focus {
+  border-color: transparent;
+}
+
+.composer-bottom {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.composer-model-select {
+  width: min(360px, 52%);
+  min-width: 180px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: #f4f6f9;
+  color: #445064;
+  padding: 4px 28px 4px 8px;
+  font-size: 13px;
+}
+
+.composer-model-select:hover:not(:disabled) {
+  background: #eef2f7;
+}
+
+.composer-model-select:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(47, 111, 202, 0.16);
 }
 
 .composer-actions {
   display: flex;
   align-items: flex-end;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+.composer-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.composer-action-button:hover:not(:disabled) {
+  background: #eef2f7;
+}
+
+.composer-action-button.primary-button {
+  color: #174f99;
+  background: #eef5ff;
+}
+
+.composer-action-button.primary-button:hover:not(:disabled) {
+  background: #e1edff;
+}
+
+.composer-action-button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(47, 111, 202, 0.16);
 }
 
 .button-icon {
@@ -391,9 +471,18 @@ function handleComposerKeydown(event: KeyboardEvent) {
     grid-template-columns: 230px 1fr;
   }
 
-  .chat-title-area,
-  .composer {
-    grid-template-columns: 1fr;
+  .composer-bottom {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .composer-model-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .composer-actions {
+    justify-content: flex-end;
   }
 }
 </style>

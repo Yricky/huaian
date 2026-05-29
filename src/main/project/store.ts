@@ -9,6 +9,7 @@ import type {
   ChatUpdatePayload,
   CharacterEntry,
   CharacterUpdatePayload,
+  JsonRecord,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
@@ -727,7 +728,7 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
     '助手回复',
     '',
     json([{ type: 'text', text: '' }]),
-    json({}),
+    json({ generationStartedAt: now }),
     json(llmInstance),
     json(requestBlockIds),
     '',
@@ -743,12 +744,17 @@ export function prepareAssistantBlockForRegeneration(id: number, llmInstance: Ll
   const block = getChatBlock(id)
   if (block.kind !== 'assistant') throw new Error('只能重新生成助手块。')
   const now = nowIso()
+  const metadata: JsonRecord = { ...block.metadata, generationStartedAt: now }
+  delete metadata.usage
+  delete metadata.finishReason
+  delete metadata.usageRecordedAt
+  delete metadata.generationFinishedAt
   project.db.prepare(`
     UPDATE chat_blocks
     SET enabled = 0, status = 'generating', content_parts_json = ?, llm_instance_snapshot_json = ?,
-        request_block_ids_json = ?, error_text = '', updated_at = ?
+        request_block_ids_json = ?, metadata_json = ?, error_text = '', updated_at = ?
     WHERE id = ?
-  `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(requestBlockIds), now, id)
+  `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(requestBlockIds), json(metadata), now, id)
   touchChat(block.chatId)
   return getChatBlock(id)
 }
@@ -758,17 +764,22 @@ export function updateAssistantGenerationBlock(
   contentParts: ChatContentPart[],
   status: 'generating' | 'idle' | 'stopped' | 'error',
   enabled: boolean,
-  errorText = ''
+  errorText = '',
+  metadataPatch?: JsonRecord
 ): ChatBlock {
   const project = ensureProject()
   const block = getChatBlock(id)
   const now = nowIso()
+  const metadata = metadataPatch === undefined
+    ? block.metadata
+    : { ...block.metadata, ...metadataPatch }
   project.db.prepare(`
     UPDATE chat_blocks
-    SET content_parts_json = ?, status = ?, enabled = ?, error_text = ?, updated_at = ?
+    SET content_parts_json = ?, metadata_json = ?, status = ?, enabled = ?, error_text = ?, updated_at = ?
     WHERE id = ?
   `).run(
     json(contentParts),
+    json(metadata),
     status,
     enabled ? 1 : 0,
     errorText,
