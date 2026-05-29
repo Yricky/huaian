@@ -355,6 +355,15 @@ export function createProjectWorkbench() {
     rememberWorldEntrySnapshot()
   }
 
+  function toggleWorldEntry(entry: WorldEntry) {
+    if (selectedWorldEntry.value?.id === entry.id) {
+      selectedWorldEntry.value = null
+      worldEntrySaveSnapshot = ''
+    } else {
+      selectWorldEntry(entry)
+    }
+  }
+
   function replaceWorldEntry(entry: WorldEntry) {
     if (!project.value) return
     const index = project.value.worldEntries.findIndex(item => item.id === entry.id)
@@ -502,16 +511,14 @@ export function createProjectWorkbench() {
     worldEntrySaveSnapshot = ''
   }
 
-  async function moveWorldBookEntry(toIndex: number) {
-    if (!selectedWorldBook.value || draggingWorldBookIndex.value === null) return
+  async function moveWorldBookEntry(fromIndex: number, toIndex: number) {
+    if (!selectedWorldBook.value) return
     const ids = selectedWorldBookEntries.value.map(entry => entry.id)
-    const [item] = ids.splice(draggingWorldBookIndex.value, 1)
+    const [item] = ids.splice(fromIndex, 1)
     if (item === undefined) {
-      draggingWorldBookIndex.value = null
       return
     }
     ids.splice(toIndex, 0, item)
-    draggingWorldBookIndex.value = null
 
     try {
       project.value = await window.electronAPI.reorderWorldEntries(toIpcJson({
@@ -574,6 +581,7 @@ export function createProjectWorkbench() {
     selectWorldEntry,
     showToast,
     startWorldEntryDrag,
+    toggleWorldEntry,
     toasts,
     worldBookEntryCount,
     worldBooks,
