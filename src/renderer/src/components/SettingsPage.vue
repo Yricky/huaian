@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { MdAdd, MdContentCopy, MdDeleteOutline, MdDownload, MdRefresh, MdSave } from 'vue-icons-plus/md'
 import type {
-  LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
-  LlmProviderType
+  LlmProviderType,
+  JsonRecord
 } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
@@ -37,28 +37,19 @@ const {
   selectedLlmProvider
 } = useProjectWorkbench()
 
+type SettingsEditor = 'provider' | 'instance'
+
+const activeSettingsEditor = ref<SettingsEditor>('provider')
 const providerDraft = ref<LlmProvider | null>(null)
 const providerConfigJson = ref('{}')
 const modelDraft = ref('')
 const instanceDraft = ref<LlmInstance | null>(null)
 const instanceExtraJson = ref('{}')
-const instanceParams = reactive<Record<keyof LlmGenerationParameters | 'stopSequencesText', string>>({
-  temperature: '',
-  topP: '',
-  maxOutputTokens: '',
-  frequencyPenalty: '',
-  presencePenalty: '',
-  repetitionPenalty: '',
-  topK: '',
-  stopSequences: '',
-  stopSequencesText: '',
-  seed: '',
-  reasoningEffort: '',
-  responseFormat: ''
-})
 
 const providerTitle = computed(() => providerDraft.value?.name || '提供商')
 const instanceTitle = computed(() => instanceDraft.value?.name || 'LLM 实例')
+const showProviderEditor = computed(() => activeSettingsEditor.value === 'provider')
+const showInstanceEditor = computed(() => activeSettingsEditor.value === 'instance')
 const instanceBoundProvider = computed(() => {
   const id = instanceDraft.value?.providerId
   return id === null || id === undefined ? null : llmProviders.value.find(provider => provider.id === id) ?? null
@@ -71,32 +62,14 @@ watch(selectedLlmProvider, (provider) => {
 
 watch(selectedLlmInstance, (instance) => {
   instanceDraft.value = instance ? JSON.parse(JSON.stringify(instance)) : null
-  instanceExtraJson.value = JSON.stringify(instanceDraft.value?.extra ?? {}, null, 2)
-  const parameters = instanceDraft.value?.parameters ?? {}
-  instanceParams.temperature = numberText(parameters.temperature)
-  instanceParams.topP = numberText(parameters.topP)
-  instanceParams.maxOutputTokens = numberText(parameters.maxOutputTokens)
-  instanceParams.frequencyPenalty = numberText(parameters.frequencyPenalty)
-  instanceParams.presencePenalty = numberText(parameters.presencePenalty)
-  instanceParams.repetitionPenalty = numberText(parameters.repetitionPenalty)
-  instanceParams.topK = numberText(parameters.topK)
-  instanceParams.seed = numberText(parameters.seed)
-  instanceParams.stopSequencesText = parameters.stopSequences?.join('\n') ?? ''
-  instanceParams.reasoningEffort = parameters.reasoningEffort ?? ''
-  instanceParams.responseFormat = parameters.responseFormat ?? ''
+  instanceExtraJson.value = JSON.stringify(requestConfigFromInstance(instanceDraft.value), null, 2)
   modelDraft.value = instanceDraft.value?.modelId ?? ''
 }, { immediate: true })
 
-function numberText(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
-}
-
-function numberOrNull(value: string, min: number, max: number): number | null {
-  if (!value.trim()) return null
-  const number = Number(value)
-  if (!Number.isFinite(number)) return null
-  return Math.min(max, Math.max(min, number))
-}
+watch([selectedLlmProvider, selectedLlmInstance], ([provider, instance]) => {
+  if (activeSettingsEditor.value === 'provider' && !provider && instance) activeSettingsEditor.value = 'instance'
+  if (activeSettingsEditor.value === 'instance' && !instance && provider) activeSettingsEditor.value = 'provider'
+}, { immediate: true })
 
 function selectedProviderConfig() {
   if (!providerDraft.value) return null
@@ -110,9 +83,14 @@ function selectedProviderConfig() {
 
 function selectedInstanceExtra() {
   try {
-    return JSON.parse(instanceExtraJson.value)
+    const value = JSON.parse(instanceExtraJson.value)
+    if (!isJsonRecord(value)) {
+      window.alert('实例请求配置 JSON 必须是对象。')
+      return null
+    }
+    return value
   } catch {
-    window.alert('实例高级 JSON 格式不正确。')
+    window.alert('实例请求配置 JSON 格式不正确。')
     return null
   }
 }
@@ -130,24 +108,23 @@ async function saveInstanceDraft() {
   const extra = selectedInstanceExtra()
   if (!extra) return
   instanceDraft.value.extra = extra
-  instanceDraft.value.parameters = buildParameters()
+  instanceDraft.value.parameters = {}
   await saveLlmInstance(instanceDraft.value)
 }
 
-function buildParameters(): LlmGenerationParameters {
-  return {
-    temperature: numberOrNull(instanceParams.temperature, 0, 2),
-    topP: numberOrNull(instanceParams.topP, 0, 1),
-    maxOutputTokens: numberOrNull(instanceParams.maxOutputTokens, 1, Number.MAX_SAFE_INTEGER),
-    frequencyPenalty: numberOrNull(instanceParams.frequencyPenalty, -2, 2),
-    presencePenalty: numberOrNull(instanceParams.presencePenalty, -2, 2),
-    repetitionPenalty: numberOrNull(instanceParams.repetitionPenalty, 0, 2),
-    topK: numberOrNull(instanceParams.topK, 1, Number.MAX_SAFE_INTEGER),
-    seed: numberOrNull(instanceParams.seed, 0, Number.MAX_SAFE_INTEGER),
-    stopSequences: instanceParams.stopSequencesText.split(/\r?\n/).map(item => item.trim()).filter(Boolean),
-    reasoningEffort: instanceParams.reasoningEffort as LlmGenerationParameters['reasoningEffort'],
-    responseFormat: instanceParams.responseFormat as LlmGenerationParameters['responseFormat']
-  }
+async function createProviderForEditing() {
+  activeSettingsEditor.value = 'provider'
+  await createLlmProvider()
+}
+
+function editLlmProvider(provider: LlmProvider) {
+  activeSettingsEditor.value = 'provider'
+  selectLlmProvider(provider)
+}
+
+function editLlmInstance(instance: LlmInstance) {
+  activeSettingsEditor.value = 'instance'
+  selectLlmInstance(instance)
 }
 
 async function createInstanceFromProvider(modelId = modelDraft.value) {
@@ -165,6 +142,12 @@ async function createInstanceFromProvider(modelId = modelDraft.value) {
     parameters: {},
     extra: {}
   })
+  activeSettingsEditor.value = 'instance'
+}
+
+async function restoreProviderForEditing() {
+  activeSettingsEditor.value = 'provider'
+  await restoreProviderFromSelectedInstance()
 }
 
 function setProviderBaseURL(value: string) {
@@ -181,6 +164,58 @@ function providerBaseURL(provider: LlmProvider | null) {
   return typeof value === 'string' ? value : ''
 }
 
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function instanceProviderOptionsKey(instance: LlmInstance) {
+  if (instance.providerSnapshot.type === 'openai-compatible') return 'openai-compatible'
+  return instance.providerSnapshot.type
+}
+
+function setRequestNumber(config: JsonRecord, key: string, value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) config[key] = value
+}
+
+function requestConfigFromInstance(instance: LlmInstance | null): JsonRecord {
+  if (!instance) return {}
+  const config: JsonRecord = isJsonRecord(instance.extra) ? { ...instance.extra } : {}
+  const parameters = instance.parameters ?? {}
+
+  setRequestNumber(config, 'temperature', parameters.temperature)
+  setRequestNumber(config, 'topP', parameters.topP)
+  setRequestNumber(config, 'maxOutputTokens', parameters.maxOutputTokens)
+  setRequestNumber(config, 'frequencyPenalty', parameters.frequencyPenalty)
+  setRequestNumber(config, 'presencePenalty', parameters.presencePenalty)
+  setRequestNumber(config, 'topK', parameters.topK)
+  setRequestNumber(config, 'seed', parameters.seed)
+
+  if (parameters.stopSequences?.length) {
+    config.stopSequences = parameters.stopSequences.filter(Boolean)
+  }
+  if (parameters.responseFormat === 'json') {
+    config.responseFormat = { type: 'json' }
+  } else if (parameters.responseFormat === 'text') {
+    config.responseFormat = { type: 'text' }
+  }
+
+  const providerKey = instanceProviderOptionsKey(instance)
+  const providerOptions = isJsonRecord(config.providerOptions) ? config.providerOptions : {}
+  const providerOption = isJsonRecord(providerOptions[providerKey]) ? providerOptions[providerKey] : {}
+  if (typeof parameters.repetitionPenalty === 'number' && Number.isFinite(parameters.repetitionPenalty)) {
+    providerOption.repetitionPenalty = parameters.repetitionPenalty
+  }
+  if (parameters.reasoningEffort) {
+    providerOption.reasoningEffort = parameters.reasoningEffort
+    providerOption.effort = parameters.reasoningEffort
+  }
+  if (Object.keys(providerOption).length) {
+    config.providerOptions = { ...providerOptions, [providerKey]: providerOption }
+  }
+
+  return config
+}
+
 function selectModel(modelId: string) {
   modelDraft.value = modelId
   if (instanceDraft.value) instanceDraft.value.modelId = modelId
@@ -192,7 +227,7 @@ function selectModel(modelId: string) {
     <aside class="settings-list-pane">
       <div class="pane-header">
         <h2>提供商</h2>
-        <button class="toolbar-button" type="button" aria-label="新建提供商" data-tooltip="新建提供商" @click="createLlmProvider()">
+        <button class="toolbar-button" type="button" aria-label="新建提供商" data-tooltip="新建提供商" @click="createProviderForEditing">
           <MdAdd class="toolbar-icon" aria-hidden="true" />
         </button>
       </div>
@@ -202,9 +237,9 @@ function selectModel(modelId: string) {
           v-for="provider in llmProviders"
           :key="provider.id"
           class="settings-list-item"
-          :class="{ selected: selectedLlmProvider?.id === provider.id }"
+          :class="{ selected: showProviderEditor && selectedLlmProvider?.id === provider.id }"
           type="button"
-          @click="selectLlmProvider(provider)"
+          @click="editLlmProvider(provider)"
         >
           <strong>{{ provider.name }}</strong>
           <span>{{ provider.type }} · {{ provider.modelsCache.length }} 个缓存模型</span>
@@ -220,9 +255,9 @@ function selectModel(modelId: string) {
           v-for="instance in llmInstances"
           :key="instance.id"
           class="settings-list-item"
-          :class="{ selected: selectedLlmInstance?.id === instance.id }"
+          :class="{ selected: showInstanceEditor && selectedLlmInstance?.id === instance.id }"
           type="button"
-          @click="selectLlmInstance(instance)"
+          @click="editLlmInstance(instance)"
         >
           <strong>{{ instance.name }}</strong>
           <span>{{ instance.providerSnapshot.type }} · {{ instance.modelId }}</span>
@@ -231,7 +266,7 @@ function selectModel(modelId: string) {
     </aside>
 
     <main class="settings-editor">
-      <section class="settings-section">
+      <section v-if="showProviderEditor" class="settings-section">
         <div class="pane-header">
           <h2>{{ providerTitle }}</h2>
           <div class="button-row">
@@ -289,11 +324,11 @@ function selectModel(modelId: string) {
         <p v-else class="empty-note">还没有提供商。</p>
       </section>
 
-      <section class="settings-section">
+      <section v-if="showInstanceEditor" class="settings-section">
         <div class="pane-header">
           <h2>{{ instanceTitle }}</h2>
           <div class="button-row">
-            <button class="toolbar-button" type="button" aria-label="恢复提供商" data-tooltip="恢复提供商" @click="restoreProviderFromSelectedInstance">
+            <button class="toolbar-button" type="button" aria-label="恢复提供商" data-tooltip="恢复提供商" @click="restoreProviderForEditing">
               <MdContentCopy class="toolbar-icon" aria-hidden="true" />
             </button>
             <button class="toolbar-button" type="button" aria-label="保存实例" data-tooltip="保存实例" @click="saveInstanceDraft">
@@ -325,36 +360,7 @@ function selectModel(modelId: string) {
             <span>当前密钥来源：{{ instanceBoundProvider?.name || '无' }}</span>
           </div>
 
-          <div class="form-grid three">
-            <label>Temperature<input v-model="instanceParams.temperature" type="number" min="0" max="2" step="0.01" placeholder="空" /></label>
-            <label>Top P<input v-model="instanceParams.topP" type="number" min="0" max="1" step="0.01" placeholder="空" /></label>
-            <label>Max Tokens<input v-model="instanceParams.maxOutputTokens" type="number" min="1" placeholder="空" /></label>
-            <label>Frequency Penalty<input v-model="instanceParams.frequencyPenalty" type="number" min="-2" max="2" step="0.01" placeholder="空" /></label>
-            <label>Presence Penalty<input v-model="instanceParams.presencePenalty" type="number" min="-2" max="2" step="0.01" placeholder="空" /></label>
-            <label>Repetition Penalty<input v-model="instanceParams.repetitionPenalty" type="number" min="0" max="2" step="0.01" placeholder="空" /></label>
-            <label>Top K<input v-model="instanceParams.topK" type="number" min="1" placeholder="空" /></label>
-            <label>Seed<input v-model="instanceParams.seed" type="number" min="0" placeholder="空" /></label>
-            <label>Reasoning
-              <select v-model="instanceParams.reasoningEffort">
-                <option value="">空</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </label>
-            <label>Response Format
-              <select v-model="instanceParams.responseFormat">
-                <option value="">空</option>
-                <option value="text">text</option>
-                <option value="json">json</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="form-grid">
-            <label>Stop Sequences<textarea v-model="instanceParams.stopSequencesText" rows="3" placeholder="一行一个，空则不传" /></label>
-            <label>高级 JSON<textarea v-model="instanceExtraJson" rows="6" spellcheck="false" /></label>
-          </div>
+          <label>请求配置 JSON<textarea v-model="instanceExtraJson" rows="12" spellcheck="false" /></label>
         </div>
         <p v-else class="empty-note">还没有 LLM 实例。先选择提供商并输入模型 ID 创建一个。</p>
       </section>

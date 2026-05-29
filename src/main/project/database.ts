@@ -13,6 +13,8 @@ import type {
   LlmProvider,
   LlmProviderSnapshot,
   LlmProviderType,
+  PromptSnippet,
+  PromptTag,
   ProviderModelCacheItem,
   WorldBook,
   WorldEntry
@@ -101,6 +103,28 @@ export function initDatabase(dbPath: string): any {
       error_text TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS prompt_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS prompt_snippets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS prompt_snippet_tags (
+      prompt_id INTEGER NOT NULL REFERENCES prompt_snippets(id) ON DELETE CASCADE,
+      tag_id INTEGER NOT NULL REFERENCES prompt_tags(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (prompt_id, tag_id)
     );
   `)
   return db
@@ -280,6 +304,26 @@ export function rowToChatBlock(row: any): ChatBlock {
     llmInstanceSnapshot: llmSnapshot,
     requestBlockIds: parseJsonArray<number>(row.request_block_ids_json).filter(Number.isFinite),
     errorText: row.error_text,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+export function rowToPromptTag(row: any): PromptTag {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+export function rowToPromptSnippet(row: any, tags: PromptTag[] = []): PromptSnippet {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    tags,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }

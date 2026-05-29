@@ -72,6 +72,35 @@ export interface WorldEntryOrderPayload {
   worldEntryIds: number[]
 }
 
+export interface PromptTag {
+  id: number
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PromptSnippet {
+  id: number
+  title: string
+  content: string
+  tags: PromptTag[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type PromptSnippetUpdatePayload = Pick<PromptSnippet, 'id' | 'title' | 'content'> & {
+  tagIds: number[]
+}
+
+export interface PromptTagCreatePayload {
+  name: string
+}
+
+export interface PromptTagUpdatePayload {
+  id: number
+  name: string
+}
+
 export interface ProjectConfig {
   schemaVersion: number
 }
@@ -86,6 +115,8 @@ export interface ProjectSnapshot {
   llmInstances: LlmInstance[]
   chats: ChatSession[]
   chatBlocks: ChatBlock[]
+  promptTags: PromptTag[]
+  promptSnippets: PromptSnippet[]
 }
 
 export interface ExportResult {
@@ -245,6 +276,6 @@ export type ChatGenerationEvent =
   | { type: 'stopped'; chatId: number; block: ChatBlock }
   | { type: 'error'; chatId: number; block: ChatBlock; error: string }
 
-export type SidebarView = 'characters' | 'worldBooks' | 'chat' | 'settings'
+export type SidebarView = 'characters' | 'worldBooks' | 'chat' | 'prompts' | 'settings'
 
 export type IpcJsonPayload<T> = T | string

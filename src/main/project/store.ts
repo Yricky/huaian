@@ -17,6 +17,11 @@ import type {
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
   LlmProviderSnapshot,
+  PromptSnippet,
+  PromptSnippetUpdatePayload,
+  PromptTag,
+  PromptTagCreatePayload,
+  PromptTagUpdatePayload,
   ProviderModelCacheItem,
   ProjectConfig,
   ProjectSnapshot,
@@ -35,6 +40,8 @@ import {
   rowToChatSession,
   rowToLlmInstance,
   rowToLlmProvider,
+  rowToPromptSnippet,
+  rowToPromptTag,
   rowToWorldBook,
   rowToWorldEntry
 } from './database'
@@ -172,6 +179,29 @@ export function listChatBlocksForChat(chatId: number): ChatBlock[] {
   `).all(chatId).map(rowToChatBlock)
 }
 
+export function listPromptTags(): PromptTag[] {
+  const project = ensureProject()
+  return project.db.prepare('SELECT * FROM prompt_tags ORDER BY name ASC, id ASC').all().map(rowToPromptTag)
+}
+
+function listPromptTagsForSnippet(promptId: number): PromptTag[] {
+  const project = ensureProject()
+  return project.db.prepare(`
+    SELECT prompt_tags.*
+    FROM prompt_tags
+    JOIN prompt_snippet_tags ON prompt_snippet_tags.tag_id = prompt_tags.id
+    WHERE prompt_snippet_tags.prompt_id = ?
+    ORDER BY prompt_tags.name ASC, prompt_tags.id ASC
+  `).all(promptId).map(rowToPromptTag)
+}
+
+export function listPromptSnippets(): PromptSnippet[] {
+  const project = ensureProject()
+  return project.db.prepare('SELECT * FROM prompt_snippets ORDER BY updated_at DESC, id DESC')
+    .all()
+    .map((row: any) => rowToPromptSnippet(row, listPromptTagsForSnippet(row.id)))
+}
+
 export function listWorldEntriesForBook(worldBookId: number): WorldEntry[] {
   const project = ensureProject()
   return sortWorldEntries(
@@ -228,6 +258,26 @@ export function getChatBlock(id: number): ChatBlock {
   return rowToChatBlock(row)
 }
 
+export function getPromptTag(id: number): PromptTag {
+  const project = ensureProject()
+  const row = project.db.prepare('SELECT * FROM prompt_tags WHERE id = ?').get(id)
+  if (!row) throw new Error('标签不存在。')
+  return rowToPromptTag(row)
+}
+
+function getPromptTagByName(name: string): PromptTag | null {
+  const project = ensureProject()
+  const row = project.db.prepare('SELECT * FROM prompt_tags WHERE name = ?').get(name)
+  return row ? rowToPromptTag(row) : null
+}
+
+export function getPromptSnippet(id: number): PromptSnippet {
+  const project = ensureProject()
+  const row = project.db.prepare('SELECT * FROM prompt_snippets WHERE id = ?').get(id)
+  if (!row) throw new Error('提示词不存在。')
+  return rowToPromptSnippet(row, listPromptTagsForSnippet(id))
+}
+
 export function getProjectSnapshot(): ProjectSnapshot {
   const project = ensureProject()
   return {
@@ -239,7 +289,9 @@ export function getProjectSnapshot(): ProjectSnapshot {
     llmProviders: listLlmProviders(),
     llmInstances: listLlmInstances(),
     chats: listChats(),
-    chatBlocks: listChatBlocks()
+    chatBlocks: listChatBlocks(),
+    promptTags: listPromptTags(),
+    promptSnippets: listPromptSnippets()
   }
 }
 
@@ -404,6 +456,25 @@ function cloneJson<T>(value: T): T {
 
 function normalizeName(value: string, fallback: string): string {
   return value.trim() || fallback
+}
+
+function normalizePromptTitle(value: string): string {
+  const title = value.trim()
+  if (!title) throw new Error('提示词标题不能为空。')
+  return title
+}
+
+function normalizePromptTagName(value: string): string {
+  const name = value.trim()
+  if (!name) throw new Error('标签名称不能为空。')
+  if (Array.from(name).length > 20) throw new Error('标签不得超过 20 个字符。')
+  return name
+}
+
+function normalizePromptTagIds(tagIds: number[]): number[] {
+  const ids = [...new Set(tagIds.map(Number).filter(Number.isFinite))]
+  ids.forEach(id => getPromptTag(id))
+  return ids
 }
 
 export function providerSnapshotFromProvider(provider: LlmProvider): LlmProviderSnapshot {
@@ -704,6 +775,74 @@ export async function deleteChatBlock(id: number): Promise<ProjectSnapshot> {
   project.db.prepare('DELETE FROM chat_blocks WHERE id = ?').run(id)
   renumberChatBlocks(block.chatId)
   touchChat(block.chatId)
+  return getProjectSnapshot()
+}
+
+export function createPromptSnippet(): PromptSnippet {
+  const project = ensureProject()
+  const now = nowIso()
+  const result = project.db.prepare(`
+    INSERT INTO prompt_snippets (title, content, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+  `).run('新提示词', '', now, now)
+  return getPromptSnippet(Number(result.lastInsertRowid))
+}
+
+export function updatePromptSnippet(payload: PromptSnippetUpdatePayload): PromptSnippet {
+  const project = ensureProject()
+  getPromptSnippet(payload.id)
+  const title = normalizePromptTitle(payload.title)
+  const tagIds = normalizePromptTagIds(payload.tagIds)
+  const now = nowIso()
+  const transaction = project.db.transaction(() => {
+    project.db.prepare(`
+      UPDATE prompt_snippets SET title = ?, content = ?, updated_at = ? WHERE id = ?
+    `).run(title, payload.content ?? '', now, payload.id)
+    project.db.prepare('DELETE FROM prompt_snippet_tags WHERE prompt_id = ?').run(payload.id)
+    const insert = project.db.prepare(`
+      INSERT INTO prompt_snippet_tags (prompt_id, tag_id, created_at)
+      VALUES (?, ?, ?)
+    `)
+    tagIds.forEach(tagId => insert.run(payload.id, tagId, now))
+  })
+  transaction()
+  return getPromptSnippet(payload.id)
+}
+
+export async function deletePromptSnippet(id: number): Promise<ProjectSnapshot> {
+  const project = ensureProject()
+  getPromptSnippet(id)
+  project.db.prepare('DELETE FROM prompt_snippets WHERE id = ?').run(id)
+  return getProjectSnapshot()
+}
+
+export function createPromptTag(payload: PromptTagCreatePayload): PromptTag {
+  const project = ensureProject()
+  const name = normalizePromptTagName(payload.name)
+  const existing = getPromptTagByName(name)
+  if (existing) return existing
+  const now = nowIso()
+  const result = project.db.prepare(`
+    INSERT INTO prompt_tags (name, created_at, updated_at)
+    VALUES (?, ?, ?)
+  `).run(name, now, now)
+  return getPromptTag(Number(result.lastInsertRowid))
+}
+
+export function updatePromptTag(payload: PromptTagUpdatePayload): ProjectSnapshot {
+  const project = ensureProject()
+  getPromptTag(payload.id)
+  const name = normalizePromptTagName(payload.name)
+  const existing = getPromptTagByName(name)
+  if (existing && existing.id !== payload.id) throw new Error('标签已存在。')
+  project.db.prepare('UPDATE prompt_tags SET name = ?, updated_at = ? WHERE id = ?').run(name, nowIso(), payload.id)
+  return getProjectSnapshot()
+}
+
+export async function deletePromptTag(id: number): Promise<ProjectSnapshot> {
+  const project = ensureProject()
+  getPromptTag(id)
+  project.db.prepare('DELETE FROM prompt_tags WHERE id = ?').run(id)
   return getProjectSnapshot()
 }
 

@@ -21,6 +21,7 @@ const draft = ref('')
 const detailOpen = ref(false)
 const menuOpen = ref(false)
 const reasoningOpen = ref(false)
+const editorRef = ref<HTMLTextAreaElement | null>(null)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
@@ -149,6 +150,7 @@ function startEdit() {
   draft.value = text.value
   editing.value = true
   menuOpen.value = false
+  nextTick(() => editorRef.value?.focus())
 }
 
 function cancelEdit() {
@@ -157,12 +159,24 @@ function cancelEdit() {
   menuOpen.value = false
 }
 
-function saveEdit() {
+function editedBlock(): ChatBlock {
   const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
   const reasoningParts = next.contentParts.filter(part => part.type === 'reasoning')
   next.contentParts = [...reasoningParts, { type: 'text', text: draft.value }]
+  return next
+}
+
+function commitEdit(): ChatBlock | null {
+  if (!editing.value) return null
+  const next = editedBlock()
   editing.value = false
   menuOpen.value = false
+  return next
+}
+
+function saveEdit() {
+  const next = commitEdit()
+  if (!next) return
   emit('save', next)
 }
 
@@ -204,6 +218,11 @@ function openDetails() {
   menuOpen.value = false
   detailOpen.value = true
 }
+
+defineExpose({
+  commitEdit,
+  startEdit
+})
 </script>
 
 <template>
@@ -222,7 +241,7 @@ function openDetails() {
       </div>
     </header>
 
-    <textarea v-if="editing" v-model="draft" class="block-editor" rows="6" />
+    <textarea v-if="editing" ref="editorRef" v-model="draft" class="block-editor" rows="6" />
     <button v-else-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit" @click="startEdit">
       点击可输入系统提示词
     </button>

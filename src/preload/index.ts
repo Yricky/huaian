@@ -19,6 +19,11 @@ import type {
   LlmProvider,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
+  PromptSnippet,
+  PromptSnippetUpdatePayload,
+  PromptTag,
+  PromptTagCreatePayload,
+  PromptTagUpdatePayload,
   ProjectSnapshot,
   WorldBook,
   WorldBookUpdatePayload,
@@ -73,6 +78,15 @@ const electronAPI = {
   startChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationStartResult> =>
     ipcRenderer.invoke('chat:startGeneration', payload),
   stopChatGeneration: (chatId: number): Promise<boolean> => ipcRenderer.invoke('chat:stopGeneration', chatId),
+  createPromptSnippet: (): Promise<PromptSnippet> => ipcRenderer.invoke('prompt:createSnippet'),
+  updatePromptSnippet: (payload: IpcJsonPayload<PromptSnippetUpdatePayload>): Promise<PromptSnippet> =>
+    ipcRenderer.invoke('prompt:updateSnippet', payload),
+  deletePromptSnippet: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('prompt:deleteSnippet', id),
+  createPromptTag: (payload: IpcJsonPayload<PromptTagCreatePayload>): Promise<PromptTag> =>
+    ipcRenderer.invoke('prompt:createTag', payload),
+  updatePromptTag: (payload: IpcJsonPayload<PromptTagUpdatePayload>): Promise<ProjectSnapshot> =>
+    ipcRenderer.invoke('prompt:updateTag', payload),
+  deletePromptTag: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('prompt:deleteTag', id),
   onChatGenerationEvent: (callback: (event: ChatGenerationEvent) => void): (() => void) => {
     const listener = (_: IpcRendererEvent, event: ChatGenerationEvent) => callback(event)
     ipcRenderer.on('chat:generationEvent', listener)
