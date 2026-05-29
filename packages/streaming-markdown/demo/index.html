@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Streaming Markdown Demo</title>
+  </head>
+  <body>
+    <main class="demo-shell">
+      <section class="demo-controls" aria-label="Streaming controls">
+        <div class="demo-toolbar">
+          <button id="play" type="button">Play</button>
+          <button id="pause" type="button">Pause</button>
+          <button id="resume" type="button">Resume</button>
+          <button id="reset" type="button">Reset</button>
+          <button id="finalize" type="button">Finalize</button>
+        </div>
+
+        <label class="demo-field">
+          <span>Chunk interval</span>
+          <input id="interval" type="range" min="0" max="180" step="10" value="30" />
+        </label>
+
+        <label class="demo-field">
+          <span>Chunk size</span>
+          <input id="chunk-size" type="range" min="1" max="48" step="1" value="8" />
+        </label>
+
+        <label class="demo-check">
+          <input id="allow-html" type="checkbox" />
+          <span>allowHtml</span>
+        </label>
+
+        <label class="demo-check">
+          <input id="image-resolver" type="checkbox" checked />
+          <span>image resolver</span>
+        </label>
+
+        <div class="demo-stats" id="stats">0 chars</div>
+      </section>
+
+      <section class="demo-workbench">
+        <textarea id="source" spellcheck="false"></textarea>
+        <article id="preview" aria-label="Streaming Markdown preview"></article>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

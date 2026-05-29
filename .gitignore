@@ -1,6 +1,8 @@
-/node_modules
+node_modules
 /out
 /release
 /.kilocode
 /.agents
 /extern
+/packages/*/dist
+/packages/*/demo-dist
