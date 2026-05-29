@@ -8,7 +8,7 @@ import SettingsPage from './components/SettingsPage.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
-import WorldBooksPage from './components/WorldBooksPage.vue'
+import LoreBooksPage from './components/LoreBooksPage.vue'
 import { createProjectWorkbench, provideProjectWorkbench } from './composables/useProjectWorkbench'
 
 const workbench = createProjectWorkbench()
@@ -46,7 +46,7 @@ const projectDirectoryName = computed(() => {
 
         <main class="content">
           <CharacterPage v-if="activeView === 'characters'" />
-          <WorldBooksPage v-if="activeView === 'worldBooks'" />
+          <LoreBooksPage v-if="activeView === 'loreBooks'" />
           <ChatPage v-if="activeView === 'chat'" />
           <PromptSnippetsPage v-if="activeView === 'prompts'" />
           <SettingsPage v-if="activeView === 'settings'" />

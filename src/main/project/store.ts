@@ -25,8 +25,8 @@ import type {
   ProviderModelCacheItem,
   ProjectConfig,
   ProjectSnapshot,
-  WorldBook,
-  WorldBookUpdatePayload,
+  LoreBook,
+  LoreBookUpdatePayload,
   WorldEntry,
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
@@ -42,7 +42,7 @@ import {
   rowToLlmProvider,
   rowToPromptSnippet,
   rowToPromptTag,
-  rowToWorldBook,
+  rowToLoreBook,
   rowToWorldEntry
 } from './database'
 import {
@@ -127,9 +127,9 @@ export function listCharacters(): CharacterEntry[] {
   return project.db.prepare('SELECT * FROM character_entries ORDER BY updated_at DESC, id DESC').all().map(rowToCharacter)
 }
 
-export function listWorldBooks(): WorldBook[] {
+export function listLoreBooks(): LoreBook[] {
   const project = ensureProject()
-  return project.db.prepare('SELECT * FROM world_books ORDER BY updated_at DESC, id DESC').all().map(rowToWorldBook)
+  return project.db.prepare('SELECT * FROM world_books ORDER BY updated_at DESC, id DESC').all().map(rowToLoreBook)
 }
 
 function sortWorldEntries(entries: WorldEntry[]): WorldEntry[] {
@@ -144,7 +144,7 @@ export function listWorldEntries(): WorldEntry[] {
   const project = ensureProject()
   const entries = project.db.prepare('SELECT * FROM world_entries').all().map(rowToWorldEntry)
   return [...entries].sort((a, b) => {
-    const bookDelta = a.worldBookId - b.worldBookId
+    const bookDelta = a.loreBookId - b.loreBookId
     if (bookDelta !== 0) return bookDelta
     const orderDelta = a.stData.insertion_order - b.stData.insertion_order
     if (orderDelta !== 0) return orderDelta
@@ -202,10 +202,10 @@ export function listPromptSnippets(): PromptSnippet[] {
     .map((row: any) => rowToPromptSnippet(row, listPromptTagsForSnippet(row.id)))
 }
 
-export function listWorldEntriesForBook(worldBookId: number): WorldEntry[] {
+export function listWorldEntriesForBook(loreBookId: number): WorldEntry[] {
   const project = ensureProject()
   return sortWorldEntries(
-    project.db.prepare('SELECT * FROM world_entries WHERE world_book_id = ?').all(worldBookId).map(rowToWorldEntry)
+    project.db.prepare('SELECT * FROM world_entries WHERE world_book_id = ?').all(loreBookId).map(rowToWorldEntry)
   )
 }
 
@@ -216,11 +216,11 @@ export function getCharacter(id: number): CharacterEntry {
   return rowToCharacter(row)
 }
 
-export function getWorldBook(id: number): WorldBook {
+export function getLoreBook(id: number): LoreBook {
   const project = ensureProject()
   const row = project.db.prepare('SELECT * FROM world_books WHERE id = ?').get(id)
   if (!row) throw new Error('世界书不存在。')
-  return rowToWorldBook(row)
+  return rowToLoreBook(row)
 }
 
 export function getWorldEntry(id: number): WorldEntry {
@@ -284,7 +284,7 @@ export function getProjectSnapshot(): ProjectSnapshot {
     path: project.path,
     config: project.config,
     characters: listCharacters(),
-    worldBooks: listWorldBooks(),
+    loreBooks: listLoreBooks(),
     worldEntries: listWorldEntries(),
     llmProviders: listLlmProviders(),
     llmInstances: listLlmInstances(),
@@ -302,7 +302,7 @@ export function createCharacter(): CharacterEntry {
     INSERT INTO character_entries (created_at, updated_at, st_data, forge_data)
     VALUES (?, ?, ?, ?)
   `).run(now, now, JSON.stringify(defaultCharacterCard()), JSON.stringify({
-    worldBookId: null,
+    loreBookId: null,
     exportFileName: '',
     characterBookName: ''
   }))
@@ -326,32 +326,32 @@ export async function deleteCharacter(id: number): Promise<ProjectSnapshot> {
   return getProjectSnapshot()
 }
 
-export function createWorldBook(): WorldBook {
+export function createLoreBook(): LoreBook {
   const project = ensureProject()
   const now = new Date().toISOString()
   const result = project.db.prepare(`
     INSERT INTO world_books (name, created_at, updated_at)
     VALUES (?, ?, ?)
-  `).run('Untitled World Book', now, now)
-  return getWorldBook(Number(result.lastInsertRowid))
+  `).run('Untitled LoreBook', now, now)
+  return getLoreBook(Number(result.lastInsertRowid))
 }
 
-export function updateWorldBook(book: WorldBookUpdatePayload): WorldBook {
+export function updateLoreBook(book: LoreBookUpdatePayload): LoreBook {
   const project = ensureProject()
-  const name = book.name.trim() || 'Untitled World Book'
+  const name = book.name.trim() || 'Untitled LoreBook'
   const now = new Date().toISOString()
   project.db.prepare('UPDATE world_books SET name = ?, updated_at = ? WHERE id = ?').run(name, now, book.id)
-  return getWorldBook(book.id)
+  return getLoreBook(book.id)
 }
 
-export async function deleteWorldBook(id: number): Promise<ProjectSnapshot> {
+export async function deleteLoreBook(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
-  getWorldBook(id)
+  getLoreBook(id)
 
   const transaction = project.db.transaction(() => {
     for (const character of listCharacters()) {
-      if (character.forgeData.worldBookId === id) {
-        character.forgeData.worldBookId = null
+      if (character.forgeData.loreBookId === id) {
+        character.forgeData.loreBookId = null
         updateCharacter(character)
       }
     }
@@ -363,27 +363,27 @@ export async function deleteWorldBook(id: number): Promise<ProjectSnapshot> {
   return getProjectSnapshot()
 }
 
-export function createWorldEntry(worldBookId: number): WorldEntry {
+export function createWorldEntry(loreBookId: number): WorldEntry {
   const project = ensureProject()
-  getWorldBook(worldBookId)
+  getLoreBook(loreBookId)
   const now = new Date().toISOString()
   const data = defaultWorldEntry()
-  data.insertion_order = listWorldEntriesForBook(worldBookId).length + 1
+  data.insertion_order = listWorldEntriesForBook(loreBookId).length + 1
   const result = project.db.prepare(`
     INSERT INTO world_entries (world_book_id, created_at, updated_at, st_data, forge_data)
     VALUES (?, ?, ?, ?, ?)
-  `).run(worldBookId, now, now, JSON.stringify(data), JSON.stringify({}))
+  `).run(loreBookId, now, now, JSON.stringify(data), JSON.stringify({}))
   return getWorldEntry(Number(result.lastInsertRowid))
 }
 
 export function updateWorldEntry(entry: WorldEntryUpdatePayload): WorldEntry {
   const project = ensureProject()
-  getWorldBook(entry.worldBookId)
+  getLoreBook(entry.loreBookId)
   const now = new Date().toISOString()
   project.db.prepare(`
     UPDATE world_entries SET world_book_id = ?, updated_at = ?, st_data = ?, forge_data = ? WHERE id = ?
   `).run(
-    entry.worldBookId,
+    entry.loreBookId,
     now,
     JSON.stringify(normalizeWorldEntryData(entry.stData)),
     JSON.stringify(asRecord(entry.forgeData)),
@@ -392,11 +392,11 @@ export function updateWorldEntry(entry: WorldEntryUpdatePayload): WorldEntry {
   return getWorldEntry(entry.id)
 }
 
-function renumberWorldBookEntries(worldBookId: number): void {
+function renumberLoreBookEntries(loreBookId: number): void {
   const project = ensureProject()
   const now = new Date().toISOString()
   const update = project.db.prepare('UPDATE world_entries SET updated_at = ?, st_data = ? WHERE id = ?')
-  for (const [index, entry] of listWorldEntriesForBook(worldBookId).entries()) {
+  for (const [index, entry] of listWorldEntriesForBook(loreBookId).entries()) {
     const data = normalizeWorldEntryData(entry.stData)
     data.insertion_order = index + 1
     update.run(now, JSON.stringify(data), entry.id)
@@ -407,14 +407,14 @@ export async function deleteWorldEntry(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
   const entry = getWorldEntry(id)
   project.db.prepare('DELETE FROM world_entries WHERE id = ?').run(id)
-  renumberWorldBookEntries(entry.worldBookId)
+  renumberLoreBookEntries(entry.loreBookId)
   return getProjectSnapshot()
 }
 
 export function reorderWorldEntries(payload: WorldEntryOrderPayload): ProjectSnapshot {
   const project = ensureProject()
-  getWorldBook(payload.worldBookId)
-  const currentEntries = listWorldEntriesForBook(payload.worldBookId)
+  getLoreBook(payload.loreBookId)
+  const currentEntries = listWorldEntriesForBook(payload.loreBookId)
   const currentIds = currentEntries.map(entry => entry.id)
   const requestedIds = payload.worldEntryIds
   const sameEntries = currentIds.length === requestedIds.length &&

@@ -16,7 +16,7 @@ import type {
   PromptSnippet,
   PromptTag,
   ProviderModelCacheItem,
-  WorldBook,
+  LoreBook,
   WorldEntry
 } from '../../shared/types'
 import {
@@ -227,7 +227,7 @@ export function rowToCharacter(row: any): CharacterEntry {
   }
 }
 
-export function rowToWorldBook(row: any): WorldBook {
+export function rowToLoreBook(row: any): LoreBook {
   return {
     id: row.id,
     name: row.name,
@@ -239,7 +239,7 @@ export function rowToWorldBook(row: any): WorldBook {
 export function rowToWorldEntry(row: any): WorldEntry {
   return {
     id: row.id,
-    worldBookId: row.world_book_id,
+    loreBookId: row.world_book_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     stData: normalizeWorldEntryData(parseJsonColumn(row.st_data)),

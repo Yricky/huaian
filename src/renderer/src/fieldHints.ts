@@ -37,6 +37,6 @@ export const worldEntryFieldHints = {
   advancedJson: '高级 JSON：直接编辑世界书条目原始数据。仅在需要处理未暴露字段时使用。'
 } as const
 
-export const worldBookFieldHints = {
+export const loreBookFieldHints = {
   name: '名称：世界书的显示名称，也会作为导出 JSON 中的世界书名称。'
 } as const

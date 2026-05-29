@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload } from 'vue-icons-plus/md'
-import type { WorldBook, WorldEntry } from '../../../shared/types'
+import type { LoreBook, WorldEntry } from '../../../shared/types'
 import { worldEntryFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
@@ -24,26 +24,26 @@ interface WorldEntryDragState {
 }
 
 const {
-  createWorldBook,
+  createLoreBook,
   createWorldEntry,
-  deleteSelectedWorldBook,
+  deleteSelectedLoreBook,
   deleteSelectedWorldEntry,
   entrySummary,
   entryTitle,
-  exportSelectedWorldBook,
+  exportSelectedLoreBook,
   formatDate,
   isWorldEntryExpanded,
-  moveWorldBookEntry,
-  saveWorldBook,
+  moveLoreBookEntry,
+  saveLoreBook,
   saveWorldEntry,
   saveWorldEntryAdvanced,
-  selectWorldBook,
-  selectedWorldBook,
-  selectedWorldBookEntries,
+  selectLoreBook,
+  selectedLoreBook,
+  selectedLoreBookEntries,
   selectedWorldEntry,
   toggleWorldEntry,
-  worldBookEntryCount,
-  worldBooks,
+  loreBookEntryCount,
+  loreBooks,
   worldEntryAdvancedJson,
   worldEntryData,
   worldEntryDepth,
@@ -55,9 +55,9 @@ const {
 } = useProjectWorkbench()
 
 const entryListRef = ref<VirtualListExpose | null>(null)
-const isEditingWorldBookName = ref(false)
-const worldBookNameDraft = ref('')
-const worldBookNameInputRef = ref<HTMLInputElement | null>(null)
+const isEditingLoreBookName = ref(false)
+const loreBookNameDraft = ref('')
+const loreBookNameInputRef = ref<HTMLInputElement | null>(null)
 const worldEntryDrag = ref<WorldEntryDragState | null>(null)
 
 let autoScrollFrame: number | null = null
@@ -66,24 +66,24 @@ const worldEntryDragStyle = computed(() => {
   const drag = worldEntryDrag.value
   return drag
     ? {
-        left: `${drag.pointerX + 12}px`,
-        top: `${drag.pointerY + 12}px`
-      }
+      left: `${drag.pointerX + 12}px`,
+      top: `${drag.pointerY + 12}px`
+    }
     : {}
 })
 
-watch(() => selectedWorldBook.value?.id, () => {
-  isEditingWorldBookName.value = false
-  worldBookNameDraft.value = selectedWorldBook.value?.name ?? ''
+watch(() => selectedLoreBook.value?.id, () => {
+  isEditingLoreBookName.value = false
+  loreBookNameDraft.value = selectedLoreBook.value?.name ?? ''
 })
 
-watch(() => selectedWorldBook.value?.name, (name) => {
-  if (!isEditingWorldBookName.value) {
-    worldBookNameDraft.value = name ?? ''
+watch(() => selectedLoreBook.value?.name, (name) => {
+  if (!isEditingLoreBookName.value) {
+    loreBookNameDraft.value = name ?? ''
   }
 })
 
-function worldBookKey(book: WorldBook) {
+function loreBookKey(book: LoreBook) {
   return book.id
 }
 
@@ -91,30 +91,30 @@ function worldEntryKey(entry: WorldEntry) {
   return entry.id
 }
 
-function beginWorldBookNameEdit() {
-  if (!selectedWorldBook.value) return
-  worldBookNameDraft.value = selectedWorldBook.value.name
-  isEditingWorldBookName.value = true
+function beginLoreBookNameEdit() {
+  if (!selectedLoreBook.value) return
+  loreBookNameDraft.value = selectedLoreBook.value.name
+  isEditingLoreBookName.value = true
   nextTick(() => {
-    worldBookNameInputRef.value?.focus()
-    worldBookNameInputRef.value?.select()
+    loreBookNameInputRef.value?.focus()
+    loreBookNameInputRef.value?.select()
   })
 }
 
-async function finishWorldBookNameEdit() {
-  if (!selectedWorldBook.value || !isEditingWorldBookName.value) return
-  selectedWorldBook.value.name = worldBookNameDraft.value
-  isEditingWorldBookName.value = false
-  await saveWorldBook()
+async function finishLoreBookNameEdit() {
+  if (!selectedLoreBook.value || !isEditingLoreBookName.value) return
+  selectedLoreBook.value.name = loreBookNameDraft.value
+  isEditingLoreBookName.value = false
+  await saveLoreBook()
 }
 
-function cancelWorldBookNameEdit() {
-  worldBookNameDraft.value = selectedWorldBook.value?.name ?? ''
-  isEditingWorldBookName.value = false
+function cancelLoreBookNameEdit() {
+  loreBookNameDraft.value = selectedLoreBook.value?.name ?? ''
+  isEditingLoreBookName.value = false
 }
 
 function clampDropIndex(index: number) {
-  return Math.max(0, Math.min(selectedWorldBookEntries.value.length, index))
+  return Math.max(0, Math.min(selectedLoreBookEntries.value.length, index))
 }
 
 function updateWorldEntryDropIndex(clientY: number) {
@@ -198,14 +198,14 @@ async function finishWorldEntryDrag() {
   resetWorldEntryDrag()
   if (!drag) return
 
-  const fromIndex = selectedWorldBookEntries.value.findIndex(entry => entry.id === drag.entryId)
+  const fromIndex = selectedLoreBookEntries.value.findIndex(entry => entry.id === drag.entryId)
   if (fromIndex < 0) return
 
   const dropIndex = clampDropIndex(drag.dropIndex)
   const toIndex = dropIndex > fromIndex ? dropIndex - 1 : dropIndex
 
   if (toIndex === fromIndex) return
-  await moveWorldBookEntry(fromIndex, toIndex)
+  await moveLoreBookEntry(fromIndex, toIndex)
 }
 
 function cancelWorldEntryDrag() {
@@ -222,8 +222,8 @@ function isWorldEntryDropBefore(index: number) {
 
 function isWorldEntryDropAfter(index: number) {
   return (
-    worldEntryDrag.value?.dropIndex === selectedWorldBookEntries.value.length &&
-    index === selectedWorldBookEntries.value.length - 1
+    worldEntryDrag.value?.dropIndex === selectedLoreBookEntries.value.length &&
+    index === selectedLoreBookEntries.value.length - 1
   )
 }
 
@@ -237,56 +237,33 @@ onBeforeUnmount(() => {
     <div class="list-pane world-books-list-pane">
       <div class="pane-header">
         <h2>世界书</h2>
-        <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createWorldBook">
+        <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createLoreBook">
           <MdAdd class="toolbar-icon" aria-hidden="true" />
         </button>
       </div>
 
-      <VirtualGrid
-        class="world-book-grid-viewport"
-        :items="worldBooks"
-        :item-key="worldBookKey"
-        :item-height="116"
-        :item-min-width="190"
-        :gap="8"
-      >
+      <VirtualGrid class="world-book-grid-viewport" :items="loreBooks" :item-key="loreBookKey" :item-height="116"
+        :item-min-width="190" :gap="8">
         <template #item="{ item: book }">
-          <button
-            class="item-card"
-            :class="{ selected: selectedWorldBook?.id === book.id }"
-            type="button"
-            @click="selectWorldBook(book)"
-          >
+          <button class="item-card" :class="{ selected: selectedLoreBook?.id === book.id }" type="button"
+            @click="selectLoreBook(book)">
             <strong>{{ book.name }}</strong>
-            <span>{{ worldBookEntryCount(book) }} 个条目</span>
+            <span>{{ loreBookEntryCount(book) }} 个条目</span>
             <small>更新 {{ formatDate(book.updatedAt) }}</small>
           </button>
         </template>
       </VirtualGrid>
     </div>
 
-    <div v-if="selectedWorldBook" class="editor-pane world-books-editor-pane">
+    <div v-if="selectedLoreBook" class="editor-pane world-books-editor-pane">
       <div class="pane-header">
         <div class="pane-title-row">
-          <input
-            v-if="isEditingWorldBookName"
-            ref="worldBookNameInputRef"
-            v-model="worldBookNameDraft"
-            class="pane-title-input"
-            aria-label="世界书名称"
-            @blur="finishWorldBookNameEdit"
-            @keydown.enter.prevent="finishWorldBookNameEdit"
-            @keydown.esc.prevent="cancelWorldBookNameEdit"
-          />
-          <h2 v-else :title="selectedWorldBook.name">{{ selectedWorldBook.name }}</h2>
-          <button
-            v-if="!isEditingWorldBookName"
-            class="toolbar-button title-edit-button"
-            type="button"
-            aria-label="编辑名称"
-            data-tooltip="编辑名称"
-            @click="beginWorldBookNameEdit"
-          >
+          <input v-if="isEditingLoreBookName" ref="loreBookNameInputRef" v-model="loreBookNameDraft"
+            class="pane-title-input" aria-label="世界书名称" @blur="finishLoreBookNameEdit"
+            @keydown.enter.prevent="finishLoreBookNameEdit" @keydown.esc.prevent="cancelLoreBookNameEdit" />
+          <h2 v-else :title="selectedLoreBook.name">{{ selectedLoreBook.name }}</h2>
+          <button v-if="!isEditingLoreBookName" class="toolbar-button title-edit-button" type="button" aria-label="编辑名称"
+            data-tooltip="编辑名称" @click="beginLoreBookNameEdit">
             <MdEdit class="toolbar-icon" aria-hidden="true" />
           </button>
         </div>
@@ -295,43 +272,30 @@ onBeforeUnmount(() => {
           <button class="toolbar-button" type="button" aria-label="新增条目" data-tooltip="新增条目" @click="createWorldEntry">
             <MdAdd class="toolbar-icon" aria-hidden="true" />
           </button>
-          <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON" @click="exportSelectedWorldBook">
+          <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON"
+            @click="exportSelectedLoreBook">
             <MdFileDownload class="toolbar-icon" aria-hidden="true" />
           </button>
-          <button class="toolbar-button" type="button" aria-label="删除世界书" data-tooltip="删除世界书" @click="deleteSelectedWorldBook">
+          <button class="toolbar-button" type="button" aria-label="删除世界书" data-tooltip="删除世界书"
+            @click="deleteSelectedLoreBook">
             <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
           </button>
         </div>
       </div>
 
       <div class="world-entry-stack">
-        <VirtualList
-          ref="entryListRef"
-          class="world-entry-list"
-          :items="selectedWorldBookEntries"
-          :item-key="worldEntryKey"
-          :estimated-item-height="56"
-          :buffer-size="8"
-        >
+        <VirtualList ref="entryListRef" class="world-entry-list" :items="selectedLoreBookEntries"
+          :item-key="worldEntryKey" :estimated-item-height="56" :buffer-size="8">
           <template #item="{ item: entry, index }">
-            <article
-              class="world-entry-row"
-              :class="{
-                expanded: isWorldEntryExpanded(entry.id),
-                dragging: isDraggingWorldEntry(entry),
-                'drop-before': isWorldEntryDropBefore(index),
-                'drop-after': isWorldEntryDropAfter(index)
-              }"
-            >
+            <article class="world-entry-row" :class="{
+              expanded: isWorldEntryExpanded(entry.id),
+              dragging: isDraggingWorldEntry(entry),
+              'drop-before': isWorldEntryDropBefore(index),
+              'drop-after': isWorldEntryDropAfter(index)
+            }">
               <div class="world-entry-summary">
-                <button
-                  class="drag-handle"
-                  type="button"
-                  aria-label="拖拽排序"
-                  title="拖拽排序"
-                  @click.stop
-                  @pointerdown.stop="startWorldEntryDrag($event, entry, index)"
-                >
+                <button class="drag-handle" type="button" aria-label="拖拽排序" title="拖拽排序" @click.stop
+                  @pointerdown.stop="startWorldEntryDrag($event, entry, index)">
                   <MdDragIndicator class="drag-icon" aria-hidden="true" />
                 </button>
                 <button class="world-entry-summary-btn" type="button" @click="toggleWorldEntry(entry)">
@@ -344,13 +308,15 @@ onBeforeUnmount(() => {
               <div v-if="selectedWorldEntry && isWorldEntryExpanded(entry.id)" class="world-entry-editor">
                 <div class="entry-editor-header">
                   <strong>Order {{ worldEntryData.insertion_order }}</strong>
-                  <button class="toolbar-button" type="button" aria-label="删除条目" data-tooltip="删除条目" @click="deleteSelectedWorldEntry">
+                  <button class="toolbar-button" type="button" aria-label="删除条目" data-tooltip="删除条目"
+                    @click="deleteSelectedWorldEntry">
                     <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
                   </button>
                 </div>
 
                 <div class="form-grid two">
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.comment">标题/Memo</span><input v-model="worldEntryData.comment" @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.comment">标题/Memo</span><input
+                      v-model="worldEntryData.comment" @blur="saveWorldEntry" /></label>
                   <label><span class="field-title" :data-tooltip="worldEntryFieldHints.position">Position</span>
                     <select v-model="worldEntryPosition" @change="saveWorldEntry">
                       <option value="0">Before Char Defs</option>
@@ -370,24 +336,36 @@ onBeforeUnmount(() => {
                       <option value="2">Assistant</option>
                     </select>
                   </label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.depth">Depth</span><input v-model.number="worldEntryDepth" type="number" min="0" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.probability">Trigger %</span><input v-model.number="worldEntryProbability" type="number" min="0" max="100" @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.depth">Depth</span><input
+                      v-model.number="worldEntryDepth" type="number" min="0" @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.probability">Trigger
+                      %</span><input v-model.number="worldEntryProbability" type="number" min="0" max="100"
+                      @blur="saveWorldEntry" /></label>
                 </div>
 
                 <div class="switch-row">
-                  <label><input v-model="worldEntryData.enabled" type="checkbox" @change="saveWorldEntry" /> <span class="field-title" :data-tooltip="worldEntryFieldHints.enabled">启用</span></label>
-                  <label><input v-model="worldEntryData.constant" type="checkbox" @change="saveWorldEntry" /> <span class="field-title" :data-tooltip="worldEntryFieldHints.constant">常驻</span></label>
-                  <label><input v-model="worldEntryData.selective" type="checkbox" @change="saveWorldEntry" /> <span class="field-title" :data-tooltip="worldEntryFieldHints.selective">次关键词逻辑</span></label>
+                  <label><input v-model="worldEntryData.enabled" type="checkbox" @change="saveWorldEntry" /> <span
+                      class="field-title" :data-tooltip="worldEntryFieldHints.enabled">启用</span></label>
+                  <label><input v-model="worldEntryData.constant" type="checkbox" @change="saveWorldEntry" /> <span
+                      class="field-title" :data-tooltip="worldEntryFieldHints.constant">常驻</span></label>
+                  <label><input v-model="worldEntryData.selective" type="checkbox" @change="saveWorldEntry" /> <span
+                      class="field-title" :data-tooltip="worldEntryFieldHints.selective">次关键词逻辑</span></label>
                 </div>
 
                 <div class="form-grid">
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.keys">主关键词</span><input v-model="worldEntryKeysText" placeholder="keyword1, keyword2" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.secondaryKeys">次关键词</span><input v-model="worldEntrySecondaryKeysText" placeholder="keyword1, keyword2" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.content">内容</span><textarea v-model="worldEntryData.content" rows="9" @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.keys">主关键词</span><input
+                      v-model="worldEntryKeysText" placeholder="keyword1, keyword2" @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.secondaryKeys">次关键词</span><input
+                      v-model="worldEntrySecondaryKeysText" placeholder="keyword1, keyword2"
+                      @blur="saveWorldEntry" /></label>
+                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.content">内容</span><textarea
+                      v-model="worldEntryData.content" rows="9" @blur="saveWorldEntry" /></label>
                 </div>
 
-                <label class="json-block"><span class="field-title" :data-tooltip="worldEntryFieldHints.advancedJson">高级 JSON</span>
-                  <JsonEditor v-model="worldEntryAdvancedJson" :rows="14" aria-label="世界书条目高级 JSON" @blur="saveWorldEntryAdvanced" />
+                <label class="json-block"><span class="field-title" :data-tooltip="worldEntryFieldHints.advancedJson">高级
+                    JSON</span>
+                  <JsonEditor v-model="worldEntryAdvancedJson" :rows="14" aria-label="世界书条目高级 JSON"
+                    @blur="saveWorldEntryAdvanced" />
                 </label>
               </div>
             </article>

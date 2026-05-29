@@ -27,30 +27,30 @@ export interface CharacterEntry {
 export type CharacterUpdatePayload = Pick<CharacterEntry, 'id' | 'stData' | 'forgeData'>
 
 export interface CharacterForgeData {
-  worldBookId: number | null
+  loreBookId: number | null
   exportFileName?: string
   characterBookName?: string
 }
 
-export interface WorldBook {
+export interface LoreBook {
   id: number
   name: string
   createdAt: string
   updatedAt: string
 }
 
-export type WorldBookUpdatePayload = Pick<WorldBook, 'id' | 'name'>
+export type LoreBookUpdatePayload = Pick<LoreBook, 'id' | 'name'>
 
 export interface WorldEntry {
   id: number
-  worldBookId: number
+  loreBookId: number
   createdAt: string
   updatedAt: string
   stData: CharacterBookEntryData
   forgeData: JsonRecord
 }
 
-export type WorldEntryUpdatePayload = Pick<WorldEntry, 'id' | 'worldBookId' | 'stData' | 'forgeData'>
+export type WorldEntryUpdatePayload = Pick<WorldEntry, 'id' | 'loreBookId' | 'stData' | 'forgeData'>
 
 export interface CharacterBookEntryData {
   id?: number
@@ -68,7 +68,7 @@ export interface CharacterBookEntryData {
 }
 
 export interface WorldEntryOrderPayload {
-  worldBookId: number
+  loreBookId: number
   worldEntryIds: number[]
 }
 
@@ -109,7 +109,7 @@ export interface ProjectSnapshot {
   path: string
   config: ProjectConfig
   characters: CharacterEntry[]
-  worldBooks: WorldBook[]
+  loreBooks: LoreBook[]
   worldEntries: WorldEntry[]
   llmProviders: LlmProvider[]
   llmInstances: LlmInstance[]
@@ -308,6 +308,6 @@ export type ChatGenerationEvent =
   | { type: 'stopped'; chatId: number; block: ChatBlock }
   | { type: 'error'; chatId: number; block: ChatBlock; error: string }
 
-export type SidebarView = 'characters' | 'worldBooks' | 'chat' | 'prompts' | 'settings'
+export type SidebarView = 'characters' | 'loreBooks' | 'chat' | 'prompts' | 'settings'
 
 export type IpcJsonPayload<T> = T | string

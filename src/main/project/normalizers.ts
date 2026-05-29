@@ -47,12 +47,12 @@ export function toBoolean(value: unknown, fallback: boolean): boolean {
 
 export function normalizeCharacterForgeData(value: unknown): CharacterForgeData {
   const data = asRecord(value)
-  const rawWorldBookId = data.worldBookId
-  const worldBookId = Number(rawWorldBookId)
+  const rawLoreBookId = data.loreBookId
+  const loreBookId = Number(rawLoreBookId)
   return {
-    worldBookId: rawWorldBookId === null || rawWorldBookId === undefined || !Number.isInteger(worldBookId)
+    loreBookId: rawLoreBookId === null || rawLoreBookId === undefined || !Number.isInteger(loreBookId)
       ? null
-      : worldBookId,
+      : loreBookId,
     exportFileName: toString(data.exportFileName),
     characterBookName: toString(data.characterBookName)
   }

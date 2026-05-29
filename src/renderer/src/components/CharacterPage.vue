@@ -13,22 +13,22 @@ const {
   characterListNotes,
   characterListTags,
   characterListVersion,
-  characterSelectedWorldBook,
+  characterSelectedLoreBook,
   characterTagsText,
   characters,
-  clearCharacterWorldBook,
+  clearCharacterLoreBook,
   createCharacter,
   deleteSelectedCharacter,
   depthPrompt,
   exportSelectedCharacter,
-  isCharacterWorldBookSelected,
+  isCharacterLoreBookSelected,
   saveCharacter,
   saveCharacterAdvanced,
   selectCharacter,
-  selectCharacterWorldBook,
+  selectCharacterLoreBook,
   selectedCharacter,
-  worldBookEntryCount,
-  worldBooks
+  loreBookEntryCount,
+  loreBooks
 } = useProjectWorkbench()
 </script>
 
@@ -42,13 +42,8 @@ const {
         </button>
       </div>
       <div class="card-grid">
-        <button
-          v-for="entry in characters"
-          :key="entry.id"
-          class="item-card"
-          :class="{ selected: selectedCharacter?.id === entry.id }"
-          @click="selectCharacter(entry)"
-        >
+        <button v-for="entry in characters" :key="entry.id" class="item-card"
+          :class="{ selected: selectedCharacter?.id === entry.id }" @click="selectCharacter(entry)">
           <strong>{{ characterListName(entry) }}</strong>
           <span>{{ characterListNotes(entry) }}</span>
           <small>{{ characterListVersion(entry) }}</small>
@@ -63,40 +58,63 @@ const {
       <div class="pane-header">
         <h2>{{ characterData.name || '角色卡详情' }}</h2>
         <div class="button-row">
-          <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON" @click="exportSelectedCharacter">
+          <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON"
+            @click="exportSelectedCharacter">
             <MdFileDownload class="toolbar-icon" aria-hidden="true" />
           </button>
-          <button class="toolbar-button" type="button" aria-label="删除" data-tooltip="删除" @click="deleteSelectedCharacter">
+          <button class="toolbar-button" type="button" aria-label="删除" data-tooltip="删除"
+            @click="deleteSelectedCharacter">
             <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
           </button>
         </div>
       </div>
 
       <div class="form-grid two">
-        <label><span class="field-title" :data-tooltip="characterFieldHints.name">名称</span><input v-model="characterData.name" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.version">版本</span><input v-model="characterData.character_version" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.creator">作者</span><input v-model="characterData.creator" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.exportFileName">导出文件名</span><input v-model="selectedCharacter.forgeData.exportFileName" placeholder="默认使用角色名" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.characterBookName">内嵌世界书名</span><input v-model="selectedCharacter.forgeData.characterBookName" placeholder="默认使用角色名" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.talkativeness">健谈度</span><input v-model.number="characterExtensions.talkativeness" type="number" min="0" max="1" step="0.05" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.name">名称</span><input
+            v-model="characterData.name" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.version">版本</span><input
+            v-model="characterData.character_version" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.creator">作者</span><input
+            v-model="characterData.creator" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.exportFileName">导出文件名</span><input
+            v-model="selectedCharacter.forgeData.exportFileName" placeholder="默认使用角色名" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.characterBookName">内嵌世界书名</span><input
+            v-model="selectedCharacter.forgeData.characterBookName" placeholder="默认使用角色名"
+            @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.talkativeness">健谈度</span><input
+            v-model.number="characterExtensions.talkativeness" type="number" min="0" max="1" step="0.05"
+            @blur="saveCharacter" /></label>
       </div>
 
       <div class="form-grid">
-        <label><span class="field-title" :data-tooltip="characterFieldHints.description">描述</span><textarea v-model="characterData.description" rows="5" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.personality">性格</span><textarea v-model="characterData.personality" rows="3" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.scenario">场景</span><textarea v-model="characterData.scenario" rows="3" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.firstMessage">首条消息</span><textarea v-model="characterData.first_mes" rows="5" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.examples">示例对话</span><textarea v-model="characterData.mes_example" rows="5" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.creatorNotes">作者备注</span><textarea v-model="characterData.creator_notes" rows="3" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.systemPrompt">System Prompt</span><textarea v-model="characterData.system_prompt" rows="3" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.postHistoryInstructions">Post-History Instructions</span><textarea v-model="characterData.post_history_instructions" rows="3" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.tags">标签</span><input v-model="characterTagsText" placeholder="tag1, tag2" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.alternateGreetings">备用开场</span><textarea v-model="characterGreetingsText" rows="5" placeholder="用单独一行 --- 分隔多个开场" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.depthPrompt">Depth Prompt</span><textarea v-model="depthPrompt.prompt" rows="3" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.description">描述</span><textarea
+            v-model="characterData.description" rows="5" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.personality">性格</span><textarea
+            v-model="characterData.personality" rows="3" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.scenario">场景</span><textarea
+            v-model="characterData.scenario" rows="3" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.firstMessage">首条消息</span><textarea
+            v-model="characterData.first_mes" rows="5" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.examples">示例对话</span><textarea
+            v-model="characterData.mes_example" rows="5" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.creatorNotes">作者备注</span><textarea
+            v-model="characterData.creator_notes" rows="3" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.systemPrompt">System Prompt</span><textarea
+            v-model="characterData.system_prompt" rows="3" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.postHistoryInstructions">Post-History
+            Instructions</span><textarea v-model="characterData.post_history_instructions" rows="3"
+            @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.tags">标签</span><input
+            v-model="characterTagsText" placeholder="tag1, tag2" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.alternateGreetings">备用开场</span><textarea
+            v-model="characterGreetingsText" rows="5" placeholder="用单独一行 --- 分隔多个开场" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.depthPrompt">Depth Prompt</span><textarea
+            v-model="depthPrompt.prompt" rows="3" @blur="saveCharacter" /></label>
       </div>
 
       <div class="form-grid three compact">
-        <label><span class="field-title" :data-tooltip="characterFieldHints.depth">Depth</span><input v-model.number="depthPrompt.depth" type="number" min="0" @blur="saveCharacter" /></label>
+        <label><span class="field-title" :data-tooltip="characterFieldHints.depth">Depth</span><input
+            v-model.number="depthPrompt.depth" type="number" min="0" @blur="saveCharacter" /></label>
         <label><span class="field-title" :data-tooltip="characterFieldHints.role">Role</span>
           <select v-model="depthPrompt.role" @change="saveCharacter">
             <option value="system">system</option>
@@ -109,27 +127,23 @@ const {
       <div class="relation-block">
         <div class="relation-header">
           <h3>关联世界书</h3>
-          <button v-if="characterSelectedWorldBook" type="button" @click="clearCharacterWorldBook">移除</button>
+          <button v-if="characterSelectedLoreBook" type="button" @click="clearCharacterLoreBook">移除</button>
         </div>
-        <div v-if="characterSelectedWorldBook" class="selected-relation">
-          <strong>{{ characterSelectedWorldBook.name }}</strong>
-          <span>{{ worldBookEntryCount(characterSelectedWorldBook) }} 个条目</span>
+        <div v-if="characterSelectedLoreBook" class="selected-relation">
+          <strong>{{ characterSelectedLoreBook.name }}</strong>
+          <span>{{ loreBookEntryCount(characterSelectedLoreBook) }} 个条目</span>
         </div>
         <div v-else class="empty-note">未关联世界书</div>
         <div class="mini-grid">
-          <button
-            v-for="book in worldBooks"
-            :key="book.id"
-            type="button"
-            :class="{ selected: isCharacterWorldBookSelected(book.id) }"
-            @click="selectCharacterWorldBook(book.id)"
-          >
+          <button v-for="book in loreBooks" :key="book.id" type="button"
+            :class="{ selected: isCharacterLoreBookSelected(book.id) }" @click="selectCharacterLoreBook(book.id)">
             {{ book.name }}
           </button>
         </div>
       </div>
 
-      <label class="json-block"><span class="field-title" :data-tooltip="characterFieldHints.advancedJson">高级 JSON</span>
+      <label class="json-block"><span class="field-title" :data-tooltip="characterFieldHints.advancedJson">高级
+          JSON</span>
         <JsonEditor v-model="characterAdvancedJson" :rows="14" aria-label="角色卡高级 JSON" @blur="saveCharacterAdvanced" />
       </label>
     </div>

@@ -13,12 +13,12 @@ import type {
   PromptSnippetUpdatePayload,
   PromptTagCreatePayload,
   PromptTagUpdatePayload,
-  WorldBookUpdatePayload,
+  LoreBookUpdatePayload,
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
 import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
-import { exportCharacter, exportWorldBook } from './project/exporters'
+import { exportCharacter, exportLoreBook } from './project/exporters'
 import { hasProject } from './project/state'
 import {
   clearLlmProviderModelsCache,
@@ -29,7 +29,7 @@ import {
   createLlmProvider,
   createPromptSnippet,
   createPromptTag,
-  createWorldBook,
+  createLoreBook,
   createWorldEntry,
   deleteChat,
   deleteChatBlock,
@@ -38,7 +38,7 @@ import {
   deleteLlmProvider,
   deletePromptSnippet,
   deletePromptTag,
-  deleteWorldBook,
+  deleteLoreBook,
   deleteWorldEntry,
   getChatBlock,
   getProjectSnapshot,
@@ -52,7 +52,7 @@ import {
   updateLlmProvider,
   updatePromptSnippet,
   updatePromptTag,
-  updateWorldBook,
+  updateLoreBook,
   updateWorldEntry
 } from './project/store'
 
@@ -77,7 +77,7 @@ export function registerIpcHandlers(): void {
   ))
   ipcMain.handle('project:deleteCharacter', (_, id: number) => deleteCharacter(id))
 
-  ipcMain.handle('project:createWorldEntry', (_, worldBookId: number) => createWorldEntry(worldBookId))
+  ipcMain.handle('project:createWorldEntry', (_, loreBookId: number) => createWorldEntry(loreBookId))
   ipcMain.handle('project:updateWorldEntry', (_, payload: IpcJsonPayload<WorldEntryUpdatePayload>) => (
     updateWorldEntry(parseIpcPayload(payload))
   ))
@@ -86,14 +86,14 @@ export function registerIpcHandlers(): void {
     reorderWorldEntries(parseIpcPayload(payload))
   ))
 
-  ipcMain.handle('project:createWorldBook', () => createWorldBook())
-  ipcMain.handle('project:updateWorldBook', (_, payload: IpcJsonPayload<WorldBookUpdatePayload>) => (
-    updateWorldBook(parseIpcPayload(payload))
+  ipcMain.handle('project:createLoreBook', () => createLoreBook())
+  ipcMain.handle('project:updateLoreBook', (_, payload: IpcJsonPayload<LoreBookUpdatePayload>) => (
+    updateLoreBook(parseIpcPayload(payload))
   ))
-  ipcMain.handle('project:deleteWorldBook', (_, id: number) => deleteWorldBook(id))
+  ipcMain.handle('project:deleteLoreBook', (_, id: number) => deleteLoreBook(id))
 
   ipcMain.handle('project:exportCharacter', (_, id: number) => exportCharacter(id))
-  ipcMain.handle('project:exportWorldBook', (_, id: number) => exportWorldBook(id))
+  ipcMain.handle('project:exportLoreBook', (_, id: number) => exportLoreBook(id))
 
   ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
     createLlmProvider(parseIpcPayload(payload))

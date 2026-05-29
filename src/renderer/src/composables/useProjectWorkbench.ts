@@ -16,7 +16,7 @@ import type {
   PromptTag,
   ProjectSnapshot,
   SidebarView,
-  WorldBook,
+  LoreBook,
   WorldEntry
 } from '@/shared/types'
 
@@ -32,7 +32,7 @@ export function createProjectWorkbench() {
   const project = ref<ProjectSnapshot | null>(null)
   const activeView = ref<SidebarView>('characters')
   const selectedCharacter = ref<CharacterEntry | null>(null)
-  const selectedWorldBook = ref<WorldBook | null>(null)
+  const selectedLoreBook = ref<LoreBook | null>(null)
   const selectedWorldEntry = ref<WorldEntry | null>(null)
   const selectedLlmProvider = ref<LlmProvider | null>(null)
   const selectedLlmInstance = ref<LlmInstance | null>(null)
@@ -51,16 +51,16 @@ export function createProjectWorkbench() {
   const worldEntryProbability = ref(100)
   const worldEntryAdvancedJson = ref('')
 
-  const draggingWorldBookIndex = ref<number | null>(null)
+  const draggingLoreBookIndex = ref<number | null>(null)
   const toasts = ref<ToastMessage[]>([])
   let toastId = 0
   let characterSaveSnapshot = ''
   let worldEntrySaveSnapshot = ''
-  let worldBookSaveSnapshot = ''
+  let loreBookSaveSnapshot = ''
   let promptSnippetSaveSnapshot = ''
 
   const characters = computed(() => project.value?.characters ?? [])
-  const worldBooks = computed(() => project.value?.worldBooks ?? [])
+  const loreBooks = computed(() => project.value?.loreBooks ?? [])
   const worldEntries = computed(() => project.value?.worldEntries ?? [])
   const llmProviders = computed(() => project.value?.llmProviders ?? [])
   const llmInstances = computed(() => project.value?.llmInstances ?? [])
@@ -75,11 +75,11 @@ export function createProjectWorkbench() {
   const worldEntryData = computed<Record<string, any>>(() => selectedWorldEntry.value?.stData as Record<string, any> ?? {})
   const worldEntryExtensions = computed<Record<string, any>>(() => worldEntryData.value.extensions ?? {})
 
-  const selectedWorldBookEntries = computed(() => {
-    const worldBookId = selectedWorldBook.value?.id
-    if (!worldBookId) return []
+  const selectedLoreBookEntries = computed(() => {
+    const loreBookId = selectedLoreBook.value?.id
+    if (!loreBookId) return []
     return worldEntries.value
-      .filter(entry => entry.worldBookId === worldBookId)
+      .filter(entry => entry.loreBookId === loreBookId)
       .sort((a, b) => {
         const orderDelta = a.stData.insertion_order - b.stData.insertion_order
         if (orderDelta !== 0) return orderDelta
@@ -113,11 +113,11 @@ export function createProjectWorkbench() {
     Boolean(selectedChat.value && generatingChatIds.value.includes(selectedChat.value.id))
   ))
 
-  const characterSelectedWorldBook = computed(() => {
-    const worldBookId = selectedCharacter.value?.forgeData.worldBookId
-    return worldBookId === null || worldBookId === undefined
+  const characterSelectedLoreBook = computed(() => {
+    const loreBookId = selectedCharacter.value?.forgeData.loreBookId
+    return loreBookId === null || loreBookId === undefined
       ? null
-      : worldBooks.value.find(book => book.id === worldBookId) ?? null
+      : loreBooks.value.find(book => book.id === loreBookId) ?? null
   })
 
   function clone<T>(value: T): T {
@@ -171,7 +171,7 @@ export function createProjectWorkbench() {
     if (!selectedWorldEntry.value) return null
     const payload = clone({
       id: selectedWorldEntry.value.id,
-      worldBookId: selectedWorldEntry.value.worldBookId,
+      loreBookId: selectedWorldEntry.value.loreBookId,
       stData: selectedWorldEntry.value.stData,
       forgeData: selectedWorldEntry.value.forgeData
     })
@@ -194,25 +194,25 @@ export function createProjectWorkbench() {
     worldEntrySaveSnapshot = payload ? snapshot(payload) : ''
   }
 
-  function worldBookSavePayload() {
-    return selectedWorldBook.value
-      ? clone({ id: selectedWorldBook.value.id, name: selectedWorldBook.value.name })
+  function loreBookSavePayload() {
+    return selectedLoreBook.value
+      ? clone({ id: selectedLoreBook.value.id, name: selectedLoreBook.value.name })
       : null
   }
 
-  function rememberWorldBookSnapshot() {
-    const payload = worldBookSavePayload()
-    worldBookSaveSnapshot = payload ? snapshot(payload) : ''
+  function rememberLoreBookSnapshot() {
+    const payload = loreBookSavePayload()
+    loreBookSaveSnapshot = payload ? snapshot(payload) : ''
   }
 
   function promptSnippetSavePayload(prompt = selectedPromptSnippet.value) {
     return prompt
       ? clone({
-          id: prompt.id,
-          title: prompt.title,
-          content: prompt.content,
-          tagIds: prompt.tags.map(tag => tag.id)
-        })
+        id: prompt.id,
+        title: prompt.title,
+        content: prompt.content,
+        tagIds: prompt.tags.map(tag => tag.id)
+      })
       : null
   }
 
@@ -264,11 +264,11 @@ export function createProjectWorkbench() {
     if (selectedCharacter.value) selectCharacter(selectedCharacter.value)
   }
 
-  function refreshSelectedWorldBook() {
-    if (!selectedWorldBook.value) return
-    const fresh = worldBooks.value.find(item => item.id === selectedWorldBook.value?.id)
-    selectedWorldBook.value = fresh ? clone(fresh) : null
-    if (selectedWorldBook.value) rememberWorldBookSnapshot()
+  function refreshSelectedLoreBook() {
+    if (!selectedLoreBook.value) return
+    const fresh = loreBooks.value.find(item => item.id === selectedLoreBook.value?.id)
+    selectedLoreBook.value = fresh ? clone(fresh) : null
+    if (selectedLoreBook.value) rememberLoreBookSnapshot()
   }
 
   function refreshSelectedLlmProvider() {
@@ -300,7 +300,7 @@ export function createProjectWorkbench() {
     project.value = await window.electronAPI.getProject()
     if (project.value) {
       if (!selectedCharacter.value && characters.value.length) selectCharacter(characters.value[0])
-      if (!selectedWorldBook.value && worldBooks.value.length) selectWorldBook(worldBooks.value[0])
+      if (!selectedLoreBook.value && loreBooks.value.length) selectLoreBook(loreBooks.value[0])
       if (!selectedLlmProvider.value && llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
       if (!selectedLlmInstance.value && llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
       if (!selectedChat.value && chats.value.length) selectedChat.value = clone(chats.value[0])
@@ -314,14 +314,14 @@ export function createProjectWorkbench() {
       if (snapshot) {
         project.value = snapshot
         selectedCharacter.value = null
-        selectedWorldBook.value = null
+        selectedLoreBook.value = null
         selectedWorldEntry.value = null
         selectedLlmProvider.value = null
         selectedLlmInstance.value = null
         selectedChat.value = null
         selectedPromptSnippet.value = null
         if (characters.value.length) selectCharacter(characters.value[0])
-        if (worldBooks.value.length) selectWorldBook(worldBooks.value[0])
+        if (loreBooks.value.length) selectLoreBook(loreBooks.value[0])
         if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
         if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
         if (chats.value.length) selectedChat.value = clone(chats.value[0])
@@ -349,8 +349,8 @@ export function createProjectWorkbench() {
     return entry.stData.content.split(/\r?\n/).filter(Boolean).slice(0, 2).join(' ')
   }
 
-  function worldBookEntryCount(book: WorldBook) {
-    return worldEntries.value.filter(entry => entry.worldBookId === book.id).length
+  function loreBookEntryCount(book: LoreBook) {
+    return worldEntries.value.filter(entry => entry.loreBookId === book.id).length
   }
 
   function selectCharacter(entry: CharacterEntry) {
@@ -430,19 +430,19 @@ export function createProjectWorkbench() {
     }
   }
 
-  function isCharacterWorldBookSelected(id: number) {
-    return selectedCharacter.value?.forgeData.worldBookId === id
+  function isCharacterLoreBookSelected(id: number) {
+    return selectedCharacter.value?.forgeData.loreBookId === id
   }
 
-  async function selectCharacterWorldBook(id: number) {
+  async function selectCharacterLoreBook(id: number) {
     if (!selectedCharacter.value) return
-    selectedCharacter.value.forgeData.worldBookId = id
+    selectedCharacter.value.forgeData.loreBookId = id
     await saveCharacter()
   }
 
-  async function clearCharacterWorldBook() {
+  async function clearCharacterLoreBook() {
     if (!selectedCharacter.value) return
-    selectedCharacter.value.forgeData.worldBookId = null
+    selectedCharacter.value.forgeData.loreBookId = null
     await saveCharacter()
   }
 
@@ -476,14 +476,14 @@ export function createProjectWorkbench() {
   }
 
   async function createWorldEntry() {
-    if (!selectedWorldBook.value) {
+    if (!selectedLoreBook.value) {
       showToast('请先选择或创建世界书', 'error')
       return
     }
     try {
-      const entry = await window.electronAPI.createWorldEntry(selectedWorldBook.value.id)
+      const entry = await window.electronAPI.createWorldEntry(selectedLoreBook.value.id)
       replaceWorldEntry(entry)
-      activeView.value = 'worldBooks'
+      activeView.value = 'loreBooks'
       showToast('世界书条目已创建', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -524,31 +524,31 @@ export function createProjectWorkbench() {
 
   async function deleteSelectedWorldEntry() {
     if (!selectedWorldEntry.value || !window.confirm('删除当前世界书条目？')) return
-    const worldBookId = selectedWorldEntry.value.worldBookId
+    const loreBookId = selectedWorldEntry.value.loreBookId
     try {
       project.value = await window.electronAPI.deleteWorldEntry(selectedWorldEntry.value.id)
       selectedWorldEntry.value = null
-      const fresh = worldBooks.value.find(item => item.id === worldBookId)
-      if (fresh) selectWorldBook(fresh)
+      const fresh = loreBooks.value.find(item => item.id === loreBookId)
+      if (fresh) selectLoreBook(fresh)
       showToast('世界书条目已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  function selectWorldBook(book: WorldBook) {
-    selectedWorldBook.value = clone(book)
+  function selectLoreBook(book: LoreBook) {
+    selectedLoreBook.value = clone(book)
     selectedWorldEntry.value = null
-    rememberWorldBookSnapshot()
+    rememberLoreBookSnapshot()
   }
 
-  function replaceWorldBook(book: WorldBook) {
+  function replaceLoreBook(book: LoreBook) {
     if (!project.value) return
-    const index = project.value.worldBooks.findIndex(item => item.id === book.id)
-    if (index >= 0) project.value.worldBooks[index] = book
-    else project.value.worldBooks.unshift(book)
-    selectedWorldBook.value = clone(book)
-    rememberWorldBookSnapshot()
+    const index = project.value.loreBooks.findIndex(item => item.id === book.id)
+    if (index >= 0) project.value.loreBooks[index] = book
+    else project.value.loreBooks.unshift(book)
+    selectedLoreBook.value = clone(book)
+    rememberLoreBookSnapshot()
   }
 
   function replaceLlmProvider(provider: LlmProvider) {
@@ -955,38 +955,38 @@ export function createProjectWorkbench() {
     if (event.type === 'error') showToast(event.error, 'error')
   }
 
-  async function createWorldBook() {
+  async function createLoreBook() {
     try {
-      const book = await window.electronAPI.createWorldBook()
-      replaceWorldBook(book)
-      activeView.value = 'worldBooks'
+      const book = await window.electronAPI.createLoreBook()
+      replaceLoreBook(book)
+      activeView.value = 'loreBooks'
       showToast('世界书已创建', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function saveWorldBook() {
-    const payload = worldBookSavePayload()
-    if (!selectedWorldBook.value || !payload) return
+  async function saveLoreBook() {
+    const payload = loreBookSavePayload()
+    if (!selectedLoreBook.value || !payload) return
     const nextSnapshot = snapshot(payload)
-    if (nextSnapshot === worldBookSaveSnapshot) return
+    if (nextSnapshot === loreBookSaveSnapshot) return
     try {
-      const book = await window.electronAPI.updateWorldBook(toIpcJson(payload))
-      replaceWorldBook(book)
+      const book = await window.electronAPI.updateLoreBook(toIpcJson(payload))
+      replaceLoreBook(book)
       showToast('已保存', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function deleteSelectedWorldBook() {
-    if (!selectedWorldBook.value || !window.confirm('删除当前世界书？其中的条目会一同删除，角色中的关联会自动移除。')) return
+  async function deleteSelectedLoreBook() {
+    if (!selectedLoreBook.value || !window.confirm('删除当前世界书？其中的条目会一同删除，角色中的关联会自动移除。')) return
     try {
-      project.value = await window.electronAPI.deleteWorldBook(selectedWorldBook.value.id)
-      selectedWorldBook.value = null
+      project.value = await window.electronAPI.deleteLoreBook(selectedLoreBook.value.id)
+      selectedLoreBook.value = null
       selectedWorldEntry.value = null
-      if (worldBooks.value[0]) selectWorldBook(worldBooks.value[0])
+      if (loreBooks.value[0]) selectLoreBook(loreBooks.value[0])
       refreshSelectedCharacter()
       showToast('世界书已删除', 'success')
     } catch (error) {
@@ -994,10 +994,10 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function exportSelectedWorldBook() {
-    if (!selectedWorldBook.value) return
+  async function exportSelectedLoreBook() {
+    if (!selectedLoreBook.value) return
     try {
-      const result = await window.electronAPI.exportWorldBook(selectedWorldBook.value.id)
+      const result = await window.electronAPI.exportLoreBook(selectedLoreBook.value.id)
       showExportToast(result)
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -1013,14 +1013,14 @@ export function createProjectWorkbench() {
   }
 
   function startWorldEntryDrag(index: number) {
-    draggingWorldBookIndex.value = index
+    draggingLoreBookIndex.value = index
     selectedWorldEntry.value = null
     worldEntrySaveSnapshot = ''
   }
 
-  async function moveWorldBookEntry(fromIndex: number, toIndex: number) {
-    if (!selectedWorldBook.value) return
-    const ids = selectedWorldBookEntries.value.map(entry => entry.id)
+  async function moveLoreBookEntry(fromIndex: number, toIndex: number) {
+    if (!selectedLoreBook.value) return
+    const ids = selectedLoreBookEntries.value.map(entry => entry.id)
     const [item] = ids.splice(fromIndex, 1)
     if (item === undefined) {
       return
@@ -1029,10 +1029,10 @@ export function createProjectWorkbench() {
 
     try {
       project.value = await window.electronAPI.reorderWorldEntries(toIpcJson({
-        worldBookId: selectedWorldBook.value.id,
+        loreBookId: selectedLoreBook.value.id,
         worldEntryIds: ids
       }))
-      refreshSelectedWorldBook()
+      refreshSelectedLoreBook()
       showToast('条目顺序已更新', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -1060,12 +1060,12 @@ export function createProjectWorkbench() {
     characterListNotes,
     characterListTags,
     characterListVersion,
-    characterSelectedWorldBook,
+    characterSelectedLoreBook,
     characterTagsText,
     characters,
     chatBlocks,
     chats,
-    clearCharacterWorldBook,
+    clearCharacterLoreBook,
     clearSelectedLlmProviderModelsCache,
     createChat,
     createChatBlock,
@@ -1074,7 +1074,7 @@ export function createProjectWorkbench() {
     createLlmProvider,
     createPromptSnippet,
     createPromptTag,
-    createWorldBook,
+    createLoreBook,
     createWorldEntry,
     deleteChatBlock,
     deletePromptTag,
@@ -1083,23 +1083,23 @@ export function createProjectWorkbench() {
     deleteSelectedLlmInstance,
     deleteSelectedLlmProvider,
     deleteSelectedPromptSnippet,
-    deleteSelectedWorldBook,
+    deleteSelectedLoreBook,
     deleteSelectedWorldEntry,
     fetchSelectedLlmProviderModels,
     depthPrompt,
-    draggingWorldBookIndex,
+    draggingLoreBookIndex,
     entrySummary,
     entryTitle,
     exportSelectedCharacter,
-    exportSelectedWorldBook,
+    exportSelectedLoreBook,
     formatDate,
     generatingChatIds,
-    isCharacterWorldBookSelected,
+    isCharacterLoreBookSelected,
     isSelectedChatGenerating,
     isWorldEntryExpanded,
     llmInstances,
     llmProviders,
-    moveWorldBookEntry,
+    moveLoreBookEntry,
     openProject,
     previewChatGeneration,
     promptSnippets,
@@ -1113,7 +1113,7 @@ export function createProjectWorkbench() {
     saveChat,
     saveChatBlock,
     savePromptSnippet,
-    saveWorldBook,
+    saveLoreBook,
     saveLlmInstance,
     saveLlmProvider,
     saveWorldEntry,
@@ -1131,11 +1131,11 @@ export function createProjectWorkbench() {
     selectedLlmProvider,
     selectedPromptSnippet,
     selectedProviderForInstance,
-    selectedWorldBook,
-    selectedWorldBookEntries,
+    selectedLoreBook,
+    selectedLoreBookEntries,
     selectedWorldEntry,
-    selectCharacterWorldBook,
-    selectWorldBook,
+    selectCharacterLoreBook,
+    selectLoreBook,
     selectWorldEntry,
     showToast,
     startChatGeneration,
@@ -1143,8 +1143,8 @@ export function createProjectWorkbench() {
     stopChatGeneration,
     toggleWorldEntry,
     toasts,
-    worldBookEntryCount,
-    worldBooks,
+    loreBookEntryCount,
+    loreBooks,
     worldEntries,
     worldEntryAdvancedJson,
     worldEntryData,

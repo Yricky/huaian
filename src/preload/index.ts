@@ -26,8 +26,8 @@ import type {
   PromptTagCreatePayload,
   PromptTagUpdatePayload,
   ProjectSnapshot,
-  WorldBook,
-  WorldBookUpdatePayload,
+  LoreBook,
+  LoreBookUpdatePayload,
   WorldEntry,
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
@@ -40,18 +40,18 @@ const electronAPI = {
   updateCharacter: (payload: IpcJsonPayload<CharacterUpdatePayload>): Promise<CharacterEntry> =>
     ipcRenderer.invoke('project:updateCharacter', payload),
   deleteCharacter: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteCharacter', id),
-  createWorldEntry: (worldBookId: number): Promise<WorldEntry> => ipcRenderer.invoke('project:createWorldEntry', worldBookId),
+  createWorldEntry: (loreBookId: number): Promise<WorldEntry> => ipcRenderer.invoke('project:createWorldEntry', loreBookId),
   updateWorldEntry: (payload: IpcJsonPayload<WorldEntryUpdatePayload>): Promise<WorldEntry> =>
     ipcRenderer.invoke('project:updateWorldEntry', payload),
   deleteWorldEntry: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteWorldEntry', id),
   reorderWorldEntries: (payload: IpcJsonPayload<WorldEntryOrderPayload>): Promise<ProjectSnapshot> =>
     ipcRenderer.invoke('project:reorderWorldEntries', payload),
-  createWorldBook: (): Promise<WorldBook> => ipcRenderer.invoke('project:createWorldBook'),
-  updateWorldBook: (payload: IpcJsonPayload<WorldBookUpdatePayload>): Promise<WorldBook> =>
-    ipcRenderer.invoke('project:updateWorldBook', payload),
-  deleteWorldBook: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteWorldBook', id),
+  createLoreBook: (): Promise<LoreBook> => ipcRenderer.invoke('project:createLoreBook'),
+  updateLoreBook: (payload: IpcJsonPayload<LoreBookUpdatePayload>): Promise<LoreBook> =>
+    ipcRenderer.invoke('project:updateLoreBook', payload),
+  deleteLoreBook: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteLoreBook', id),
   exportCharacter: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportCharacter', id),
-  exportWorldBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportWorldBook', id),
+  exportLoreBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportLoreBook', id),
   createLlmProvider: (payload: IpcJsonPayload<LlmProviderCreatePayload>): Promise<LlmProvider> =>
     ipcRenderer.invoke('llm:createProvider', payload),
   updateLlmProvider: (payload: IpcJsonPayload<LlmProviderUpdatePayload>): Promise<LlmProvider> =>

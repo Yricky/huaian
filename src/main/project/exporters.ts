@@ -2,7 +2,7 @@ import { dialog } from 'electron'
 import { copyFile, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import type { CharacterBookEntryData, ExportResult, JsonRecord, WorldEntry } from '../../shared/types'
-import { getCharacter, getWorldBook, listWorldEntriesForBook } from './store'
+import { getCharacter, getLoreBook, listWorldEntriesForBook } from './store'
 import { ensureProject } from './state'
 import {
   asRecord,
@@ -67,15 +67,15 @@ export async function exportCharacter(id: number): Promise<ExportResult> {
   const data = asRecord(card.data)
   const existingBook = asRecord(data.character_book)
   const existingEntries = Array.isArray(existingBook.entries) ? existingBook.entries : []
-  const worldBook = character.forgeData.worldBookId === null ? null : getWorldBook(character.forgeData.worldBookId)
-  const selectedWorldEntries = worldBook ? listWorldEntriesForBook(worldBook.id) : []
+  const loreBook = character.forgeData.loreBookId === null ? null : getLoreBook(character.forgeData.loreBookId)
+  const selectedWorldEntries = loreBook ? listWorldEntriesForBook(loreBook.id) : []
   const embeddedEntries = selectedWorldEntries.map((entry, index) => embeddedBookEntry(entry, existingEntries.length + index))
 
   if (existingEntries.length || embeddedEntries.length) {
     data.character_book = {
       ...existingBook,
       name: character.forgeData.characterBookName ||
-        worldBook?.name ||
+        loreBook?.name ||
         toString(existingBook.name, `${toString(data.name, 'Character')}'s Lorebook`),
       extensions: asRecord(existingBook.extensions),
       entries: [...existingEntries, ...embeddedEntries]
@@ -137,15 +137,15 @@ function worldInfoEntry(entry: WorldEntry, uid: number): JsonRecord {
   }
 }
 
-export async function exportWorldBook(id: number): Promise<ExportResult> {
-  const worldBook = getWorldBook(id)
+export async function exportLoreBook(id: number): Promise<ExportResult> {
+  const loreBook = getLoreBook(id)
   const worldEntries = listWorldEntriesForBook(id)
   const entries = Object.fromEntries(
     worldEntries.map((entry, index) => [String(index), worldInfoEntry(entry, index)])
   )
 
-  return writeExportFile(worldBook.name, {
-    name: worldBook.name,
+  return writeExportFile(loreBook.name, {
+    name: loreBook.name,
     extensions: {},
     entries
   })
