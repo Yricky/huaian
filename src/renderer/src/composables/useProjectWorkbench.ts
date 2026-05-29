@@ -1,7 +1,16 @@
-import { computed, inject, onMounted, provide, ref, type InjectionKey } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type InjectionKey } from 'vue'
 import type {
+  ChatBlock,
+  ChatBlockCreatePayload,
+  ChatGenerationEvent,
+  ChatGenerationRequest,
+  ChatSession,
   CharacterEntry,
   ExportResult,
+  LlmInstance,
+  LlmInstanceCreatePayload,
+  LlmProvider,
+  LlmProviderCreatePayload,
   ProjectSnapshot,
   SidebarView,
   WorldBook,
@@ -22,6 +31,10 @@ export function createProjectWorkbench() {
   const selectedCharacter = ref<CharacterEntry | null>(null)
   const selectedWorldBook = ref<WorldBook | null>(null)
   const selectedWorldEntry = ref<WorldEntry | null>(null)
+  const selectedLlmProvider = ref<LlmProvider | null>(null)
+  const selectedLlmInstance = ref<LlmInstance | null>(null)
+  const selectedChat = ref<ChatSession | null>(null)
+  const generatingChatIds = ref<number[]>([])
 
   const characterTagsText = ref('')
   const characterGreetingsText = ref('')
@@ -44,6 +57,10 @@ export function createProjectWorkbench() {
   const characters = computed(() => project.value?.characters ?? [])
   const worldBooks = computed(() => project.value?.worldBooks ?? [])
   const worldEntries = computed(() => project.value?.worldEntries ?? [])
+  const llmProviders = computed(() => project.value?.llmProviders ?? [])
+  const llmInstances = computed(() => project.value?.llmInstances ?? [])
+  const chats = computed(() => project.value?.chats ?? [])
+  const chatBlocks = computed(() => project.value?.chatBlocks ?? [])
 
   const characterData = computed<Record<string, any>>(() => selectedCharacter.value?.stData?.data as Record<string, any> ?? {})
   const characterExtensions = computed<Record<string, any>>(() => characterData.value.extensions ?? {})
@@ -62,6 +79,32 @@ export function createProjectWorkbench() {
         return a.id - b.id
       })
   })
+
+  const selectedChatBlocks = computed(() => {
+    const chatId = selectedChat.value?.id
+    if (!chatId) return []
+    return chatBlocks.value
+      .filter(block => block.chatId === chatId)
+      .sort((a, b) => {
+        const orderDelta = a.orderIndex - b.orderIndex
+        if (orderDelta !== 0) return orderDelta
+        return a.id - b.id
+      })
+  })
+
+  const selectedChatLlmInstance = computed(() => {
+    const id = selectedChat.value?.llmInstanceId
+    return id === null || id === undefined ? null : llmInstances.value.find(instance => instance.id === id) ?? null
+  })
+
+  const selectedProviderForInstance = computed(() => {
+    const id = selectedLlmInstance.value?.providerId
+    return id === null || id === undefined ? null : llmProviders.value.find(provider => provider.id === id) ?? null
+  })
+
+  const isSelectedChatGenerating = computed(() => (
+    Boolean(selectedChat.value && generatingChatIds.value.includes(selectedChat.value.id))
+  ))
 
   const characterSelectedWorldBook = computed(() => {
     const worldBookId = selectedCharacter.value?.forgeData.worldBookId
@@ -205,11 +248,32 @@ export function createProjectWorkbench() {
     if (selectedWorldBook.value) rememberWorldBookSnapshot()
   }
 
+  function refreshSelectedLlmProvider() {
+    if (!selectedLlmProvider.value) return
+    const fresh = llmProviders.value.find(item => item.id === selectedLlmProvider.value?.id)
+    selectedLlmProvider.value = fresh ? clone(fresh) : null
+  }
+
+  function refreshSelectedLlmInstance() {
+    if (!selectedLlmInstance.value) return
+    const fresh = llmInstances.value.find(item => item.id === selectedLlmInstance.value?.id)
+    selectedLlmInstance.value = fresh ? clone(fresh) : null
+  }
+
+  function refreshSelectedChat() {
+    if (!selectedChat.value) return
+    const fresh = chats.value.find(item => item.id === selectedChat.value?.id)
+    selectedChat.value = fresh ? clone(fresh) : null
+  }
+
   async function loadProject() {
     project.value = await window.electronAPI.getProject()
     if (project.value) {
       if (!selectedCharacter.value && characters.value.length) selectCharacter(characters.value[0])
       if (!selectedWorldBook.value && worldBooks.value.length) selectWorldBook(worldBooks.value[0])
+      if (!selectedLlmProvider.value && llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
+      if (!selectedLlmInstance.value && llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
+      if (!selectedChat.value && chats.value.length) selectedChat.value = clone(chats.value[0])
     }
   }
 
@@ -221,8 +285,14 @@ export function createProjectWorkbench() {
         selectedCharacter.value = null
         selectedWorldBook.value = null
         selectedWorldEntry.value = null
+        selectedLlmProvider.value = null
+        selectedLlmInstance.value = null
+        selectedChat.value = null
         if (characters.value.length) selectCharacter(characters.value[0])
         if (worldBooks.value.length) selectWorldBook(worldBooks.value[0])
+        if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
+        if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
+        if (chats.value.length) selectedChat.value = clone(chats.value[0])
         showToast('项目已打开', 'success')
       }
     } catch (error) {
@@ -448,6 +518,302 @@ export function createProjectWorkbench() {
     rememberWorldBookSnapshot()
   }
 
+  function replaceLlmProvider(provider: LlmProvider) {
+    if (!project.value) return
+    const index = project.value.llmProviders.findIndex(item => item.id === provider.id)
+    if (index >= 0) project.value.llmProviders[index] = provider
+    else project.value.llmProviders.unshift(provider)
+    selectedLlmProvider.value = clone(provider)
+  }
+
+  function replaceLlmInstance(instance: LlmInstance) {
+    if (!project.value) return
+    const index = project.value.llmInstances.findIndex(item => item.id === instance.id)
+    if (index >= 0) project.value.llmInstances[index] = instance
+    else project.value.llmInstances.unshift(instance)
+    selectedLlmInstance.value = clone(instance)
+    refreshSelectedChat()
+  }
+
+  function replaceChat(chat: ChatSession) {
+    if (!project.value) return
+    const index = project.value.chats.findIndex(item => item.id === chat.id)
+    if (index >= 0) project.value.chats[index] = chat
+    else project.value.chats.unshift(chat)
+    selectedChat.value = clone(chat)
+  }
+
+  function replaceChatBlock(block: ChatBlock) {
+    if (!project.value) return
+    const index = project.value.chatBlocks.findIndex(item => item.id === block.id)
+    if (index >= 0) project.value.chatBlocks[index] = block
+    else project.value.chatBlocks.push(block)
+  }
+
+  async function refreshProjectSnapshot() {
+    project.value = await window.electronAPI.getProject()
+    if (!project.value) return
+    refreshSelectedLlmProvider()
+    refreshSelectedLlmInstance()
+    refreshSelectedChat()
+  }
+
+  function providerSnapshot(provider: LlmProvider) {
+    return {
+      providerName: provider.name,
+      type: provider.type,
+      config: clone(provider.config)
+    }
+  }
+
+  async function createLlmProvider(payload?: Partial<LlmProviderCreatePayload>) {
+    try {
+      const provider = await window.electronAPI.createLlmProvider(toIpcJson({
+        name: payload?.name ?? '新提供商',
+        type: payload?.type ?? 'openai-compatible',
+        apiKey: payload?.apiKey ?? '',
+        config: payload?.config ?? {}
+      }))
+      replaceLlmProvider(provider)
+      activeView.value = 'settings'
+      showToast('提供商已创建', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function saveLlmProvider(provider: LlmProvider) {
+    try {
+      const saved = await window.electronAPI.updateLlmProvider(toIpcJson({
+        id: provider.id,
+        name: provider.name,
+        type: provider.type,
+        apiKey: provider.apiKey,
+        config: provider.config
+      }))
+      replaceLlmProvider(saved)
+      showToast('提供商已保存', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function deleteSelectedLlmProvider() {
+    if (!selectedLlmProvider.value || !window.confirm('删除当前提供商？LLM 实例会保留，但需要重新绑定 API Key 来源。')) return
+    try {
+      project.value = await window.electronAPI.deleteLlmProvider(selectedLlmProvider.value.id)
+      selectedLlmProvider.value = llmProviders.value[0] ? clone(llmProviders.value[0]) : null
+      refreshSelectedLlmInstance()
+      refreshSelectedChat()
+      showToast('提供商已删除', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function fetchSelectedLlmProviderModels() {
+    if (!selectedLlmProvider.value) return
+    try {
+      const provider = await window.electronAPI.fetchLlmProviderModels(selectedLlmProvider.value.id)
+      replaceLlmProvider(provider)
+      showToast(`已拉取 ${provider.modelsCache.length} 个模型`, 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function clearSelectedLlmProviderModelsCache() {
+    if (!selectedLlmProvider.value) return
+    try {
+      replaceLlmProvider(await window.electronAPI.clearLlmProviderModelsCache(selectedLlmProvider.value.id))
+      showToast('模型缓存已清空', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function restoreProviderFromSelectedInstance() {
+    if (!selectedLlmInstance.value) return
+    try {
+      const provider = await window.electronAPI.restoreLlmProviderFromInstance(selectedLlmInstance.value.id)
+      replaceLlmProvider(provider)
+      showToast('已从 LLM 实例恢复提供商，请补充 API Key', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function createLlmInstance(payload: LlmInstanceCreatePayload) {
+    try {
+      const instance = await window.electronAPI.createLlmInstance(toIpcJson(payload))
+      replaceLlmInstance(instance)
+      activeView.value = 'settings'
+      showToast('LLM 实例已创建', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function saveLlmInstance(instance: LlmInstance) {
+    try {
+      const saved = await window.electronAPI.updateLlmInstance(toIpcJson({
+        id: instance.id,
+        name: instance.name,
+        providerId: instance.providerId,
+        modelId: instance.modelId,
+        providerSnapshot: instance.providerSnapshot,
+        parameters: instance.parameters,
+        extra: instance.extra
+      }))
+      replaceLlmInstance(saved)
+      showToast('LLM 实例已保存', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function deleteSelectedLlmInstance() {
+    if (!selectedLlmInstance.value || !window.confirm('删除当前 LLM 实例？已生成的助手块会保留自己的实例快照。')) return
+    try {
+      project.value = await window.electronAPI.deleteLlmInstance(selectedLlmInstance.value.id)
+      selectedLlmInstance.value = llmInstances.value[0] ? clone(llmInstances.value[0]) : null
+      refreshSelectedChat()
+      showToast('LLM 实例已删除', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  function selectLlmProvider(provider: LlmProvider) {
+    selectedLlmProvider.value = clone(provider)
+  }
+
+  function selectLlmInstance(instance: LlmInstance) {
+    selectedLlmInstance.value = clone(instance)
+  }
+
+  function selectChat(chat: ChatSession) {
+    selectedChat.value = clone(chat)
+  }
+
+  async function createChat() {
+    try {
+      await window.electronAPI.createChat()
+      await refreshProjectSnapshot()
+      selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
+      activeView.value = 'chat'
+      showToast('聊天已创建', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function saveChat(chat: ChatSession) {
+    try {
+      replaceChat(await window.electronAPI.updateChat(toIpcJson({
+        id: chat.id,
+        title: chat.title,
+        llmInstanceId: chat.llmInstanceId
+      })))
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function deleteSelectedChat() {
+    if (!selectedChat.value || !window.confirm('删除当前聊天？其中的所有块会一并删除。')) return
+    try {
+      project.value = await window.electronAPI.deleteChat(selectedChat.value.id)
+      selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
+      showToast('聊天已删除', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function createChatBlock(payload: ChatBlockCreatePayload) {
+    try {
+      const block = await window.electronAPI.createChatBlock(toIpcJson(payload))
+      replaceChatBlock(block)
+      await refreshProjectSnapshot()
+      return block
+    } catch (error) {
+      showToast(errorText(error), 'error')
+      return null
+    }
+  }
+
+  async function saveChatBlock(block: ChatBlock) {
+    try {
+      replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcJson({
+        id: block.id,
+        enabled: block.enabled,
+        title: block.title,
+        summary: block.summary,
+        contentParts: block.contentParts,
+        metadata: block.metadata,
+        targetRole: block.targetRole
+      })))
+      await refreshProjectSnapshot()
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function deleteChatBlock(block: ChatBlock) {
+    try {
+      project.value = await window.electronAPI.deleteChatBlock(block.id)
+      refreshSelectedChat()
+      showToast('聊天块已删除', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function startChatGeneration(payload: ChatGenerationRequest) {
+    try {
+      const result = await window.electronAPI.startChatGeneration(toIpcJson(payload))
+      replaceChatBlock(result.block)
+      if (!generatingChatIds.value.includes(payload.chatId)) {
+        generatingChatIds.value = [...generatingChatIds.value, payload.chatId]
+      }
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function stopChatGeneration(chatId: number) {
+    try {
+      await window.electronAPI.stopChatGeneration(chatId)
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  function handleGenerationEvent(event: ChatGenerationEvent) {
+    if (event.type === 'started') {
+      replaceChatBlock(event.block)
+      if (!generatingChatIds.value.includes(event.chatId)) {
+        generatingChatIds.value = [...generatingChatIds.value, event.chatId]
+      }
+      return
+    }
+
+    if (event.type === 'delta') {
+      const block = chatBlocks.value.find(item => item.id === event.blockId)
+      if (block) {
+        block.contentParts = [{ type: 'text', text: event.content }]
+        block.status = 'generating'
+      }
+      return
+    }
+
+    replaceChatBlock(event.block)
+    generatingChatIds.value = generatingChatIds.value.filter(id => id !== event.chatId)
+    refreshSelectedChat()
+    if (event.type === 'error') showToast(event.error, 'error')
+  }
+
   async function createWorldBook() {
     try {
       const book = await window.electronAPI.createWorldBook()
@@ -532,7 +898,16 @@ export function createProjectWorkbench() {
     }
   }
 
-  onMounted(loadProject)
+  let unsubscribeGenerationEvents: (() => void) | null = null
+
+  onMounted(() => {
+    void loadProject()
+    unsubscribeGenerationEvents = window.electronAPI.onChatGenerationEvent(handleGenerationEvent)
+  })
+
+  onBeforeUnmount(() => {
+    unsubscribeGenerationEvents?.()
+  })
 
   return {
     activeView,
@@ -547,13 +922,25 @@ export function createProjectWorkbench() {
     characterSelectedWorldBook,
     characterTagsText,
     characters,
+    chatBlocks,
+    chats,
     clearCharacterWorldBook,
+    clearSelectedLlmProviderModelsCache,
+    createChat,
+    createChatBlock,
     createCharacter,
+    createLlmInstance,
+    createLlmProvider,
     createWorldBook,
     createWorldEntry,
+    deleteChatBlock,
+    deleteSelectedChat,
     deleteSelectedCharacter,
+    deleteSelectedLlmInstance,
+    deleteSelectedLlmProvider,
     deleteSelectedWorldBook,
     deleteSelectedWorldEntry,
+    fetchSelectedLlmProviderModels,
     depthPrompt,
     draggingWorldBookIndex,
     entrySummary,
@@ -561,18 +948,37 @@ export function createProjectWorkbench() {
     exportSelectedCharacter,
     exportSelectedWorldBook,
     formatDate,
+    generatingChatIds,
     isCharacterWorldBookSelected,
+    isSelectedChatGenerating,
     isWorldEntryExpanded,
+    llmInstances,
+    llmProviders,
     moveWorldBookEntry,
     openProject,
     project,
+    providerSnapshot,
+    restoreProviderFromSelectedInstance,
     saveCharacter,
     saveCharacterAdvanced,
+    saveChat,
+    saveChatBlock,
     saveWorldBook,
+    saveLlmInstance,
+    saveLlmProvider,
     saveWorldEntry,
     saveWorldEntryAdvanced,
+    selectChat,
     selectCharacter,
+    selectLlmInstance,
+    selectLlmProvider,
     selectedCharacter,
+    selectedChat,
+    selectedChatBlocks,
+    selectedChatLlmInstance,
+    selectedLlmInstance,
+    selectedLlmProvider,
+    selectedProviderForInstance,
     selectedWorldBook,
     selectedWorldBookEntries,
     selectedWorldEntry,
@@ -580,7 +986,9 @@ export function createProjectWorkbench() {
     selectWorldBook,
     selectWorldEntry,
     showToast,
+    startChatGeneration,
     startWorldEntryDrag,
+    stopChatGeneration,
     toggleWorldEntry,
     toasts,
     worldBookEntryCount,

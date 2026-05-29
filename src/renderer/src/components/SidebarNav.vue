@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { MdMenuBook, MdPerson } from 'vue-icons-plus/md'
+import { MdChat, MdMenuBook, MdPerson, MdSettings } from 'vue-icons-plus/md'
 import type { SidebarView } from '@/shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
@@ -14,7 +14,9 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { view: 'characters', label: '角色卡', icon: MdPerson },
-  { view: 'worldBooks', label: '世界书', icon: MdMenuBook }
+  { view: 'worldBooks', label: '世界书', icon: MdMenuBook },
+  { view: 'chat', label: '聊天', icon: MdChat },
+  { view: 'settings', label: '设置', icon: MdSettings }
 ]
 </script>
 

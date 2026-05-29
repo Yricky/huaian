@@ -217,6 +217,19 @@ function scrollToTop() {
   scrollTop.value = 0
 }
 
+function scrollToBottom() {
+  const container = containerRef.value
+  if (!container) return
+  container.scrollTop = container.scrollHeight
+  scrollTop.value = container.scrollTop
+}
+
+function isNearBottom(threshold = 80) {
+  const container = containerRef.value
+  if (!container) return true
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold
+}
+
 watch([itemSignature, () => props.estimatedItemHeight], () => {
   resetPositions()
   measureMountedRows()
@@ -251,7 +264,9 @@ onBeforeUnmount(() => {
 defineExpose({
   autoScrollAtClientY,
   getDropIndexFromClientY,
+  isNearBottom,
   scrollToIndex,
+  scrollToBottom,
   scrollToTop
 })
 </script>
@@ -277,11 +292,16 @@ defineExpose({
 .virtual-list-container {
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   position: relative;
 }
 
 .virtual-list-phantom {
+  max-width: 100%;
+  min-width: 0;
   position: relative;
   width: 100%;
 }
@@ -289,6 +309,10 @@ defineExpose({
 .virtual-list-item {
   position: absolute;
   left: 0;
+  right: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
   width: 100%;
 }
 </style>
