@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { MdDeleteOutline, MdPlayArrow, MdPostAdd } from 'vue-icons-plus/md'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { MdDeleteOutline, MdMoreVert, MdPostAdd, MdVisibility } from 'vue-icons-plus/md'
 import type {
   ChatBlock,
   ChatBlockCreatePayload,
+  ChatGenerationPreview,
   ChatGenerationRequest,
   ChatSession,
   LlmInstance
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
+import JsonDialog from './JsonDialog.vue'
 import VirtualList from './VirtualList.vue'
 
 type ChatListItem =
@@ -33,6 +35,7 @@ const props = defineProps<{
   deleteChatBlock: (block: ChatBlock) => Promise<void>
   frozen: boolean
   llmInstances: LlmInstance[]
+  previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreview | null>
   saveChat: (chat: ChatSession) => Promise<void>
   saveChatBlock: (block: ChatBlock) => Promise<void>
   startChatGeneration: (payload: ChatGenerationRequest) => Promise<void>
@@ -42,6 +45,11 @@ const props = defineProps<{
 const listRef = ref<VirtualListExpose | null>(null)
 const shouldFollow = ref(true)
 const titleDraft = ref('')
+const menuOpen = ref(false)
+const menuButtonRef = ref<HTMLButtonElement | null>(null)
+const menuRef = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({})
+const contextPreview = ref<ChatGenerationPreview | null>(null)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
 
 const hasSystemBlock = computed(() => props.blocks.some(block => block.kind === 'system'))
@@ -56,6 +64,8 @@ const chatListItems = computed<ChatListItem[]>(() => [
 watch(() => props.chat.id, () => {
   titleDraft.value = props.chat.title
   blockRowRefs.clear()
+  menuOpen.value = false
+  contextPreview.value = null
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
 }, { immediate: true })
@@ -69,6 +79,22 @@ watch(() => props.blocks, () => {
     nextTick(() => listRef.value?.scrollToBottom())
   }
 }, { deep: true })
+
+watch(menuOpen, (open) => {
+  if (open) {
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    nextTick(updateMenuPosition)
+    return
+  }
+
+  removeMenuListeners()
+})
+
+onBeforeUnmount(() => {
+  removeMenuListeners()
+})
 
 function chatListItemKey(item: ChatListItem) {
   return item.type === 'block' ? `block-${item.block.id}` : item.id
@@ -93,6 +119,48 @@ function setBlockRowRef(blockId: number, element: unknown) {
 
 function beforeListMutation() {
   shouldFollow.value = listRef.value?.isNearBottom(100) ?? true
+}
+
+function removeMenuListeners() {
+  window.removeEventListener('click', closeMenu)
+  window.removeEventListener('resize', closeMenu)
+  window.removeEventListener('scroll', closeMenu, true)
+}
+
+function closeMenu() {
+  menuOpen.value = false
+}
+
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+  if (menuOpen.value) {
+    nextTick(updateMenuPosition)
+  }
+}
+
+function updateMenuPosition() {
+  const button = menuButtonRef.value
+  if (!button) return
+
+  const rect = button.getBoundingClientRect()
+  const width = 220
+  const gap = 6
+  const margin = 8
+  const height = menuRef.value?.offsetHeight ?? 48
+  const left = Math.min(
+    window.innerWidth - width - margin,
+    Math.max(margin, rect.right - width)
+  )
+  const preferredTop = rect.bottom + gap
+  const top = preferredTop + height > window.innerHeight - margin
+    ? Math.max(margin, rect.top - height - gap)
+    : preferredTop
+
+  menuStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`
+  }
 }
 
 async function saveTitle() {
@@ -155,6 +223,20 @@ async function saveEditingBlocks() {
   }
 }
 
+async function showGenerationPreview() {
+  if (props.frozen) return
+  menuOpen.value = false
+  await saveEditingBlocks()
+  const preview = await props.previewChatGeneration({ chatId: props.chat.id })
+  if (preview) contextPreview.value = preview
+}
+
+async function deleteCurrentChat() {
+  if (props.frozen) return
+  menuOpen.value = false
+  await props.deleteChat()
+}
+
 async function generateReply() {
   if (!canGenerateReply.value) return
   beforeListMutation()
@@ -180,75 +262,65 @@ async function removeBlock(block: ChatBlock) {
   <main class="chat-workspace">
     <header class="chat-header">
       <div class="chat-title-area">
-        <input
-          v-model="titleDraft"
-          class="chat-title-input"
-          aria-label="聊天名称"
-          @blur="saveTitle"
-          @keydown.enter.prevent="saveTitle"
-        />
+        <input v-model="titleDraft" class="chat-title-input" aria-label="聊天名称" @blur="saveTitle"
+          @keydown.enter.prevent="saveTitle" />
       </div>
 
       <div class="button-row">
-        <button v-if="!hasSystemBlock" class="outline-button" type="button" :disabled="frozen" @click="addSystemBlock">添加系统提示词</button>
-        <button class="toolbar-button" type="button" aria-label="删除聊天" data-tooltip="删除聊天" :disabled="frozen" @click="deleteChat">
-          <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
+        <button v-if="!hasSystemBlock" class="outline-button" type="button" :disabled="frozen"
+          @click="addSystemBlock">添加系统提示词</button>
+        <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
+          :disabled="frozen" @click.stop="toggleMenu">
+          <MdMoreVert class="toolbar-icon" aria-hidden="true" />
         </button>
       </div>
     </header>
 
-    <VirtualList
-      ref="listRef"
-      class="chat-block-list"
-      :items="chatListItems"
-      :item-key="chatListItemKey"
-      :estimated-item-height="180"
-      :buffer-size="6"
-    >
+    <VirtualList ref="listRef" class="chat-block-list" :items="chatListItems" :item-key="chatListItemKey"
+      :estimated-item-height="180" :buffer-size="6">
       <template #item="{ item: chatItem }">
-        <ChatBlockRow
-          v-if="chatItem.type === 'block'"
-          :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
-          :block="chatItem.block"
-          :frozen="frozen"
-          @save="saveChatBlock"
-          @delete="removeBlock"
-          @regenerate="regenerate"
-          @stop="stopChatGeneration"
-        />
+        <ChatBlockRow v-if="chatItem.type === 'block'" :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
+          :block="chatItem.block" :frozen="frozen" @save="saveChatBlock" @delete="removeBlock" @regenerate="regenerate"
+          @stop="stopChatGeneration" />
         <div v-else class="chat-action-strip">
-          <button
-            class="md3-pill-button input-pill"
-            type="button"
-            :disabled="frozen"
-            @click="addUserBlockForEditing"
-          >
+          <button class="md3-pill-button input-pill" type="button" :disabled="frozen" @click="addUserBlockForEditing">
             <MdPostAdd class="button-icon" aria-hidden="true" />输入用户内容
           </button>
 
           <div class="md3-pill-combo">
-            <button class="md3-pill-combo-trigger" type="button" :disabled="!canGenerateReply" @click="generateReply">
-              <MdPlayArrow class="button-icon" aria-hidden="true" />使用
-            </button>
-            <select
-              class="md3-pill-select"
-              :value="chat.llmInstanceId ?? ''"
-              :disabled="frozen"
-              aria-label="LLM 实例"
-              @change="selectLlmInstance"
-            >
+            <select class="md3-pill-select" :value="chat.llmInstanceId ?? ''" :disabled="frozen" aria-label="LLM 实例"
+              @change="selectLlmInstance">
               <option value="">未选择 LLM 实例</option>
               <option v-for="instance in llmInstances" :key="instance.id" :value="instance.id">
-                {{ instance.name }} · {{ instance.modelId }}
+                {{ instance.name }}
               </option>
             </select>
-            <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply" @click="generateReply">
+            <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
+              @click="generateReply">
               生成回复
             </button>
           </div>
         </div>
       </template>
     </VirtualList>
+
+    <Teleport to="body">
+      <div v-if="menuOpen" ref="menuRef" class="workspace-menu" :style="menuStyle" @click.stop>
+        <button type="button" @click="showGenerationPreview">
+          <MdVisibility class="menu-icon" aria-hidden="true" />查看将要发送的上下文
+        </button>
+        <button class="danger-menu-item" type="button" @click="deleteCurrentChat">
+          <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除聊天
+        </button>
+      </div>
+    </Teleport>
+
+    <JsonDialog
+      v-if="contextPreview"
+      title="将要发送的上下文"
+      :value="contextPreview"
+      @close="contextPreview = null"
+    />
   </main>
 </template>
 
@@ -396,5 +468,45 @@ async function removeBlock(block: ChatBlock) {
   flex-shrink: 0;
   margin-right: 4px;
   vertical-align: -4px;
+}
+
+.workspace-menu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(32, 39, 49, 0.14);
+}
+
+.workspace-menu button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #303a49;
+  padding: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.workspace-menu button:hover:not(:disabled) {
+  background: #f1f5fa;
+}
+
+.danger-menu-item {
+  color: #9d2c2c !important;
+}
+
+.menu-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
 </style>

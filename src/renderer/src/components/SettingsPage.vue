@@ -8,6 +8,7 @@ import type {
   JsonRecord
 } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
+import JsonEditor from './JsonEditor.vue'
 
 const providerTypes: { value: LlmProviderType; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
@@ -74,7 +75,12 @@ watch([selectedLlmProvider, selectedLlmInstance], ([provider, instance]) => {
 function selectedProviderConfig() {
   if (!providerDraft.value) return null
   try {
-    return JSON.parse(providerConfigJson.value)
+    const value = JSON.parse(providerConfigJson.value)
+    if (!isJsonRecord(value)) {
+      window.alert('Provider 高级 JSON 必须是对象。')
+      return null
+    }
+    return value
   } catch {
     window.alert('Provider 高级 JSON 格式不正确。')
     return null
@@ -298,7 +304,7 @@ function selectModel(modelId: string) {
               <input :value="providerBaseURL(providerDraft)" placeholder="按 provider 默认值留空" @input="setProviderBaseURL(($event.target as HTMLInputElement).value)" />
             </label>
             <label>高级 JSON
-              <textarea v-model="providerConfigJson" rows="6" spellcheck="false" />
+              <JsonEditor v-model="providerConfigJson" :rows="6" aria-label="提供商高级 JSON" />
             </label>
           </div>
 
@@ -360,7 +366,9 @@ function selectModel(modelId: string) {
             <span>当前密钥来源：{{ instanceBoundProvider?.name || '无' }}</span>
           </div>
 
-          <label>请求配置 JSON<textarea v-model="instanceExtraJson" rows="12" spellcheck="false" /></label>
+          <label>请求配置 JSON
+            <JsonEditor v-model="instanceExtraJson" :rows="12" aria-label="LLM 实例请求配置 JSON" />
+          </label>
         </div>
         <p v-else class="empty-note">还没有 LLM 实例。先选择提供商并输入模型 ID 创建一个。</p>
       </section>

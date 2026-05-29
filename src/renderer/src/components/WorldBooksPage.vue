@@ -4,6 +4,7 @@ import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload } from 
 import type { WorldBook, WorldEntry } from '../../../shared/types'
 import { worldEntryFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
+import JsonEditor from './JsonEditor.vue'
 import VirtualGrid from './VirtualGrid.vue'
 import VirtualList from './VirtualList.vue'
 
@@ -386,7 +387,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <label class="json-block"><span class="field-title" :data-tooltip="worldEntryFieldHints.advancedJson">高级 JSON</span>
-                  <textarea v-model="worldEntryAdvancedJson" rows="14" spellcheck="false" @blur="saveWorldEntryAdvanced" />
+                  <JsonEditor v-model="worldEntryAdvancedJson" :rows="14" aria-label="世界书条目高级 JSON" @blur="saveWorldEntryAdvanced" />
                 </label>
               </div>
             </article>

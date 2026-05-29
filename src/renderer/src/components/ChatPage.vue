@@ -13,6 +13,7 @@ const {
   generatingChatIds,
   isSelectedChatGenerating,
   llmInstances,
+  previewChatGeneration,
   saveChat,
   saveChatBlock,
   selectChat,
@@ -61,6 +62,7 @@ function chatKey(chat: ChatSession) {
       :delete-chat-block="deleteChatBlock"
       :frozen="isSelectedChatGenerating"
       :llm-instances="llmInstances"
+      :preview-chat-generation="previewChatGeneration"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"
       :start-chat-generation="startChatGeneration"

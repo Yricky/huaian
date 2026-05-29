@@ -265,6 +265,38 @@ export interface ChatGenerationRequest {
   regenerateBlockId?: number | null
 }
 
+export interface ChatGenerationPreviewMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string | ChatContentPart[]
+}
+
+export interface ChatGenerationPreview {
+  request: ChatGenerationRequest
+  chat: ChatSession
+  llmInstance: LlmInstance
+  provider: {
+    id: number
+    name: string
+    type: LlmProviderType
+    config: JsonRecord
+    hasApiKey: boolean
+  }
+  streamTextOptions: JsonRecord & {
+    model: {
+      providerName: string
+      providerType: LlmProviderType
+      modelId: string
+    }
+    messages: ChatGenerationPreviewMessage[]
+  }
+  contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'status' | 'orderIndex' | 'title' | 'summary'> & {
+    sendReasoning: boolean
+    text: string
+    reasoning: string
+  }>
+  requestBlockIds: number[]
+}
+
 export interface ChatGenerationStartResult {
   block: ChatBlock
 }

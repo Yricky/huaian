@@ -2,6 +2,7 @@
 import { MdAdd, MdDeleteOutline, MdFileDownload } from 'vue-icons-plus/md'
 import { characterFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
+import JsonEditor from './JsonEditor.vue'
 
 const {
   characterAdvancedJson,
@@ -129,7 +130,7 @@ const {
       </div>
 
       <label class="json-block"><span class="field-title" :data-tooltip="characterFieldHints.advancedJson">高级 JSON</span>
-        <textarea v-model="characterAdvancedJson" rows="14" spellcheck="false" @blur="saveCharacterAdvanced" />
+        <JsonEditor v-model="characterAdvancedJson" :rows="14" aria-label="角色卡高级 JSON" @blur="saveCharacterAdvanced" />
       </label>
     </div>
   </section>

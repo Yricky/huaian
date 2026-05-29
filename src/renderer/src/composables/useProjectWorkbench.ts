@@ -3,6 +3,7 @@ import type {
   ChatBlock,
   ChatBlockCreatePayload,
   ChatGenerationEvent,
+  ChatGenerationPreview,
   ChatGenerationRequest,
   ChatSession,
   CharacterEntry,
@@ -913,6 +914,15 @@ export function createProjectWorkbench() {
     }
   }
 
+  async function previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreview | null> {
+    try {
+      return await window.electronAPI.previewChatGeneration(toIpcJson(payload))
+    } catch (error) {
+      showToast(errorText(error), 'error')
+      return null
+    }
+  }
+
   async function stopChatGeneration(chatId: number) {
     try {
       await window.electronAPI.stopChatGeneration(chatId)
@@ -1091,6 +1101,7 @@ export function createProjectWorkbench() {
     llmProviders,
     moveWorldBookEntry,
     openProject,
+    previewChatGeneration,
     promptSnippets,
     promptTags,
     project,

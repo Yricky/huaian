@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MdCheck, MdClose, MdDeleteOutline, MdEdit, MdMoreVert, MdPsychology, MdReplay, MdStop, MdVisibility, MdVisibilityOff } from 'vue-icons-plus/md'
 import type { ChatBlock } from '../../../shared/types'
+import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
 const props = defineProps<{
@@ -51,6 +52,18 @@ const blockSubMeta = computed(() => [statusLabel.value, sentAtLabel.value, token
 const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
 const canEdit = computed(() => !props.frozen && props.block.status !== 'generating')
 const showMarkdown = computed(() => !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const detailJson = computed(() => ({
+  id: props.block.id,
+  kind: props.block.kind,
+  targetRole: props.block.targetRole,
+  enabled: props.block.enabled,
+  status: props.block.status,
+  requestBlockIds: props.block.requestBlockIds,
+  sendReasoning: props.block.metadata.sendReasoning === true,
+  llmInstanceSnapshot: props.block.llmInstanceSnapshot,
+  errorText: props.block.errorText,
+  content: text.value
+}))
 
 watch(() => props.block.id, () => {
   editing.value = false
@@ -267,30 +280,9 @@ defineExpose({
       <button v-if="block.errorText" type="button" class="error-detail" @click="detailOpen = true">错误详情</button>
     </footer>
 
-    <Teleport to="body">
-      <div v-if="detailOpen" class="block-dialog" role="dialog" aria-modal="true" @click.self="detailOpen = false">
-        <div class="block-dialog-panel">
-          <header>
-            <strong>块详情</strong>
-            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="detailOpen = false">
-              <MdClose class="toolbar-icon" aria-hidden="true" />
-            </button>
-          </header>
-          <pre>{{ JSON.stringify({
-            id: block.id,
-            kind: block.kind,
-            targetRole: block.targetRole,
-            enabled: block.enabled,
-            status: block.status,
-            requestBlockIds: block.requestBlockIds,
-            sendReasoning: block.metadata.sendReasoning === true,
-            llmInstanceSnapshot: block.llmInstanceSnapshot,
-            errorText: block.errorText,
-            content: text
-          }, null, 2) }}</pre>
-        </div>
-      </div>
+    <JsonDialog v-if="detailOpen" title="块详情" :value="detailJson" @close="detailOpen = false" />
 
+    <Teleport to="body">
       <div v-if="menuOpen" ref="menuRef" class="block-menu" :style="menuStyle" @click.stop>
         <button v-if="editing" type="button" @click="saveEdit">
           <MdCheck class="menu-icon" aria-hidden="true" />保存
@@ -552,39 +544,4 @@ defineExpose({
   color: #9d2c2c !important;
 }
 
-.block-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 160;
-  display: grid;
-  place-items: center;
-  background: rgba(25, 31, 39, 0.34);
-  padding: 24px;
-}
-
-.block-dialog-panel {
-  width: min(760px, 92vw);
-  max-height: min(720px, 86vh);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 18px 50px rgba(26, 33, 42, 0.26);
-}
-
-.block-dialog-panel header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #edf0f4;
-  padding: 8px 10px;
-}
-
-.block-dialog-panel pre {
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-  font: 12px/1.5 "SF Mono", ui-monospace, Menlo, Monaco, monospace;
-  white-space: pre-wrap;
-}
 </style>

@@ -5,6 +5,7 @@ import type {
   ChatContentPart,
   ChatBlockTokenUsage,
   ChatGenerationEvent,
+  ChatGenerationPreview,
   ChatGenerationRequest,
   ChatGenerationStartResult,
   JsonRecord,
@@ -265,6 +266,47 @@ function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): Js
   return settings
 }
 
+function redactSensitiveValue(key: string, value: unknown): unknown {
+  if (/api[-_ ]?key|authorization|bearer|password|secret|token/i.test(key)) {
+    return value ? '[redacted]' : value
+  }
+  return redactSensitiveFields(value)
+}
+
+function redactSensitiveFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(item => redactSensitiveFields(item))
+  if (!value || typeof value !== 'object') return value
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, fieldValue]) => [
+      key,
+      redactSensitiveValue(key, fieldValue)
+    ])
+  )
+}
+
+function redactedRecord(value: JsonRecord): JsonRecord {
+  return asRecord(redactSensitiveFields(value))
+}
+
+function redactedLlmInstance(instance: LlmInstance): LlmInstance {
+  return {
+    ...instance,
+    providerSnapshot: {
+      ...instance.providerSnapshot,
+      config: redactedRecord(instance.providerSnapshot.config)
+    },
+    extra: redactedRecord(instance.extra)
+  }
+}
+
+function previewGenerationSettings(instance: LlmInstance): JsonRecord {
+  return {
+    ...redactedRecord(generationSettings(instance, new AbortController().signal)),
+    abortSignal: '[AbortSignal]'
+  }
+}
+
 function blockRole(block: ChatBlock): 'system' | 'user' | 'assistant' {
   return block.kind === 'injection' ? block.targetRole : block.kind as 'system' | 'user' | 'assistant'
 }
@@ -298,6 +340,69 @@ function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number |
   if (!target) throw new Error('要重新生成的助手块不存在。')
   if (target.kind !== 'assistant') throw new Error('只能重新生成助手块。')
   return blocks.filter(block => block.orderIndex < target.orderIndex)
+}
+
+export function previewChatGeneration(request: ChatGenerationRequest): ChatGenerationPreview {
+  const chat = getChat(request.chatId)
+  if (!chat.llmInstanceId) {
+    throw new Error('请先为当前聊天选择 LLM 实例。')
+  }
+
+  const instance = getLlmInstance(chat.llmInstanceId)
+  if (!instance.providerId) {
+    throw new Error('当前 LLM 实例没有绑定提供商，无法读取 API Key。')
+  }
+
+  const provider = getLlmProvider(instance.providerId)
+  const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
+    .filter(block => block.id !== request.regenerateBlockId)
+  const messages = requestMessages(contextBlocks)
+  if (!messages.length) {
+    throw new Error('没有可发送的内容块。')
+  }
+
+  const requestBlockIds = contextBlocks
+    .filter(block => block.enabled && (blockText(block).trim().length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && blockReasoningText(block).trim().length > 0)))
+    .map(block => block.id)
+
+  return {
+    request: {
+      chatId: request.chatId,
+      regenerateBlockId: request.regenerateBlockId ?? null
+    },
+    chat,
+    llmInstance: redactedLlmInstance(instance),
+    provider: {
+      id: provider.id,
+      name: provider.name,
+      type: provider.type,
+      config: redactedRecord(provider.config),
+      hasApiKey: provider.apiKey.trim().length > 0
+    },
+    streamTextOptions: {
+      ...previewGenerationSettings(instance),
+      model: {
+        providerName: instance.providerSnapshot.providerName,
+        providerType: instance.providerSnapshot.type,
+        modelId: instance.modelId
+      },
+      messages
+    },
+    contextBlocks: contextBlocks.map(block => ({
+      id: block.id,
+      kind: block.kind,
+      targetRole: block.targetRole,
+      enabled: block.enabled,
+      status: block.status,
+      orderIndex: block.orderIndex,
+      title: block.title,
+      summary: block.summary,
+      sendReasoning: shouldSendReasoning(block),
+      text: blockText(block),
+      reasoning: blockReasoningText(block)
+    })),
+    requestBlockIds
+  }
 }
 
 function isAbortError(error: unknown): boolean {

@@ -17,7 +17,7 @@ import type {
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
-import { fetchProviderModels, hasActiveGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { exportCharacter, exportWorldBook } from './project/exporters'
 import { hasProject } from './project/state'
 import {
@@ -148,6 +148,9 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle('chat:startGeneration', (event, payload: IpcJsonPayload<ChatGenerationRequest>) => (
     startChatGeneration(parseIpcPayload(payload), event.sender)
+  ))
+  ipcMain.handle('chat:previewGeneration', (_, payload: IpcJsonPayload<ChatGenerationRequest>) => (
+    previewChatGeneration(parseIpcPayload(payload))
   ))
   ipcMain.handle('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
 
