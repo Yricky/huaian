@@ -802,7 +802,7 @@ export function createProjectWorkbench() {
     if (event.type === 'delta') {
       const block = chatBlocks.value.find(item => item.id === event.blockId)
       if (block) {
-        block.contentParts = [{ type: 'text', text: event.content }]
+        block.contentParts = event.contentParts
         block.status = 'generating'
       }
       return

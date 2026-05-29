@@ -85,25 +85,24 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .markdown-view {
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  overflow-wrap: anywhere;
 }
 
-.markdown-view :deep(.sm-root),
 .markdown-view :deep(.sm-block),
-.markdown-view :deep(.sm-paragraph),
-.markdown-view :deep(.sm-line),
-.markdown-view :deep(.sm-code-line) {
+.markdown-view :deep(.sm-paragraph) {
   max-width: 100%;
   min-width: 0;
 }
 
 .markdown-view :deep(.sm-line),
 .markdown-view :deep(.sm-code-line) {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+  min-width: 0;
+  overflow-wrap: normal;
+  white-space: pre;
 }
 
 .markdown-view :deep(.sm-code),

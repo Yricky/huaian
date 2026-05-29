@@ -166,7 +166,12 @@ export interface TextContentPart {
   text: string
 }
 
-export type ChatContentPart = TextContentPart
+export interface ReasoningContentPart {
+  type: 'reasoning'
+  text: string
+}
+
+export type ChatContentPart = TextContentPart | ReasoningContentPart
 
 export interface ChatBlock {
   id: number
@@ -219,7 +224,7 @@ export interface ChatGenerationStartResult {
 
 export type ChatGenerationEvent =
   | { type: 'started'; chatId: number; block: ChatBlock }
-  | { type: 'delta'; chatId: number; blockId: number; text: string; content: string }
+  | { type: 'delta'; chatId: number; blockId: number; text: string; content: string; contentParts: ChatContentPart[] }
   | { type: 'finished'; chatId: number; block: ChatBlock }
   | { type: 'stopped'; chatId: number; block: ChatBlock }
   | { type: 'error'; chatId: number; block: ChatBlock; error: string }

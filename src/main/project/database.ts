@@ -174,8 +174,11 @@ function normalizeContentParts(value: unknown): ChatContentPart[] {
   if (!Array.isArray(value)) return []
   return value
     .map(part => asRecord(part))
-    .filter(part => part.type === 'text')
-    .map(part => ({ type: 'text' as const, text: asString(part.text) }))
+    .filter(part => part.type === 'text' || part.type === 'reasoning')
+    .map(part => ({
+      type: part.type as 'text' | 'reasoning',
+      text: asString(part.text)
+    }))
 }
 
 function normalizeBlockKind(value: unknown): ChatBlockKind {

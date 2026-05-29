@@ -36,7 +36,11 @@ const titleDraft = ref('')
 
 const hasSystemBlock = computed(() => selectedChatBlocks.value.some(block => block.kind === 'system'))
 const hasSendableBlocks = computed(() => selectedChatBlocks.value.some(block => (
-  block.enabled && block.contentParts.some(part => part.text.trim())
+  block.enabled && block.contentParts.some(part => (
+    part.type === 'text'
+      ? part.text.trim()
+      : block.kind === 'assistant' && block.metadata.sendReasoning === true && part.text.trim()
+  ))
 )))
 const selectedChatFrozen = computed(() => isSelectedChatGenerating.value)
 

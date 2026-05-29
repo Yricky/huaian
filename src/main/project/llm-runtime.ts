@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 import { streamText } from 'ai'
 import type {
   ChatBlock,
+  ChatContentPart,
   ChatGenerationEvent,
   ChatGenerationRequest,
   ChatGenerationStartResult,
@@ -25,7 +26,7 @@ import {
 
 type ModelMessage = {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | ChatContentPart[]
 }
 
 interface ActiveGeneration {
@@ -62,7 +63,22 @@ function ensureBaseURL(value: string, fallback: string): string {
 }
 
 function blockText(block: ChatBlock): string {
-  return block.contentParts.map(part => part.text).join('')
+  return block.contentParts.filter(part => part.type === 'text').map(part => part.text).join('')
+}
+
+function blockReasoningText(block: ChatBlock): string {
+  return block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join('')
+}
+
+function shouldSendReasoning(block: ChatBlock): boolean {
+  return block.metadata.sendReasoning === true
+}
+
+function generationParts(reasoning: string, text: string): ChatContentPart[] {
+  const parts: ChatContentPart[] = []
+  if (reasoning.length > 0) parts.push({ type: 'reasoning', text: reasoning })
+  parts.push({ type: 'text', text })
+  return parts
 }
 
 function sendEvent(webContents: WebContents, event: ChatGenerationEvent): void {
@@ -218,12 +234,23 @@ function blockRole(block: ChatBlock): 'system' | 'user' | 'assistant' {
 function requestMessages(blocks: ChatBlock[]): ModelMessage[] {
   return blocks
     .filter(block => block.enabled)
-    .map(block => ({ block, content: blockText(block).trim() }))
-    .filter(({ content }) => content.length > 0)
-    .map(({ block, content }) => ({
-      role: blockRole(block),
-      content
-    }))
+    .map(block => {
+      const text = blockText(block).trim()
+      const reasoning = blockReasoningText(block).trim()
+      return { block, reasoning, text }
+    })
+    .filter(({ block, reasoning, text }) => text.length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && reasoning.length > 0))
+    .map(({ block, reasoning, text }) => {
+      const role = blockRole(block)
+      if (role === 'assistant' && shouldSendReasoning(block) && reasoning.length > 0) {
+        const content: ChatContentPart[] = [
+          { type: 'reasoning', text: reasoning }
+        ]
+        if (text.length > 0) content.push({ type: 'text', text })
+        return { role, content }
+      }
+      return { role, content: text }
+    })
 }
 
 function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): ChatBlock[] {
@@ -248,12 +275,13 @@ async function runGeneration(
   abortController: AbortController
 ): Promise<void> {
   let content = ''
+  let reasoning = ''
   let lastPersistAt = 0
   const persist = (force = false) => {
     const now = Date.now()
     if (!force && now - lastPersistAt < 500) return
     lastPersistAt = now
-    updateAssistantGenerationBlock(generationBlock.id, content, 'generating', false)
+    updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'generating', false)
   }
 
   try {
@@ -264,25 +292,32 @@ async function runGeneration(
       messages: requestMessages(blocks)
     } as any)
 
-    for await (const text of result.textStream) {
-      content += text
+    for await (const part of result.fullStream) {
+      if (part.type !== 'text-delta' && part.type !== 'reasoning-delta') continue
+      const text = part.text
+      if (part.type === 'reasoning-delta') {
+        reasoning += text
+      } else {
+        content += text
+      }
       persist()
       sendEvent(webContents, {
         type: 'delta',
         chatId: generationBlock.chatId,
         blockId: generationBlock.id,
         text,
-        content
+        content,
+        contentParts: generationParts(reasoning, content)
       })
     }
 
-    const block = updateAssistantGenerationBlock(generationBlock.id, content, 'idle', content.trim().length > 0)
+    const block = updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'idle', content.trim().length > 0)
     sendEvent(webContents, { type: 'finished', chatId: generationBlock.chatId, block })
   } catch (error) {
     if (isAbortError(error) || abortController.signal.aborted) {
       const block = updateAssistantGenerationBlock(
         generationBlock.id,
-        content,
+        generationParts(reasoning, content),
         'stopped',
         content.trim().length > 0
       )
@@ -291,7 +326,7 @@ async function runGeneration(
     }
 
     const message = errorText(error)
-    const block = updateAssistantGenerationBlock(generationBlock.id, content, 'error', false, message)
+    const block = updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'error', false, message)
     sendEvent(webContents, { type: 'error', chatId: generationBlock.chatId, block, error: message })
   } finally {
     activeGenerations.delete(generationBlock.chatId)
@@ -324,7 +359,7 @@ export function startChatGeneration(
   }
 
   const requestBlockIds = contextBlocks
-    .filter(block => block.enabled && blockText(block).trim().length > 0)
+    .filter(block => block.enabled && (blockText(block).trim().length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && blockReasoningText(block).trim().length > 0)))
     .map(block => block.id)
 
   const generationBlock = request.regenerateBlockId

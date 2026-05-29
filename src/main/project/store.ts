@@ -4,6 +4,7 @@ import type {
   ChatBlock,
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
+  ChatContentPart,
   ChatSession,
   ChatUpdatePayload,
   CharacterEntry,
@@ -754,7 +755,7 @@ export function prepareAssistantBlockForRegeneration(id: number, llmInstance: Ll
 
 export function updateAssistantGenerationBlock(
   id: number,
-  content: string,
+  contentParts: ChatContentPart[],
   status: 'generating' | 'idle' | 'stopped' | 'error',
   enabled: boolean,
   errorText = ''
@@ -767,7 +768,7 @@ export function updateAssistantGenerationBlock(
     SET content_parts_json = ?, status = ?, enabled = ?, error_text = ?, updated_at = ?
     WHERE id = ?
   `).run(
-    json([{ type: 'text', text: content }]),
+    json(contentParts),
     status,
     enabled ? 1 : 0,
     errorText,

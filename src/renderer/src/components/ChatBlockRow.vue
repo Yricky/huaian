@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { MdCheck, MdClose, MdDeleteOutline, MdEdit, MdMoreVert, MdReplay, MdStop, MdVisibility, MdVisibilityOff } from 'vue-icons-plus/md'
+import { MdCheck, MdClose, MdDeleteOutline, MdEdit, MdMoreVert, MdPsychology, MdReplay, MdStop, MdVisibility, MdVisibilityOff } from 'vue-icons-plus/md'
 import type { ChatBlock } from '../../../shared/types'
 import MarkdownView from './MarkdownView.vue'
 
@@ -20,11 +20,15 @@ const editing = ref(false)
 const draft = ref('')
 const detailOpen = ref(false)
 const menuOpen = ref(false)
+const reasoningOpen = ref(false)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
 
-const text = computed(() => props.block.contentParts.map(part => part.text).join(''))
+const text = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
+const reasoningText = computed(() => props.block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join(''))
+const hasReasoning = computed(() => reasoningText.value.trim().length > 0)
+const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
   if (props.block.kind === 'assistant') return 'assistant'
@@ -118,7 +122,8 @@ function cancelEdit() {
 
 function saveEdit() {
   const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
-  next.contentParts = [{ type: 'text', text: draft.value }]
+  const reasoningParts = next.contentParts.filter(part => part.type === 'reasoning')
+  next.contentParts = [...reasoningParts, { type: 'text', text: draft.value }]
   editing.value = false
   menuOpen.value = false
   emit('save', next)
@@ -128,6 +133,17 @@ function toggleEnabled() {
   if (!canEdit.value) return
   const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
   next.enabled = !next.enabled
+  menuOpen.value = false
+  emit('save', next)
+}
+
+function toggleSendReasoning() {
+  if (!canEdit.value) return
+  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  next.metadata = {
+    ...next.metadata,
+    sendReasoning: next.metadata.sendReasoning !== true
+  }
   menuOpen.value = false
   emit('save', next)
 }
@@ -179,7 +195,19 @@ function openDetails() {
       <strong>{{ block.title || '注入内容' }}</strong>
       <span>{{ block.summary || text.slice(0, 120) }}</span>
     </button>
-    <MarkdownView v-else-if="showMarkdown" :markdown="text" />
+    <div v-else-if="showMarkdown" class="block-content">
+      <section v-if="hasReasoning" class="reasoning-panel">
+        <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+          <MdPsychology class="reasoning-icon" aria-hidden="true" />
+          <span>思考</span>
+          <small>{{ sendsReasoning ? '下次会发送' : '下次不发送' }}</small>
+        </button>
+        <div v-if="reasoningOpen" class="reasoning-body">
+          <MarkdownView :markdown="reasoningText" />
+        </div>
+      </section>
+      <MarkdownView :markdown="text" />
+    </div>
 
     <footer v-if="block.errorText" class="block-footer">
       <button v-if="block.errorText" type="button" class="error-detail" @click="detailOpen = true">错误详情</button>
@@ -200,6 +228,7 @@ function openDetails() {
           enabled: block.enabled,
           status: block.status,
           requestBlockIds: block.requestBlockIds,
+          sendReasoning: block.metadata.sendReasoning === true,
           llmInstanceSnapshot: block.llmInstanceSnapshot,
           errorText: block.errorText,
           content: text
@@ -221,6 +250,10 @@ function openDetails() {
         <button v-if="!editing" type="button" :disabled="!canEdit" @click="toggleEnabled">
           <component :is="block.enabled ? MdVisibilityOff : MdVisibility" class="menu-icon" aria-hidden="true" />
           {{ block.enabled ? '禁用' : '启用' }}
+        </button>
+        <button v-if="hasReasoning && !editing" type="button" :disabled="!canEdit" @click="toggleSendReasoning">
+          <MdPsychology class="menu-icon" aria-hidden="true" />
+          {{ sendsReasoning ? '发送时不含思考' : '发送时包含思考' }}
         </button>
         <button v-if="block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen" @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
@@ -349,6 +382,64 @@ function openDetails() {
 
 .block-editor {
   min-height: 130px;
+}
+
+.block-content {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.reasoning-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #dbe2ec;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.reasoning-toggle {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #526173;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.reasoning-toggle span {
+  color: #334052;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reasoning-toggle small {
+  margin-left: auto;
+  color: #7a8797;
+  font-size: 12px;
+}
+
+.reasoning-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.reasoning-body {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-top: 1px solid #e4e9f0;
+  padding: 10px;
+  color: #4e5d70;
 }
 
 .system-hint,
