@@ -14,8 +14,6 @@ import type {
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
-  PromptSnippet,
-  PromptTag,
   ProjectImportResult,
   ProjectSnapshot,
   SidebarView,
@@ -40,7 +38,6 @@ export function createProjectWorkbench() {
   const selectedLlmProvider = ref<LlmProvider | null>(null)
   const selectedLlmInstance = ref<LlmInstance | null>(null)
   const selectedChat = ref<ChatSession | null>(null)
-  const selectedPromptSnippet = ref<PromptSnippet | null>(null)
   const generatingChatIds = ref<number[]>([])
   const loreBookDrafts = ref<LoreBookDraftSummary[]>([])
 
@@ -64,7 +61,6 @@ export function createProjectWorkbench() {
   let characterSaveSnapshot = ''
   let worldEntrySaveSnapshot = ''
   let loreBookSaveSnapshot = ''
-  let promptSnippetSaveSnapshot = ''
 
   const characters = computed(() => project.value?.characters ?? [])
   const loreBooks = computed(() => project.value?.loreBooks ?? [])
@@ -73,8 +69,6 @@ export function createProjectWorkbench() {
   const llmInstances = computed(() => project.value?.llmInstances ?? [])
   const chats = computed(() => project.value?.chats ?? [])
   const chatBlocks = computed(() => project.value?.chatBlocks ?? [])
-  const promptTags = computed(() => project.value?.promptTags ?? [])
-  const promptSnippets = computed(() => project.value?.promptSnippets ?? [])
 
   const characterData = computed<Record<string, any>>(() => selectedCharacter.value?.stData?.data as Record<string, any> ?? {})
   const characterExtensions = computed<Record<string, any>>(() => characterData.value.extensions ?? {})
@@ -231,22 +225,6 @@ export function createProjectWorkbench() {
     loreBookSaveSnapshot = payload ? snapshot(payload) : ''
   }
 
-  function promptSnippetSavePayload(prompt = selectedPromptSnippet.value) {
-    return prompt
-      ? clone({
-        id: prompt.id,
-        title: prompt.title,
-        content: prompt.content,
-        tagIds: prompt.tags.map(tag => tag.id)
-      })
-      : null
-  }
-
-  function rememberPromptSnippetSnapshot() {
-    const payload = promptSnippetSavePayload()
-    promptSnippetSaveSnapshot = payload ? snapshot(payload) : ''
-  }
-
   function characterListData(entry: CharacterEntry): Record<string, any> {
     return asRecord(entry.stData.data)
   }
@@ -315,13 +293,6 @@ export function createProjectWorkbench() {
     selectedChat.value = fresh ? clone(fresh) : null
   }
 
-  function refreshSelectedPromptSnippet() {
-    if (!selectedPromptSnippet.value) return
-    const fresh = promptSnippets.value.find(item => item.id === selectedPromptSnippet.value?.id)
-    selectedPromptSnippet.value = fresh ? clone(fresh) : null
-    rememberPromptSnippetSnapshot()
-  }
-
   async function loadProject() {
     project.value = await window.electronAPI.getProject()
     if (project.value) {
@@ -330,7 +301,6 @@ export function createProjectWorkbench() {
       if (!selectedLlmProvider.value && llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
       if (!selectedLlmInstance.value && llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
       if (!selectedChat.value && chats.value.length) selectedChat.value = clone(chats.value[0])
-      if (!selectedPromptSnippet.value && promptSnippets.value.length) selectPromptSnippet(promptSnippets.value[0])
       void refreshLoreBookDrafts()
     }
   }
@@ -346,13 +316,11 @@ export function createProjectWorkbench() {
         selectedLlmProvider.value = null
         selectedLlmInstance.value = null
         selectedChat.value = null
-        selectedPromptSnippet.value = null
         if (characters.value.length) selectCharacter(characters.value[0])
         if (loreBooks.value.length) selectLoreBook(loreBooks.value[0])
         if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
         if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
         if (chats.value.length) selectedChat.value = clone(chats.value[0])
-        if (promptSnippets.value.length) selectPromptSnippet(promptSnippets.value[0])
         void refreshLoreBookDrafts()
         showToast('项目已打开', 'success')
       }
@@ -675,28 +643,12 @@ export function createProjectWorkbench() {
     else project.value.chatBlocks.push(block)
   }
 
-  function replacePromptSnippet(prompt: PromptSnippet) {
-    if (!project.value) return
-    const index = project.value.promptSnippets.findIndex(item => item.id === prompt.id)
-    if (index >= 0) project.value.promptSnippets[index] = prompt
-    else project.value.promptSnippets.unshift(prompt)
-    selectPromptSnippet(prompt)
-  }
-
-  function replacePromptTag(tag: PromptTag) {
-    if (!project.value) return
-    const index = project.value.promptTags.findIndex(item => item.id === tag.id)
-    if (index >= 0) project.value.promptTags[index] = tag
-    else project.value.promptTags.push(tag)
-  }
-
   async function refreshProjectSnapshot() {
     project.value = await window.electronAPI.getProject()
     if (!project.value) return
     refreshSelectedLlmProvider()
     refreshSelectedLlmInstance()
     refreshSelectedChat()
-    refreshSelectedPromptSnippet()
   }
 
   function providerSnapshot(provider: LlmProvider) {
@@ -906,89 +858,6 @@ export function createProjectWorkbench() {
       project.value = await window.electronAPI.deleteChatBlock(block.id)
       refreshSelectedChat()
       showToast('聊天块已删除', 'success')
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  function selectPromptSnippet(prompt: PromptSnippet) {
-    selectedPromptSnippet.value = clone(prompt)
-    rememberPromptSnippetSnapshot()
-  }
-
-  async function createPromptSnippet() {
-    try {
-      const prompt = await window.electronAPI.createPromptSnippet()
-      replacePromptSnippet(prompt)
-      activeView.value = 'prompts'
-      showToast('提示词已创建', 'success')
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  async function savePromptSnippet(prompt = selectedPromptSnippet.value): Promise<boolean> {
-    const payload = promptSnippetSavePayload(prompt)
-    if (!prompt || !payload) return false
-    if (!payload.title.trim()) {
-      showToast('提示词标题不能为空。', 'error')
-      return false
-    }
-    const nextSnapshot = snapshot(payload)
-    if (prompt.id === selectedPromptSnippet.value?.id && nextSnapshot === promptSnippetSaveSnapshot) return true
-    try {
-      const saved = await window.electronAPI.updatePromptSnippet(toIpcJson(payload))
-      replacePromptSnippet(saved)
-      showToast('已保存', 'success')
-      return true
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return false
-    }
-  }
-
-  async function deleteSelectedPromptSnippet() {
-    if (!selectedPromptSnippet.value || !window.confirm('删除当前提示词？')) return
-    try {
-      project.value = await window.electronAPI.deletePromptSnippet(selectedPromptSnippet.value.id)
-      selectedPromptSnippet.value = promptSnippets.value[0] ? clone(promptSnippets.value[0]) : null
-      if (selectedPromptSnippet.value) selectPromptSnippet(selectedPromptSnippet.value)
-      else promptSnippetSaveSnapshot = ''
-      showToast('提示词已删除', 'success')
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  async function createPromptTag(name: string): Promise<PromptTag | null> {
-    try {
-      const tag = await window.electronAPI.createPromptTag(toIpcJson({ name }))
-      replacePromptTag(tag)
-      return tag
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return null
-    }
-  }
-
-  async function renamePromptTag(tag: PromptTag, name: string): Promise<boolean> {
-    try {
-      project.value = await window.electronAPI.updatePromptTag(toIpcJson({ id: tag.id, name }))
-      refreshSelectedPromptSnippet()
-      showToast('标签已重命名', 'success')
-      return true
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return false
-    }
-  }
-
-  async function deletePromptTag(tag: PromptTag) {
-    if (!window.confirm(`删除标签「${tag.name}」？它会从所有提示词中移除。`)) return
-    try {
-      project.value = await window.electronAPI.deletePromptTag(tag.id)
-      refreshSelectedPromptSnippet()
-      showToast('标签已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
@@ -1215,17 +1084,13 @@ export function createProjectWorkbench() {
     createCharacter,
     createLlmInstance,
     createLlmProvider,
-    createPromptSnippet,
-    createPromptTag,
     createLoreBook,
     createWorldEntry,
     deleteChatBlock,
-    deletePromptTag,
     deleteSelectedChat,
     deleteSelectedCharacter,
     deleteSelectedLlmInstance,
     deleteSelectedLlmProvider,
-    deleteSelectedPromptSnippet,
     deleteSelectedLoreBook,
     deleteSelectedWorldEntry,
     discardLoreBookDraft,
@@ -1250,18 +1115,14 @@ export function createProjectWorkbench() {
     moveLoreBookEntry,
     openProject,
     previewChatGeneration,
-    promptSnippets,
-    promptTags,
     project,
     providerSnapshot,
-    renamePromptTag,
     restoreProviderFromSelectedInstance,
     refreshLoreBookDrafts,
     saveCharacter,
     saveCharacterAdvanced,
     saveChat,
     saveChatBlock,
-    savePromptSnippet,
     saveLoreBook,
     saveLlmInstance,
     saveLlmProvider,
@@ -1271,14 +1132,12 @@ export function createProjectWorkbench() {
     selectCharacter,
     selectLlmInstance,
     selectLlmProvider,
-    selectPromptSnippet,
     selectedCharacter,
     selectedChat,
     selectedChatBlocks,
     selectedChatLlmInstance,
     selectedLlmInstance,
     selectedLlmProvider,
-    selectedPromptSnippet,
     selectedProviderForInstance,
     selectedLoreBook,
     selectedLoreBookEntries,

@@ -11,9 +11,6 @@ import type {
   LlmInstanceUpdatePayload,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
-  PromptSnippetUpdatePayload,
-  PromptTagCreatePayload,
-  PromptTagUpdatePayload,
   LoreBookUpdatePayload,
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
@@ -30,8 +27,6 @@ import {
   createCharacter,
   createLlmInstance,
   createLlmProvider,
-  createPromptSnippet,
-  createPromptTag,
   createLoreBook,
   createWorldEntry,
   deleteChat,
@@ -39,8 +34,6 @@ import {
   deleteCharacter,
   deleteLlmInstance,
   deleteLlmProvider,
-  deletePromptSnippet,
-  deletePromptTag,
   deleteLoreBook,
   deleteWorldEntry,
   getChatBlock,
@@ -53,8 +46,6 @@ import {
   updateCharacter,
   updateLlmInstance,
   updateLlmProvider,
-  updatePromptSnippet,
-  updatePromptTag,
   updateLoreBook,
   updateWorldEntry
 } from './project/store'
@@ -163,19 +154,6 @@ export function registerIpcHandlers(): void {
     previewChatGeneration(parseIpcPayload(payload))
   ))
   ipcMain.handle('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
-
-  ipcMain.handle('prompt:createSnippet', () => createPromptSnippet())
-  ipcMain.handle('prompt:updateSnippet', (_, payload: IpcJsonPayload<PromptSnippetUpdatePayload>) => (
-    updatePromptSnippet(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('prompt:deleteSnippet', (_, id: number) => deletePromptSnippet(id))
-  ipcMain.handle('prompt:createTag', (_, payload: IpcJsonPayload<PromptTagCreatePayload>) => (
-    createPromptTag(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('prompt:updateTag', (_, payload: IpcJsonPayload<PromptTagUpdatePayload>) => (
-    updatePromptTag(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('prompt:deleteTag', (_, id: number) => deletePromptTag(id))
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:getName', () => app.getName())

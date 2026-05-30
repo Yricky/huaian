@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { MdFolderOpen } from 'vue-icons-plus/md'
 import ChatPage from './components/ChatPage.vue'
 import CharacterPage from './components/CharacterPage.vue'
-import PromptSnippetsPage from './components/PromptSnippetsPage.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import ToastStack from './components/ToastStack.vue'
@@ -48,7 +47,6 @@ const projectDirectoryName = computed(() => {
           <CharacterPage v-if="activeView === 'characters'" />
           <LoreBooksPage v-if="activeView === 'loreBooks'" />
           <ChatPage v-if="activeView === 'chat'" />
-          <PromptSnippetsPage v-if="activeView === 'prompts'" />
           <SettingsPage v-if="activeView === 'settings'" />
         </main>
       </div>
