@@ -1,6 +1,7 @@
 import type {
   CharacterBookEntryData,
   CharacterForgeData,
+  ChatRuntimeConfig,
   JsonRecord,
   ProjectConfig
 } from '../../shared/types'
@@ -55,6 +56,25 @@ export function normalizeCharacterForgeData(value: unknown): CharacterForgeData 
       : loreBookId,
     exportFileName: toString(data.exportFileName),
     characterBookName: toString(data.characterBookName)
+  }
+}
+
+function nullableInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const number = Number(value)
+  return Number.isInteger(number) ? number : null
+}
+
+export function normalizeChatRuntimeConfig(value: unknown, legacyLlmInstanceId: unknown = null): ChatRuntimeConfig {
+  const data = asRecord(value)
+  const loreBookIds = Array.isArray(data.loreBookIds)
+    ? data.loreBookIds.map(item => Number(item)).filter(Number.isInteger)
+    : []
+
+  return {
+    characterId: nullableInteger(data.characterId),
+    llmInstanceId: nullableInteger(data.llmInstanceId) ?? nullableInteger(legacyLlmInstanceId),
+    loreBookIds: [...new Set(loreBookIds)]
   }
 }
 

@@ -2,10 +2,11 @@ import type { WebContents } from 'electron'
 import { streamText, type LanguageModelUsage } from 'ai'
 import type {
   ChatBlock,
-  ChatContentPart,
   ChatBlockTokenUsage,
+  ChatContentPart,
   ChatGenerationEvent,
   ChatGenerationPreview,
+  ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
   JsonRecord,
@@ -17,19 +18,19 @@ import type {
 import {
   createAssistantGenerationBlock,
   getChat,
-  getChatBlock,
   getLlmInstance,
   getLlmProvider,
+  listCharacters,
   listChatBlocksForChat,
+  listLoreBooks,
+  listWorldEntries,
   prepareAssistantBlockForRegeneration,
   updateAssistantGenerationBlock,
   updateLlmProviderModelsCache
 } from './store'
+import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
 
-type ModelMessage = {
-  role: 'system' | 'user' | 'assistant'
-  content: string | ChatContentPart[]
-}
+type ModelMessage = ChatGenerationPreviewMessage
 
 interface ActiveGeneration {
   abortController: AbortController
@@ -307,32 +308,6 @@ function previewGenerationSettings(instance: LlmInstance): JsonRecord {
   }
 }
 
-function blockRole(block: ChatBlock): 'system' | 'user' | 'assistant' {
-  return block.kind === 'injection' ? block.targetRole : block.kind as 'system' | 'user' | 'assistant'
-}
-
-function requestMessages(blocks: ChatBlock[]): ModelMessage[] {
-  return blocks
-    .filter(block => block.enabled)
-    .map(block => {
-      const text = blockText(block).trim()
-      const reasoning = blockReasoningText(block).trim()
-      return { block, reasoning, text }
-    })
-    .filter(({ block, reasoning, text }) => text.length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && reasoning.length > 0))
-    .map(({ block, reasoning, text }) => {
-      const role = blockRole(block)
-      if (role === 'assistant' && shouldSendReasoning(block) && reasoning.length > 0) {
-        const content: ChatContentPart[] = [
-          { type: 'reasoning', text: reasoning }
-        ]
-        if (text.length > 0) content.push({ type: 'text', text })
-        return { role, content }
-      }
-      return { role, content: text }
-    })
-}
-
 function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): ChatBlock[] {
   const blocks = listChatBlocksForChat(chatId)
   if (!regenerateBlockId) return blocks
@@ -342,13 +317,41 @@ function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number |
   return blocks.filter(block => block.orderIndex < target.orderIndex)
 }
 
+function buildPrompt(chat: ReturnType<typeof getChat>, blocks: ChatBlock[]) {
+  return buildSillyTavernLikePrompt({
+    chat,
+    characters: listCharacters(),
+    loreBooks: listLoreBooks(),
+    worldEntries: listWorldEntries(),
+    blocks
+  })
+}
+
+function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[]): ChatGenerationPreview['contextBlocks'] {
+  return [...virtualBlocks, ...blocks].map(block => ({
+    id: block.id,
+    kind: block.kind,
+    targetRole: block.targetRole,
+    enabled: block.enabled,
+    status: block.status,
+    orderIndex: block.orderIndex,
+    title: block.title,
+    summary: block.summary,
+    sendReasoning: shouldSendReasoning(block),
+    text: blockText(block),
+    reasoning: blockReasoningText(block),
+    virtual: block.metadata.virtual === true
+  }))
+}
+
 export function previewChatGeneration(request: ChatGenerationRequest): ChatGenerationPreview {
   const chat = getChat(request.chatId)
-  if (!chat.llmInstanceId) {
+  const instanceId = chat.runtimeConfig.llmInstanceId
+  if (!instanceId) {
     throw new Error('请先为当前聊天选择 LLM 实例。')
   }
 
-  const instance = getLlmInstance(chat.llmInstanceId)
+  const instance = getLlmInstance(instanceId)
   if (!instance.providerId) {
     throw new Error('当前 LLM 实例没有绑定提供商，无法读取 API Key。')
   }
@@ -356,14 +359,11 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
   const provider = getLlmProvider(instance.providerId)
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
-  const messages = requestMessages(contextBlocks)
+  const prompt = buildPrompt(chat, contextBlocks)
+  const messages = prompt.messages
   if (!messages.length) {
     throw new Error('没有可发送的内容块。')
   }
-
-  const requestBlockIds = contextBlocks
-    .filter(block => block.enabled && (blockText(block).trim().length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && blockReasoningText(block).trim().length > 0)))
-    .map(block => block.id)
 
   return {
     request: {
@@ -388,20 +388,8 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
       },
       messages
     },
-    contextBlocks: contextBlocks.map(block => ({
-      id: block.id,
-      kind: block.kind,
-      targetRole: block.targetRole,
-      enabled: block.enabled,
-      status: block.status,
-      orderIndex: block.orderIndex,
-      title: block.title,
-      summary: block.summary,
-      sendReasoning: shouldSendReasoning(block),
-      text: blockText(block),
-      reasoning: blockReasoningText(block)
-    })),
-    requestBlockIds
+    contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks),
+    requestBlockIds: prompt.requestBlockIds
   }
 }
 
@@ -413,7 +401,7 @@ async function runGeneration(
   webContents: WebContents,
   instance: LlmInstance,
   provider: LlmProvider,
-  blocks: ChatBlock[],
+  messages: ModelMessage[],
   generationBlock: ChatBlock,
   abortController: AbortController
 ): Promise<void> {
@@ -434,7 +422,7 @@ async function runGeneration(
     const result = streamText({
       ...generationSettings(instance, abortController.signal),
       model,
-      messages: requestMessages(blocks)
+      messages
     } as any)
 
     for await (const part of result.fullStream) {
@@ -522,11 +510,12 @@ export function startChatGeneration(
   if (activeGenerations.has(chat.id)) {
     throw new Error('当前聊天已有正在生成的块。')
   }
-  if (!chat.llmInstanceId) {
+  const instanceId = chat.runtimeConfig.llmInstanceId
+  if (!instanceId) {
     throw new Error('请先为当前聊天选择 LLM 实例。')
   }
 
-  const instance = getLlmInstance(chat.llmInstanceId)
+  const instance = getLlmInstance(instanceId)
   if (!instance.providerId) {
     throw new Error('当前 LLM 实例没有绑定提供商，无法读取 API Key。')
   }
@@ -534,18 +523,15 @@ export function startChatGeneration(
   const provider = getLlmProvider(instance.providerId)
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
-  const messages = requestMessages(contextBlocks)
+  const prompt = buildPrompt(chat, contextBlocks)
+  const messages = prompt.messages
   if (!messages.length) {
     throw new Error('没有可发送的内容块。')
   }
 
-  const requestBlockIds = contextBlocks
-    .filter(block => block.enabled && (blockText(block).trim().length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && blockReasoningText(block).trim().length > 0)))
-    .map(block => block.id)
-
   const generationBlock = request.regenerateBlockId
-    ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance, requestBlockIds)
-    : createAssistantGenerationBlock(chat.id, instance, requestBlockIds)
+    ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance, prompt.requestBlockIds)
+    : createAssistantGenerationBlock(chat.id, instance, prompt.requestBlockIds)
   const abortController = new AbortController()
 
   activeGenerations.set(chat.id, {
@@ -555,7 +541,7 @@ export function startChatGeneration(
   })
   sendEvent(webContents, { type: 'started', chatId: chat.id, block: generationBlock })
 
-  void runGeneration(webContents, instance, provider, contextBlocks, generationBlock, abortController)
+  void runGeneration(webContents, instance, provider, messages, generationBlock, abortController)
 
   return { block: generationBlock }
 }

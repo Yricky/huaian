@@ -103,7 +103,7 @@ export function createProjectWorkbench() {
   })
 
   const selectedChatLlmInstance = computed(() => {
-    const id = selectedChat.value?.llmInstanceId
+    const id = selectedChat.value?.runtimeConfig.llmInstanceId
     return id === null || id === undefined ? null : llmInstances.value.find(instance => instance.id === id) ?? null
   })
 
@@ -831,7 +831,7 @@ export function createProjectWorkbench() {
       replaceChat(await window.electronAPI.updateChat(toIpcJson({
         id: chat.id,
         title: chat.title,
-        llmInstanceId: chat.llmInstanceId
+        runtimeConfig: chat.runtimeConfig
       })))
     } catch (error) {
       showToast(errorText(error), 'error')

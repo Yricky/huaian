@@ -6,6 +6,7 @@ import ChatWorkspace from './ChatWorkspace.vue'
 
 const {
   chats,
+  characters,
   createChat,
   createChatBlock,
   deleteChatBlock,
@@ -13,6 +14,7 @@ const {
   generatingChatIds,
   isSelectedChatGenerating,
   llmInstances,
+  loreBooks,
   previewChatGeneration,
   saveChat,
   saveChatBlock,
@@ -20,7 +22,8 @@ const {
   selectedChat,
   selectedChatBlocks,
   startChatGeneration,
-  stopChatGeneration
+  stopChatGeneration,
+  worldEntries
 } = useProjectWorkbench()
 
 function chatKey(chat: ChatSession) {
@@ -57,16 +60,19 @@ function chatKey(chat: ChatSession) {
       v-if="selectedChat"
       :blocks="selectedChatBlocks"
       :chat="selectedChat"
+      :characters="characters"
       :create-chat-block="createChatBlock"
       :delete-chat="deleteSelectedChat"
       :delete-chat-block="deleteChatBlock"
       :frozen="isSelectedChatGenerating"
       :llm-instances="llmInstances"
+      :lore-books="loreBooks"
       :preview-chat-generation="previewChatGeneration"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"
       :start-chat-generation="startChatGeneration"
       :stop-chat-generation="stopChatGeneration"
+      :world-entries="worldEntries"
     />
 
     <main v-else class="chat-empty">

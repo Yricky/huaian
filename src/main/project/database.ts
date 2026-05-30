@@ -21,6 +21,7 @@ import type {
 } from '../../shared/types'
 import {
   asRecord,
+  normalizeChatRuntimeConfig,
   normalizeCharacterCard,
   normalizeCharacterForgeData,
   normalizeWorldEntryData
@@ -83,6 +84,7 @@ export function initDatabase(dbPath: string): any {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       llm_instance_id INTEGER,
+      runtime_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -129,6 +131,7 @@ export function initDatabase(dbPath: string): any {
     );
   `)
   ensureColumn(db, 'character_entries', 'asset_path', 'TEXT')
+  ensureColumn(db, 'chat_sessions', 'runtime_config_json', 'TEXT NOT NULL DEFAULT \'{}\'')
   return db
 }
 
@@ -287,7 +290,10 @@ export function rowToChatSession(row: any): ChatSession {
   return {
     id: row.id,
     title: row.title,
-    llmInstanceId: row.llm_instance_id === null || row.llm_instance_id === undefined ? null : Number(row.llm_instance_id),
+    runtimeConfig: normalizeChatRuntimeConfig(
+      parseJsonColumn(row.runtime_config_json ?? '{}'),
+      row.llm_instance_id
+    ),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }

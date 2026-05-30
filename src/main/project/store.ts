@@ -5,6 +5,7 @@ import type {
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatContentPart,
+  ChatRuntimeConfig,
   ChatSession,
   ChatUpdatePayload,
   CharacterEntry,
@@ -50,6 +51,7 @@ import {
   defaultCharacterCard,
   defaultProjectConfig,
   defaultWorldEntry,
+  normalizeChatRuntimeConfig,
   normalizeCharacterCard,
   normalizeCharacterForgeData,
   normalizeWorldEntryData,
@@ -326,7 +328,20 @@ export function updateCharacter(entry: CharacterUpdatePayload): CharacterEntry {
 
 export async function deleteCharacter(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
-  project.db.prepare('DELETE FROM character_entries WHERE id = ?').run(id)
+  const transaction = project.db.transaction(() => {
+    project.db.prepare('DELETE FROM character_entries WHERE id = ?').run(id)
+    const now = nowIso()
+    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
+    for (const chat of listChats()) {
+      if (chat.runtimeConfig.characterId !== id) continue
+      update.run(
+        json({ ...chat.runtimeConfig, characterId: null }),
+        now,
+        chat.id
+      )
+    }
+  })
+  transaction()
   return getProjectSnapshot()
 }
 
@@ -358,6 +373,19 @@ export async function deleteLoreBook(id: number): Promise<ProjectSnapshot> {
         character.forgeData.loreBookId = null
         updateCharacter(character)
       }
+    }
+    const now = nowIso()
+    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
+    for (const chat of listChats()) {
+      if (!chat.runtimeConfig.loreBookIds.includes(id)) continue
+      update.run(
+        json({
+          ...chat.runtimeConfig,
+          loreBookIds: chat.runtimeConfig.loreBookIds.filter(loreBookId => loreBookId !== id)
+        }),
+        now,
+        chat.id
+      )
     }
     project.db.prepare('DELETE FROM world_entries WHERE world_book_id = ?').run(id)
     project.db.prepare('DELETE FROM world_books WHERE id = ?').run(id)
@@ -452,6 +480,14 @@ function nowIso(): string {
 
 function json(value: unknown): string {
   return JSON.stringify(value ?? null)
+}
+
+function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRuntimeConfig {
+  return {
+    characterId: null,
+    llmInstanceId,
+    loreBookIds: []
+  }
 }
 
 function cloneJson<T>(value: T): T {
@@ -624,6 +660,15 @@ export async function deleteLlmInstance(id: number): Promise<ProjectSnapshot> {
   const transaction = project.db.transaction(() => {
     const now = nowIso()
     project.db.prepare('UPDATE chat_sessions SET llm_instance_id = NULL, updated_at = ? WHERE llm_instance_id = ?').run(now, id)
+    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
+    for (const chat of listChats()) {
+      if (chat.runtimeConfig.llmInstanceId !== id) continue
+      update.run(
+        json({ ...chat.runtimeConfig, llmInstanceId: null }),
+        now,
+        chat.id
+      )
+    }
     project.db.prepare('DELETE FROM llm_instances WHERE id = ?').run(id)
   })
   transaction()
@@ -641,9 +686,9 @@ export function createChat(): ChatSession {
   const recentInstance = listLlmInstances()[0] ?? null
   const transaction = project.db.transaction(() => {
     const result = project.db.prepare(`
-      INSERT INTO chat_sessions (title, llm_instance_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-    `).run('新聊天', recentInstance?.id ?? null, now, now)
+      INSERT INTO chat_sessions (title, llm_instance_id, runtime_config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('新聊天', recentInstance?.id ?? null, json(defaultChatRuntimeConfig(recentInstance?.id ?? null)), now, now)
     const chatId = Number(result.lastInsertRowid)
     project.db.prepare(`
       INSERT INTO chat_blocks (
@@ -679,10 +724,11 @@ export function updateChat(payload: ChatUpdatePayload): ChatSession {
   const chat = getChat(payload.id)
   const now = nowIso()
   project.db.prepare(`
-    UPDATE chat_sessions SET title = ?, llm_instance_id = ?, updated_at = ? WHERE id = ?
+    UPDATE chat_sessions SET title = ?, llm_instance_id = ?, runtime_config_json = ?, updated_at = ? WHERE id = ?
   `).run(
     payload.title === undefined ? chat.title : normalizeName(payload.title, '新聊天'),
-    payload.llmInstanceId === undefined ? chat.llmInstanceId : payload.llmInstanceId,
+    payload.runtimeConfig === undefined ? chat.runtimeConfig.llmInstanceId : payload.runtimeConfig.llmInstanceId,
+    json(normalizeChatRuntimeConfig(payload.runtimeConfig ?? chat.runtimeConfig)),
     now,
     payload.id
   )

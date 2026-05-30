@@ -1,18 +1,38 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { MdCheck, MdClose, MdDeleteOutline, MdEdit, MdMoreVert, MdPsychology, MdReplay, MdStop, MdVisibility, MdVisibilityOff } from 'vue-icons-plus/md'
+import {
+  MdCheck,
+  MdClose,
+  MdCode,
+  MdDeleteOutline,
+  MdEdit,
+  MdFormatListBulleted,
+  MdKeyboardArrowDown,
+  MdKeyboardArrowUp,
+  MdMoreVert,
+  MdPsychology,
+  MdReplay,
+  MdStop,
+  MdVisibility,
+  MdVisibilityOff
+} from 'vue-icons-plus/md'
+import type { InjectionDetail } from '../../../shared/st-prompt-builder'
 import type { ChatBlock } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
+type InjectionViewMode = 'markdown' | 'structured'
+
 const props = defineProps<{
   block: ChatBlock
+  collapsed: boolean
   frozen: boolean
 }>()
 
 const emit = defineEmits<{
   save: [block: ChatBlock]
   delete: [block: ChatBlock]
+  'collapse-change': [collapsed: boolean]
   regenerate: [block: ChatBlock]
   stop: [chatId: number]
 }>()
@@ -21,6 +41,8 @@ const editing = ref(false)
 const draft = ref('')
 const detailOpen = ref(false)
 const menuOpen = ref(false)
+const isCollapsed = ref(props.collapsed)
+const injectionViewMode = ref<InjectionViewMode>('structured')
 const reasoningOpen = ref(false)
 const editorRef = ref<HTMLTextAreaElement | null>(null)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
@@ -31,6 +53,8 @@ const text = computed(() => props.block.contentParts.filter(part => part.type ==
 const reasoningText = computed(() => props.block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join(''))
 const hasReasoning = computed(() => reasoningText.value.trim().length > 0)
 const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
+const isVirtual = computed(() => props.block.metadata.virtual === true)
+const isInjection = computed(() => props.block.kind === 'injection')
 const numberFormatter = new Intl.NumberFormat()
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
@@ -48,10 +72,25 @@ const statusLabel = computed(() => {
 const sentAtLabel = computed(() => formatDateTime(props.block.createdAt))
 const tokenCount = computed(() => tokenCountFromUsage(props.block.metadata.usage))
 const tokenLabel = computed(() => tokenCount.value === null ? 'Token -' : `${numberFormatter.format(tokenCount.value)} tokens`)
-const blockSubMeta = computed(() => [statusLabel.value, sentAtLabel.value, tokenLabel.value].filter(Boolean).join(' · '))
+const headerTitle = computed(() => props.block.title.trim() || roleLabel.value)
+const blockSubMeta = computed(() => [
+  props.block.summary,
+  isVirtual.value ? '虚拟注入' : statusLabel.value,
+  sentAtLabel.value,
+  isVirtual.value ? '' : tokenLabel.value
+].filter(Boolean).join(' · '))
 const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
-const canEdit = computed(() => !props.frozen && props.block.status !== 'generating')
-const showMarkdown = computed(() => !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value)
+const showMarkdown = computed(() => !isCollapsed.value && !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const injectionDetails = computed(() => {
+  const raw = props.block.metadata.injectionDetails
+  if (!Array.isArray(raw)) return []
+  return raw.map(injectionDetailFromMetadata).filter((detail): detail is InjectionDetail => detail !== null)
+})
+const hasInjectionDetails = computed(() => injectionDetails.value.length > 0)
+const currentInjectionViewMode = computed<InjectionViewMode>(() => (
+  injectionViewMode.value === 'structured' && hasInjectionDetails.value ? 'structured' : 'markdown'
+))
 const detailJson = computed(() => ({
   id: props.block.id,
   kind: props.block.kind,
@@ -62,13 +101,20 @@ const detailJson = computed(() => ({
   sendReasoning: props.block.metadata.sendReasoning === true,
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
-  content: text.value
+  content: text.value,
+  metadata: props.block.metadata
 }))
 
 watch(() => props.block.id, () => {
   editing.value = false
   menuOpen.value = false
+  isCollapsed.value = props.collapsed
+  injectionViewMode.value = 'structured'
   draft.value = text.value
+})
+
+watch(() => props.collapsed, (value) => {
+  isCollapsed.value = value
 })
 
 watch(text, (value) => {
@@ -141,6 +187,29 @@ function recordFromMetadata(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+function stringFromMetadata(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function optionalNumberFromMetadata(value: unknown): number | undefined {
+  return numberFromMetadata(value) ?? undefined
+}
+
+function injectionDetailFromMetadata(value: unknown): InjectionDetail | null {
+  const record = recordFromMetadata(value)
+  const content = stringFromMetadata(record.content).trim()
+  if (!content) return null
+  return {
+    title: stringFromMetadata(record.title, '注入内容'),
+    source: record.source === 'worldInfo' ? 'worldInfo' : 'character',
+    sourceName: stringFromMetadata(record.sourceName, '未知来源'),
+    reason: stringFromMetadata(record.reason, '未记录原因'),
+    content,
+    entryId: optionalNumberFromMetadata(record.entryId),
+    loreBookId: optionalNumberFromMetadata(record.loreBookId)
+  }
+}
+
 function tokenCountFromUsage(value: unknown): number | null {
   const usage = recordFromMetadata(value)
   const total = numberFromMetadata(usage.totalTokens)
@@ -161,6 +230,7 @@ function formatDateTime(value: string): string {
 function startEdit() {
   if (!canEdit.value) return
   draft.value = text.value
+  setCollapsed(false)
   editing.value = true
   menuOpen.value = false
   nextTick(() => editorRef.value?.focus())
@@ -213,6 +283,7 @@ function toggleSendReasoning() {
 }
 
 function regenerate() {
+  if (isVirtual.value) return
   menuOpen.value = false
   emit('regenerate', props.block)
 }
@@ -223,6 +294,7 @@ function stop() {
 }
 
 function remove() {
+  if (!canEdit.value) return
   menuOpen.value = false
   emit('delete', props.block)
 }
@@ -232,6 +304,20 @@ function openDetails() {
   detailOpen.value = true
 }
 
+function toggleCollapsed() {
+  if (editing.value) return
+  setCollapsed(!isCollapsed.value)
+}
+
+function switchInjectionViewMode(mode: InjectionViewMode) {
+  injectionViewMode.value = mode
+}
+
+function setCollapsed(value: boolean) {
+  isCollapsed.value = value
+  emit('collapse-change', value)
+}
+
 defineExpose({
   commitEdit,
   startEdit
@@ -239,14 +325,18 @@ defineExpose({
 </script>
 
 <template>
-  <article class="chat-block" :class="[block.kind, block.status, { disabled: !block.enabled }]">
+  <article class="chat-block" :class="[block.kind, block.status, { disabled: !block.enabled, collapsed: isCollapsed }]">
     <header class="chat-block-header">
       <div class="block-meta">
-        <strong>{{ roleLabel }}</strong>
+        <strong>{{ headerTitle }}</strong>
         <span>{{ blockSubMeta }}</span>
       </div>
 
       <div class="block-actions">
+        <button class="toolbar-button" type="button" :aria-label="isCollapsed ? '展开块' : '折叠块'"
+          :data-tooltip="isCollapsed ? '展开' : '折叠'" :disabled="editing" @click="toggleCollapsed">
+          <component :is="isCollapsed ? MdKeyboardArrowDown : MdKeyboardArrowUp" class="toolbar-icon" aria-hidden="true" />
+        </button>
         <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
           @click.stop="toggleMenu">
           <MdMoreVert class="toolbar-icon" aria-hidden="true" />
@@ -255,28 +345,57 @@ defineExpose({
     </header>
 
     <textarea v-if="editing" ref="editorRef" v-model="draft" class="block-editor" rows="6" />
-    <button v-else-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit" @click="startEdit">
-      点击可输入系统提示词
-    </button>
-    <button v-else-if="block.kind === 'injection'" class="injection-summary" type="button" @click="detailOpen = true">
-      <strong>{{ block.title || '注入内容' }}</strong>
-      <span>{{ block.summary || text.slice(0, 120) }}</span>
-    </button>
-    <div v-else-if="showMarkdown" class="block-content">
-      <section v-if="hasReasoning" class="reasoning-panel">
-        <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
-          <MdPsychology class="reasoning-icon" aria-hidden="true" />
-          <span>思考</span>
-          <small @click="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
-        </button>
-        <div v-if="reasoningOpen" class="reasoning-body">
-          <MarkdownView :markdown="reasoningText" />
-        </div>
-      </section>
-      <MarkdownView :markdown="text" />
-    </div>
+    <template v-else-if="!isCollapsed">
+      <button v-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit" @click="startEdit">
+        点击可输入系统提示词
+      </button>
 
-    <footer v-if="block.errorText" class="block-footer">
+      <div v-else-if="isInjection" class="injection-body">
+        <div class="injection-mode-tabs" aria-label="注入内容展示方式">
+          <button type="button" :class="{ selected: currentInjectionViewMode === 'markdown' }"
+            @click="switchInjectionViewMode('markdown')">
+            <MdCode class="tab-icon" aria-hidden="true" />Markdown
+          </button>
+          <button type="button" :disabled="!hasInjectionDetails"
+            :class="{ selected: currentInjectionViewMode === 'structured' }"
+            @click="switchInjectionViewMode('structured')">
+            <MdFormatListBulleted class="tab-icon" aria-hidden="true" />结构
+          </button>
+        </div>
+
+        <div v-if="currentInjectionViewMode === 'markdown'" class="block-content injection-markdown">
+          <MarkdownView :markdown="text" />
+        </div>
+
+        <div v-else class="injection-detail-list">
+          <section v-for="(detail, index) in injectionDetails" :key="`${detail.source}-${detail.entryId ?? index}`"
+            class="injection-detail-item">
+            <header>
+              <strong>{{ detail.title }}</strong>
+              <span>{{ detail.sourceName }}</span>
+            </header>
+            <p>{{ detail.reason }}</p>
+            <pre>{{ detail.content }}</pre>
+          </section>
+        </div>
+      </div>
+
+      <div v-else-if="showMarkdown" class="block-content">
+        <section v-if="hasReasoning" class="reasoning-panel">
+          <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+            <MdPsychology class="reasoning-icon" aria-hidden="true" />
+            <span>思考</span>
+            <small @click="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
+          </button>
+          <div v-if="reasoningOpen" class="reasoning-body">
+            <MarkdownView :markdown="reasoningText" />
+          </div>
+        </section>
+        <MarkdownView :markdown="text" />
+      </div>
+    </template>
+
+    <footer v-if="!isCollapsed && block.errorText" class="block-footer">
       <button v-if="block.errorText" type="button" class="error-detail" @click="detailOpen = true">错误详情</button>
     </footer>
 
@@ -293,7 +412,7 @@ defineExpose({
         <button v-if="block.status === 'generating'" type="button" @click="stop">
           <MdStop class="menu-icon" aria-hidden="true" />停止
         </button>
-        <button v-if="!editing" type="button" :disabled="!canEdit" @click="toggleEnabled">
+        <button v-if="!editing && !isVirtual" type="button" :disabled="!canEdit" @click="toggleEnabled">
           <component :is="block.enabled ? MdVisibilityOff : MdVisibility" class="menu-icon" aria-hidden="true" />
           {{ block.enabled ? '禁用' : '启用' }}
         </button>
@@ -301,13 +420,13 @@ defineExpose({
           @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
         </button>
-        <button v-if="!editing" type="button" :disabled="!canEdit" @click="startEdit">
+        <button v-if="!editing && !isVirtual" type="button" :disabled="!canEdit" @click="startEdit">
           <MdEdit class="menu-icon" aria-hidden="true" />编辑
         </button>
         <button type="button" @click="openDetails">
           <MdVisibility class="menu-icon" aria-hidden="true" />详情
         </button>
-        <button class="danger-menu-item" type="button" :disabled="!canEdit" @click="remove">
+        <button v-if="!isVirtual" class="danger-menu-item" type="button" :disabled="!canEdit" @click="remove">
           <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除
         </button>
       </div>
@@ -342,6 +461,10 @@ defineExpose({
 
 .chat-block.error {
   background: #fff8f8;
+}
+
+.chat-block.collapsed {
+  gap: 0;
 }
 
 .chat-block-header,
@@ -501,9 +624,12 @@ defineExpose({
 }
 
 .system-hint,
-.injection-summary {
+.injection-body {
   width: auto;
   margin-inline: var(--chat-block-content-inset);
+}
+
+.system-hint {
   border: 1px dashed #cdd6e2;
   border-radius: 8px;
   background: transparent;
@@ -512,20 +638,123 @@ defineExpose({
   text-align: left;
 }
 
-.injection-summary {
+.injection-body {
   display: grid;
-  gap: 4px;
-  border-style: solid;
+  gap: 10px;
+  min-width: 0;
 }
 
-.injection-summary strong {
+.injection-mode-tabs {
+  width: fit-content;
+  min-width: 0;
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #d8dee7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.injection-mode-tabs button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-right: 1px solid #e1e7ef;
+  background: transparent;
+  color: #526173;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.injection-mode-tabs button:last-child {
+  border-right: 0;
+}
+
+.injection-mode-tabs button:hover:not(:disabled),
+.injection-mode-tabs button.selected {
+  background: #f4f8ff;
+  color: #174f99;
+}
+
+.injection-mode-tabs button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.tab-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.injection-markdown {
+  margin-inline: 0;
+}
+
+.injection-detail-list {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.injection-detail-item {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e2d7b8;
+  border-radius: 8px;
+  background: #fffefa;
+  padding: 10px;
+}
+
+.injection-detail-item header {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.injection-detail-item strong,
+.injection-detail-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.injection-detail-item strong {
   color: #4b3b12;
   font-size: 13px;
 }
 
-.injection-summary span {
+.injection-detail-item span {
   color: #7a6b43;
   font-size: 12px;
+}
+
+.injection-detail-item p {
+  margin: 0;
+  color: #657085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.injection-detail-item pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 7px;
+  background: #fbf7ec;
+  color: #303a49;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .block-footer {

@@ -204,10 +204,16 @@ export interface LlmInstanceCreatePayload {
 
 export type LlmInstanceUpdatePayload = LlmInstanceCreatePayload & { id: number }
 
+export interface ChatRuntimeConfig {
+  characterId: number | null
+  llmInstanceId: number | null
+  loreBookIds: number[]
+}
+
 export interface ChatSession {
   id: number
   title: string
-  llmInstanceId: number | null
+  runtimeConfig: ChatRuntimeConfig
   createdAt: string
   updatedAt: string
 }
@@ -215,7 +221,7 @@ export interface ChatSession {
 export interface ChatUpdatePayload {
   id: number
   title?: string
-  llmInstanceId?: number | null
+  runtimeConfig?: ChatRuntimeConfig
 }
 
 export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection'
@@ -307,6 +313,7 @@ export interface ChatGenerationPreview {
     sendReasoning: boolean
     text: string
     reasoning: string
+    virtual?: boolean
   }>
   requestBlockIds: number[]
 }
