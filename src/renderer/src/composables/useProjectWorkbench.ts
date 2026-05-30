@@ -50,6 +50,8 @@ export function createProjectWorkbench() {
   const worldEntryRole = ref('0')
   const worldEntryDepth = ref(4)
   const worldEntryProbability = ref(100)
+  const worldEntrySelectiveLogic = ref('0')
+  const worldEntryOutletName = ref('')
   const worldEntryAdvancedJson = ref('')
 
   const draggingLoreBookIndex = ref<number | null>(null)
@@ -177,15 +179,19 @@ export function createProjectWorkbench() {
       forgeData: selectedWorldEntry.value.forgeData
     })
     const data = payload.stData
+    const position = Number(worldEntryPosition.value)
+    const isAtDepth = position === 4
     data.keys = splitCommaList(worldEntryKeysText.value)
     data.secondary_keys = splitCommaList(worldEntrySecondaryKeysText.value)
-    data.position = Number(worldEntryPosition.value) === 1 ? 'after_char' : 'before_char'
+    data.position = position === 1 ? 'after_char' : 'before_char'
     data.extensions = {
       ...asRecord(data.extensions),
-      position: Number(worldEntryPosition.value),
-      role: Number(worldEntryRole.value),
+      position,
+      role: isAtDepth ? Number(worldEntryRole.value) : null,
       depth: Number(worldEntryDepth.value),
-      probability: Number(worldEntryProbability.value)
+      probability: Number(worldEntryProbability.value),
+      selectiveLogic: Number(worldEntrySelectiveLogic.value),
+      outlet_name: worldEntryOutletName.value.trim()
     }
     return payload
   }
@@ -513,6 +519,8 @@ export function createProjectWorkbench() {
     worldEntryRole.value = String(selectedWorldEntry.value.stData.extensions.role ?? 0)
     worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
     worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
+    worldEntrySelectiveLogic.value = String(selectedWorldEntry.value.stData.extensions.selectiveLogic ?? 0)
+    worldEntryOutletName.value = String(selectedWorldEntry.value.stData.extensions.outlet_name ?? '')
     worldEntryAdvancedJson.value = JSON.stringify(selectedWorldEntry.value.stData, null, 2)
     rememberWorldEntrySnapshot()
   }
@@ -575,6 +583,8 @@ export function createProjectWorkbench() {
       worldEntryRole.value = String(selectedWorldEntry.value.stData.extensions.role ?? 0)
       worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
       worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
+      worldEntrySelectiveLogic.value = String(selectedWorldEntry.value.stData.extensions.selectiveLogic ?? 0)
+      worldEntryOutletName.value = String(selectedWorldEntry.value.stData.extensions.outlet_name ?? '')
       await saveWorldEntry()
     } catch {
       showToast('高级 JSON 格式不正确，未保存', 'error')
@@ -1228,6 +1238,8 @@ export function createProjectWorkbench() {
     worldEntryPosition,
     worldEntryProbability,
     worldEntryRole,
+    worldEntrySelectiveLogic,
+    worldEntryOutletName,
     worldEntrySecondaryKeysText
   }
 }

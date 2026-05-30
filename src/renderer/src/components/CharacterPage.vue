@@ -90,9 +90,6 @@ const {
             v-model="characterData.creator" @blur="saveCharacter" /></label>
         <label><span class="field-title" :data-tooltip="characterFieldHints.exportFileName">导出文件名</span><input
             v-model="selectedCharacter.forgeData.exportFileName" placeholder="默认使用角色名" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.characterBookName">内嵌世界书名</span><input
-            v-model="selectedCharacter.forgeData.characterBookName" placeholder="默认使用角色名"
-            @blur="saveCharacter" /></label>
         <label><span class="field-title" :data-tooltip="characterFieldHints.talkativeness">健谈度</span><input
             v-model.number="characterExtensions.talkativeness" type="number" min="0" max="1" step="0.05"
             @blur="saveCharacter" /></label>
@@ -120,20 +117,25 @@ const {
             v-model="characterTagsText" placeholder="tag1, tag2" @blur="saveCharacter" /></label>
         <label><span class="field-title" :data-tooltip="characterFieldHints.alternateGreetings">备用开场</span><textarea
             v-model="characterGreetingsText" rows="5" placeholder="用单独一行 --- 分隔多个开场" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.depthPrompt">Depth Prompt</span><textarea
-            v-model="depthPrompt.prompt" rows="3" @blur="saveCharacter" /></label>
       </div>
 
-      <div class="form-grid three compact">
-        <label><span class="field-title" :data-tooltip="characterFieldHints.depth">Depth</span><input
-            v-model.number="depthPrompt.depth" type="number" min="0" @blur="saveCharacter" /></label>
-        <label><span class="field-title" :data-tooltip="characterFieldHints.role">Role</span>
-          <select v-model="depthPrompt.role" @change="saveCharacter">
-            <option value="system">system</option>
-            <option value="user">user</option>
-            <option value="assistant">assistant</option>
-          </select>
-        </label>
+      <div class="field-section">
+        <h3>角色深度注入</h3>
+        <div class="form-grid">
+          <label><span class="field-title" :data-tooltip="characterFieldHints.depthPrompt">Depth Prompt</span><textarea
+              v-model="depthPrompt.prompt" rows="3" @blur="saveCharacter" /></label>
+        </div>
+        <div class="form-grid three compact">
+          <label><span class="field-title" :data-tooltip="characterFieldHints.depth">Depth</span><input
+              v-model.number="depthPrompt.depth" type="number" min="0" @blur="saveCharacter" /></label>
+          <label><span class="field-title" :data-tooltip="characterFieldHints.role">Role</span>
+            <select v-model="depthPrompt.role" @change="saveCharacter">
+              <option value="system">system</option>
+              <option value="user">user</option>
+              <option value="assistant">assistant</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <div class="relation-block">
@@ -146,6 +148,10 @@ const {
           <span>{{ loreBookEntryCount(characterSelectedLoreBook) }} 个条目</span>
         </div>
         <div v-else class="empty-note">未关联世界书</div>
+        <label class="embedded-book-name"><span class="field-title"
+            :data-tooltip="characterFieldHints.characterBookName">内嵌世界书名</span><input
+            v-model="selectedCharacter.forgeData.characterBookName" placeholder="留空时使用关联世界书名"
+            @blur="saveCharacter" /></label>
         <div class="mini-grid">
           <button v-for="book in loreBooks" :key="book.id" type="button"
             :class="{ selected: isCharacterLoreBookSelected(book.id) }" @click="selectCharacterLoreBook(book.id)">
@@ -215,6 +221,19 @@ const {
   margin: 0;
 }
 
+.field-section {
+  border-top: 1px solid #edf0f4;
+  border-bottom: 1px solid #edf0f4;
+  padding: 10px 0 0;
+  margin-bottom: 10px;
+}
+
+.field-section h3 {
+  margin: 0 0 8px;
+  color: #334052;
+  font-size: 13px;
+}
+
 .relation-header button {
   border: 1px solid #d4dbe4;
   border-radius: 7px;
@@ -232,6 +251,10 @@ const {
   border-radius: 8px;
   background: #fbfcfd;
   padding: 7px 9px;
+  margin-bottom: 8px;
+}
+
+.embedded-book-name {
   margin-bottom: 8px;
 }
 

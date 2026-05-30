@@ -50,9 +50,11 @@ const {
   worldEntryData,
   worldEntryDepth,
   worldEntryKeysText,
+  worldEntryOutletName,
   worldEntryPosition,
   worldEntryProbability,
   worldEntryRole,
+  worldEntrySelectiveLogic,
   worldEntrySecondaryKeysText
 } = useProjectWorkbench()
 
@@ -73,6 +75,9 @@ const worldEntryDragStyle = computed(() => {
     }
     : {}
 })
+
+const isWorldEntryAtDepth = computed(() => Number(worldEntryPosition.value) === 4)
+const isWorldEntryOutlet = computed(() => Number(worldEntryPosition.value) === 7)
 
 watch(() => selectedLoreBook.value?.id, () => {
   isEditingLoreBookName.value = false
@@ -301,7 +306,8 @@ onBeforeUnmount(() => {
               'drop-after': isWorldEntryDropAfter(index)
             }">
               <div class="world-entry-summary">
-                <button class="drag-handle" type="button" aria-label="拖拽排序" title="拖拽排序" @click.stop
+                <button class="drag-handle" type="button" aria-label="拖拽排序"
+                  title="拖拽排序：改变 Order；同一插入位置下 Order 会影响注入顺序" @click.stop
                   @pointerdown.stop="startWorldEntryDrag($event, entry, index)">
                   <MdDragIndicator class="drag-icon" aria-hidden="true" />
                 </button>
@@ -314,57 +320,80 @@ onBeforeUnmount(() => {
 
               <div v-if="selectedWorldEntry && isWorldEntryExpanded(entry.id)" class="world-entry-editor">
                 <div class="entry-editor-header">
-                  <strong>Order {{ worldEntryData.insertion_order }}</strong>
+                  <strong class="field-title" :data-tooltip="worldEntryFieldHints.order">Order {{
+                    worldEntryData.insertion_order }}</strong>
                   <button class="toolbar-button" type="button" aria-label="删除条目" data-tooltip="删除条目"
                     @click="deleteSelectedWorldEntry">
                     <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
                   </button>
                 </div>
 
-                <div class="form-grid two">
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.comment">标题/Memo</span><input
-                      v-model="worldEntryData.comment" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.position">Position</span>
-                    <select v-model="worldEntryPosition" @change="saveWorldEntry">
-                      <option value="0">Before Char Defs</option>
-                      <option value="1">After Char Defs</option>
-                      <option value="5">Before Example Messages</option>
-                      <option value="6">After Example Messages</option>
-                      <option value="2">Before Author's Note</option>
-                      <option value="3">After Author's Note</option>
-                      <option value="4">At Depth</option>
-                      <option value="7">Outlet</option>
-                    </select>
-                  </label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.role">Role</span>
-                    <select v-model="worldEntryRole" @change="saveWorldEntry">
-                      <option value="0">System</option>
-                      <option value="1">User</option>
-                      <option value="2">Assistant</option>
-                    </select>
-                  </label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.depth">Depth</span><input
-                      v-model.number="worldEntryDepth" type="number" min="0" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.probability">Trigger
-                      %</span><input v-model.number="worldEntryProbability" type="number" min="0" max="100"
-                      @blur="saveWorldEntry" /></label>
+                <div class="entry-field-section">
+                  <h3>基础信息</h3>
+                  <div class="form-grid two">
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.comment">标题/Memo</span><input
+                        v-model="worldEntryData.comment" @blur="saveWorldEntry" /></label>
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.position">Position</span>
+                      <select v-model="worldEntryPosition" @change="saveWorldEntry">
+                        <option value="0">Before Char Defs</option>
+                        <option value="1">After Char Defs</option>
+                        <option value="5">Before Example Messages</option>
+                        <option value="6">After Example Messages</option>
+                        <option value="2">Before Author's Note</option>
+                        <option value="3">After Author's Note</option>
+                        <option value="4">At Depth</option>
+                        <option value="7">Outlet</option>
+                      </select>
+                    </label>
+                    <label v-if="isWorldEntryAtDepth"><span class="field-title"
+                        :data-tooltip="worldEntryFieldHints.role">Role</span>
+                      <select v-model="worldEntryRole" @change="saveWorldEntry">
+                        <option value="0">System</option>
+                        <option value="1">User</option>
+                        <option value="2">Assistant</option>
+                      </select>
+                    </label>
+                    <label v-if="isWorldEntryAtDepth"><span class="field-title"
+                        :data-tooltip="worldEntryFieldHints.depth">Depth</span><input v-model.number="worldEntryDepth"
+                        type="number" min="0" @blur="saveWorldEntry" /></label>
+                    <label v-if="isWorldEntryOutlet"><span class="field-title"
+                        :data-tooltip="worldEntryFieldHints.outletName">Outlet 名称</span><input
+                        v-model="worldEntryOutletName" placeholder="例如：主线设定" @blur="saveWorldEntry" /></label>
+                  </div>
                 </div>
 
-                <div class="switch-row">
-                  <label><input v-model="worldEntryData.enabled" type="checkbox" @change="saveWorldEntry" /> <span
-                      class="field-title" :data-tooltip="worldEntryFieldHints.enabled">启用</span></label>
-                  <label><input v-model="worldEntryData.constant" type="checkbox" @change="saveWorldEntry" /> <span
-                      class="field-title" :data-tooltip="worldEntryFieldHints.constant">常驻</span></label>
-                  <label><input v-model="worldEntryData.selective" type="checkbox" @change="saveWorldEntry" /> <span
-                      class="field-title" :data-tooltip="worldEntryFieldHints.selective">次关键词逻辑</span></label>
+                <div class="entry-field-section">
+                  <h3>触发条件</h3>
+                  <div class="switch-row">
+                    <label><input v-model="worldEntryData.enabled" type="checkbox" @change="saveWorldEntry" /> <span
+                        class="field-title" :data-tooltip="worldEntryFieldHints.enabled">启用</span></label>
+                    <label><input v-model="worldEntryData.constant" type="checkbox" @change="saveWorldEntry" /> <span
+                        class="field-title" :data-tooltip="worldEntryFieldHints.constant">常驻</span></label>
+                    <label><input v-model="worldEntryData.selective" type="checkbox" @change="saveWorldEntry" /> <span
+                        class="field-title" :data-tooltip="worldEntryFieldHints.selective">启用次关键词过滤</span></label>
+                  </div>
+                  <div class="form-grid two">
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.keys">主关键词</span><input
+                        v-model="worldEntryKeysText" placeholder="keyword1, keyword2" @blur="saveWorldEntry" /></label>
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.secondaryKeys">次关键词</span><input
+                        v-model="worldEntrySecondaryKeysText" placeholder="keyword1, keyword2"
+                        @blur="saveWorldEntry" /></label>
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.selectiveLogic">次关键词逻辑</span>
+                      <select v-model="worldEntrySelectiveLogic" :disabled="!worldEntryData.selective"
+                        @change="saveWorldEntry">
+                        <option value="0">AND ANY</option>
+                        <option value="3">AND ALL</option>
+                        <option value="1">NOT ALL</option>
+                        <option value="2">NOT ANY</option>
+                      </select>
+                    </label>
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.probability">Trigger
+                        %</span><input v-model.number="worldEntryProbability" type="number" min="0" max="100"
+                        @blur="saveWorldEntry" /></label>
+                  </div>
                 </div>
 
                 <div class="form-grid">
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.keys">主关键词</span><input
-                      v-model="worldEntryKeysText" placeholder="keyword1, keyword2" @blur="saveWorldEntry" /></label>
-                  <label><span class="field-title" :data-tooltip="worldEntryFieldHints.secondaryKeys">次关键词</span><input
-                      v-model="worldEntrySecondaryKeysText" placeholder="keyword1, keyword2"
-                      @blur="saveWorldEntry" /></label>
                   <label><span class="field-title" :data-tooltip="worldEntryFieldHints.content">内容</span><textarea
                       v-model="worldEntryData.content" rows="9" @blur="saveWorldEntry" /></label>
                 </div>
@@ -561,6 +590,18 @@ onBeforeUnmount(() => {
 .entry-editor-header strong {
   color: #536071;
   font-size: 12px;
+}
+
+.entry-field-section {
+  border-bottom: 1px solid #edf0f4;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+}
+
+.entry-field-section h3 {
+  margin: 0 0 8px;
+  color: #334052;
+  font-size: 13px;
 }
 
 .switch-row {
