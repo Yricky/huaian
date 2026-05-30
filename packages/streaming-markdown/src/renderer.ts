@@ -1,16 +1,15 @@
 import {
   layoutWithLines,
-  prepareWithSegments,
   type LayoutLine,
 } from '@chenglou/pretext'
 import {
   materializeRichInlineLineRange,
-  prepareRichInline,
   walkRichInlineLineRanges,
   type RichInlineItem,
 } from '@chenglou/pretext/rich-inline'
 
 import { parseMarkdown } from './parser.js'
+import { PreparedTextCache, RichInlineCache } from './pretext-cache.js'
 import { getDefaultClassNames } from './styles.js'
 import type {
   CodeBlock,
@@ -24,6 +23,8 @@ import type {
   MarkdownInline,
   MarkdownSnapshot,
   ResolvedImage,
+  PreparedTextCacheStats,
+  RichInlineCacheStats,
   StreamingMarkdownClassNames,
   StreamingMarkdownOptions,
   StreamingMarkdownRenderStats,
@@ -136,7 +137,9 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
   private readonly container: HTMLElement
   private readonly imageStates = new Map<string, ImageState>()
   private readonly options: StreamingMarkdownOptions
+  private readonly preparedTextCache: PreparedTextCache
   private readonly prefix: string
+  private readonly richInlineCache: RichInlineCache
   private readonly subscribers = new Set<StreamingMarkdownSubscriber>()
 
   private finalized = false
@@ -154,6 +157,8 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
   constructor(container: HTMLElement, options: StreamingMarkdownOptions) {
     this.container = container
     this.options = options
+    this.preparedTextCache = new PreparedTextCache(options.preparedTextCacheMaxEntries)
+    this.richInlineCache = new RichInlineCache(options.richInlineCacheMaxEntries)
     this.prefix = options.classPrefix ?? 'sm'
     this.classes = getDefaultClassNames(options.classPrefix)
     this.container.classList.add(this.classes.root)
@@ -168,11 +173,29 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
     this.schedule()
   }
 
+  clearPreparedTextCache(): void {
+    this.preparedTextCache.clear()
+  }
+
+  clearRichInlineCache(): void {
+    this.richInlineCache.clear()
+  }
+
+  configurePreparedTextCache(maxEntries: number): void {
+    this.preparedTextCache.configure(maxEntries)
+  }
+
+  configureRichInlineCache(maxEntries: number): void {
+    this.richInlineCache.configure(maxEntries)
+  }
+
   destroy(): void {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     this.rafId = null
     this.blockCache.clear()
     this.imageStates.clear()
+    this.preparedTextCache.clear()
+    this.richInlineCache.clear()
     this.subscribers.clear()
     this.container.replaceChildren()
     this.container.classList.remove(this.classes.root)
@@ -217,6 +240,14 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
 
   getSnapshot(): MarkdownSnapshot {
     return this.snapshot
+  }
+
+  getPreparedTextCacheStats(): PreparedTextCacheStats {
+    return this.preparedTextCache.getStats()
+  }
+
+  getRichInlineCacheStats(): RichInlineCacheStats {
+    return this.richInlineCache.getStats()
   }
 
   getStats(): StreamingMarkdownRenderStats {
@@ -328,7 +359,7 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
       root.append(meta)
     }
 
-    const prepared = prepareWithSegments(block.code, DEFAULT_FONTS.code, { whiteSpace: 'pre-wrap' })
+    const prepared = this.preparedTextCache.get(block.code, DEFAULT_FONTS.code, { whiteSpace: 'pre-wrap' })
     const lines = layoutWithLines(prepared, Math.max(80, width - 24), LINE_HEIGHTS.code).lines
     if (lines.length === 0) {
       root.append(this.createCodeLine({ text: '', width: 0 }))
@@ -711,7 +742,7 @@ class DomStreamingMarkdownRenderer implements StreamingMarkdownRenderer {
       font: item.font,
       text: item.text,
     }))
-    const prepared = prepareRichInline(preparedItems)
+    const prepared = this.richInlineCache.get(preparedItems)
     let emitted = 0
 
     walkRichInlineLineRanges(prepared, Math.max(40, maxWidth), range => {

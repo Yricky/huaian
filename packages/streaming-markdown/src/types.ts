@@ -245,6 +245,16 @@ export type StreamingMarkdownRenderStats = {
   sourceLength: number
 }
 
+export type PreparedTextCacheStats = {
+  entries: number
+  maxEntries: number
+}
+
+export type RichInlineCacheStats = {
+  entries: number
+  maxEntries: number
+}
+
 export type StreamingMarkdownEvent =
   | {
       snapshot: MarkdownSnapshot
@@ -279,15 +289,23 @@ export type StreamingMarkdownOptions = {
     context: RenderHookContext,
   ) => void
   renderMermaid?: (code: string, element: HTMLElement, context: RenderHookContext) => void
+  preparedTextCacheMaxEntries?: number
+  richInlineCacheMaxEntries?: number
   resolveImage?: ResolveImage
   width?: number
 }
 
 export type StreamingMarkdownRenderer = {
   append(chunk: string): void
+  clearPreparedTextCache(): void
+  clearRichInlineCache(): void
+  configurePreparedTextCache(maxEntries: number): void
+  configureRichInlineCache(maxEntries: number): void
   destroy(): void
   finalize(): void
   flush(): void
+  getPreparedTextCacheStats(): PreparedTextCacheStats
+  getRichInlineCacheStats(): RichInlineCacheStats
   getSnapshot(): MarkdownSnapshot
   getStats(): StreamingMarkdownRenderStats
   replace(markdown: string): void

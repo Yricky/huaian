@@ -48,9 +48,30 @@ renderer.finalize()
 - `append(chunk)`, `replace(markdown)`, `reset()`, `finalize()`
 - `flush()` for immediate sync rendering when a caller needs it
 - `destroy()`
+- `clearPreparedTextCache()`, `configurePreparedTextCache(maxEntries)`, `getPreparedTextCacheStats()`
+- `clearRichInlineCache()`, `configureRichInlineCache(maxEntries)`, `getRichInlineCacheStats()`
 - `getSnapshot()` for parsed blocks and diagnostics
 - `getStats()` for block count, line count, source length, and last render time
 - `subscribe(listener)` for render and image-error events
+
+## Prepared Text Cache
+
+Code block layout reuses `prepareWithSegments` results when `text`, `font`, and prepare options match. Inline layout also reuses `prepareRichInline` results when the inline item stream is identical. Both LRU caches belong to the renderer instance, so long-lived chat renderers can keep hot text prepared without sharing state with unrelated renderers.
+
+```ts
+const renderer = createStreamingMarkdownRenderer(container, {
+  preparedTextCacheMaxEntries: 512,
+  richInlineCacheMaxEntries: 2048,
+})
+
+renderer.configurePreparedTextCache(512)
+console.log(renderer.getPreparedTextCacheStats())
+renderer.clearPreparedTextCache()
+
+renderer.configureRichInlineCache(2048)
+console.log(renderer.getRichInlineCacheStats())
+renderer.clearRichInlineCache()
+```
 
 ## First-Version Markdown
 

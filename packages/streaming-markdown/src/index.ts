@@ -13,6 +13,8 @@ export type {
   MarkdownInline,
   MarkdownSnapshot,
   ParseMarkdownOptions,
+  PreparedTextCacheStats,
+  RichInlineCacheStats,
   ResolveImage,
   ResolveImageRequest,
   ResolvedImage,

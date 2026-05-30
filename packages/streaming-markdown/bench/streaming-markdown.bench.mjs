@@ -67,11 +67,55 @@ measure('resize relayout', () => {
   }
 })
 
+const withoutRichInlineCache = measure('same renderer repeated layout, rich inline cache off', () => {
+  return runSameRendererRepeatedLayout({ richInlineCacheMaxEntries: 0 })
+})
+const withRichInlineCache = measure('same renderer repeated layout, rich inline cache on', () => {
+  return runSameRendererRepeatedLayout({ richInlineCacheMaxEntries: 2048 })
+})
+console.log(`same renderer rich inline speedup: ${formatPercent((withoutRichInlineCache - withRichInlineCache) / withoutRichInlineCache)}`)
+
 function measure(label, run) {
   const start = performance.now()
   run()
   const duration = performance.now() - start
   console.log(`${label}: ${duration.toFixed(2)}ms`)
+  return duration
+}
+
+function runSameRendererRepeatedLayout({ richInlineCacheMaxEntries }) {
+  const sameContainer = document.createElement('div')
+  let sameRendererWidth = 480
+  Object.defineProperty(sameContainer, 'clientWidth', {
+    get() {
+      return sameRendererWidth
+    },
+  })
+  document.body.replaceChildren(sameContainer)
+  const sameRenderer = createStreamingMarkdownRenderer(sameContainer, {
+    preparedTextCacheMaxEntries: 256,
+    resolveImage: ({ src, alt }) => ({ alt, height: 360, src, width: 720 }),
+    richInlineCacheMaxEntries,
+  })
+
+  sameRenderer.replace(sample)
+  sameRenderer.finalize()
+  sameRenderer.flush()
+
+  for (let iteration = 0; iteration < 80; iteration++) {
+    sameRendererWidth = 420 + iteration * 3
+    sameRenderer.flush()
+  }
+
+  const preparedTextCache = sameRenderer.getPreparedTextCacheStats()
+  const richInlineCache = sameRenderer.getRichInlineCacheStats()
+  sameRenderer.destroy()
+  console.log(`same renderer prepared cache entries: ${preparedTextCache.entries}/${preparedTextCache.maxEntries}`)
+  console.log(`same renderer rich inline cache entries: ${richInlineCache.entries}/${richInlineCache.maxEntries}`)
+}
+
+function formatPercent(value) {
+  return `${(value * 100).toFixed(2)}%`
 }
 
 function buildSampleMarkdown() {
