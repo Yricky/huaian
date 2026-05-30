@@ -34,6 +34,7 @@ const measuredHeights = new Map<string, number>()
 let rowResizeObserver: ResizeObserver | null = null
 let containerResizeObserver: ResizeObserver | null = null
 let lastTouchY: number | null = null
+let activeTouchScroller: HTMLElement | null = null
 
 const itemKeys = computed(() => props.items.map((item, index) => normalizeKey(props.itemKey(item, index))))
 
@@ -219,13 +220,17 @@ function normalizedWheelDelta(event: WheelEvent) {
 }
 
 function handleWheel(event: WheelEvent) {
-  if (event.ctrlKey || isEditableTarget(event.target)) return
+  if (event.ctrlKey || isTextInputTarget(event.target)) return
+  const delta = normalizedWheelDelta(event)
+  const scroller = scrollableAncestor(event.target)
+  if (scroller && canScroll(scroller, delta)) return
   event.preventDefault()
-  scrollBy(normalizedWheelDelta(event))
+  scrollBy(delta)
 }
 
 function handleTouchStart(event: TouchEvent) {
-  if (isEditableTarget(event.target)) {
+  activeTouchScroller = null
+  if (isTextInputTarget(event.target)) {
     lastTouchY = null
     return
   }
@@ -236,28 +241,61 @@ function handleTouchStart(event: TouchEvent) {
   }
 
   lastTouchY = event.touches[0].clientY
+  activeTouchScroller = scrollableAncestor(event.target)
 }
 
 function handleTouchMove(event: TouchEvent) {
-  if (isEditableTarget(event.target)) return
+  if (isTextInputTarget(event.target)) return
   if (event.touches.length !== 1 || lastTouchY === null) return
   const nextY = event.touches[0].clientY
+  const delta = lastTouchY - nextY
   event.preventDefault()
-  scrollBy(lastTouchY - nextY)
+  if (activeTouchScroller && canScroll(activeTouchScroller, delta)) {
+    activeTouchScroller.scrollTop += delta
+  } else {
+    scrollBy(delta)
+  }
   lastTouchY = nextY
 }
 
 function handleTouchEnd() {
   lastTouchY = null
+  activeTouchScroller = null
 }
 
-function isEditableTarget(target: EventTarget | null) {
+function isTextInputTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
+function isKeyboardInteractiveTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'))
 }
 
+function scrollableAncestor(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null
+  const container = containerRef.value
+  let element: HTMLElement | null = target
+
+  while (element && element !== container) {
+    const style = window.getComputedStyle(element)
+    const canOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay'
+    if (canOverflow && element.scrollHeight > element.clientHeight + 1) return element
+    element = element.parentElement
+  }
+
+  return null
+}
+
+function canScroll(element: HTMLElement, delta: number): boolean {
+  if (delta > 0) return element.scrollTop + element.clientHeight < element.scrollHeight - 1
+  if (delta < 0) return element.scrollTop > 1
+  return false
+}
+
 function handleKeydown(event: KeyboardEvent) {
-  if (isEditableTarget(event.target)) return
+  if (isKeyboardInteractiveTarget(event.target)) return
 
   const viewportHeight = Math.max(1, containerHeight.value)
   let delta = 0

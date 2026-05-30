@@ -6,17 +6,14 @@ import ChatWorkspace from './ChatWorkspace.vue'
 
 const {
   chats,
-  applyLoreBookDraft,
   characters,
   createChat,
   createChatBlock,
   deleteChatBlock,
   deleteSelectedChat,
-  discardLoreBookDraft,
   generatingChatIds,
   isSelectedChatGenerating,
   llmInstances,
-  listLoreBookDrafts,
   loreBooks,
   previewChatGeneration,
   saveChat,
@@ -64,13 +61,10 @@ function chatKey(chat: ChatSession) {
       :blocks="selectedChatBlocks"
       :chat="selectedChat"
       :characters="characters"
-      :apply-lore-book-draft="applyLoreBookDraft"
       :create-chat-block="createChatBlock"
       :delete-chat="deleteSelectedChat"
       :delete-chat-block="deleteChatBlock"
-      :discard-lore-book-draft="discardLoreBookDraft"
       :frozen="isSelectedChatGenerating"
-      :list-lore-book-drafts="listLoreBookDrafts"
       :llm-instances="llmInstances"
       :lore-books="loreBooks"
       :preview-chat-generation="previewChatGeneration"

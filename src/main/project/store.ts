@@ -757,7 +757,7 @@ function renumberChatBlocks(chatId: number): void {
 
 function chatBlockDefaultTargetRole(kind: ChatBlockCreatePayload['kind']): ChatBlockTargetRole {
   if (kind === 'user') return 'user'
-  if (kind === 'assistant' || kind === 'tool_call') return 'assistant'
+  if (kind === 'assistant') return 'assistant'
   return 'system'
 }
 
@@ -815,28 +815,6 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   renumberChatBlocks(payload.chatId)
   touchChat(payload.chatId)
   return getChatBlock(Number(result.lastInsertRowid))
-}
-
-export function createToolCallBlock(
-  chatId: number,
-  title: string,
-  summary: string,
-  content: string,
-  metadata: JsonRecord,
-  insertBeforeBlockId?: number
-): ChatBlock {
-  return createChatBlock({
-    chatId,
-    kind: 'tool_call',
-    targetRole: 'assistant',
-    enabled: false,
-    title,
-    summary,
-    contentParts: [{ type: 'text', text: content }],
-    metadata,
-    insertRelativeBlockId: insertBeforeBlockId,
-    insertPlacement: insertBeforeBlockId === undefined ? undefined : 'before'
-  })
 }
 
 export function updateChatBlock(payload: ChatBlockUpdatePayload): ChatBlock {

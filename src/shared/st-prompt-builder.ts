@@ -95,7 +95,18 @@ function asNumber(value: unknown, fallback: number): number {
 }
 
 function blockText(block: RuntimeBlock): string {
-  return block.contentParts.filter(part => part.type === 'text').map(part => part.text).join('')
+  return block.contentParts
+    .map(part => {
+      if (part.type === 'text') return part.text
+      if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
+      return [
+        `[Tool call: ${part.toolName}]`,
+        `input: ${JSON.stringify(part.input)}`,
+        part.status === 'success' ? `output: ${JSON.stringify(part.output ?? null)}` : '',
+        part.status === 'error' ? `error: ${part.error ?? ''}` : ''
+      ].filter(Boolean).join('\n')
+    })
+    .join('')
 }
 
 function blockReasoningText(block: RuntimeBlock): string {
@@ -108,7 +119,6 @@ function shouldSendReasoning(block: RuntimeBlock): boolean {
 
 function blockRole(block: RuntimeBlock): 'system' | 'user' | 'assistant' {
   if (block.kind === 'tool_definition') return 'system'
-  if (block.kind === 'tool_call') return 'assistant'
   return block.kind === 'injection' ? block.targetRole : block.kind as 'system' | 'user' | 'assistant'
 }
 
@@ -149,7 +159,6 @@ function activeLoreBookToolDefinitionIds(blocks: RuntimeBlock[], loreBooks: Lore
 
 function shouldSendBlock(block: RuntimeBlock, activeToolDefinitionIds: Set<number>): boolean {
   if (!block.enabled) return false
-  if (block.kind === 'tool_call') return false
   if (block.kind === 'tool_definition') return activeToolDefinitionIds.has(block.id)
   return true
 }
@@ -408,7 +417,7 @@ function realBlockMessage(block: RuntimeBlock, activeToolDefinitionIds: Set<numb
 }
 
 function realBlockScanLine(block: RuntimeBlock, character: CharacterEntry | null): string {
-  if (block.kind === 'tool_definition' || block.kind === 'tool_call') return ''
+  if (block.kind === 'tool_definition') return ''
   const text = blockText(block).trim()
   if (!text) return ''
   const role = blockRole(block)

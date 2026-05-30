@@ -22,7 +22,6 @@ import { ensureProject } from './state'
 import { asRecord, cloneJson, defaultWorldEntry, normalizeWorldEntryData, toBoolean, toNumber, toString } from './normalizers'
 
 interface LoreBookDraftFile {
-  toolSessionId: string
   loreBookId: number
   createdAt: string
   updatedAt: string
@@ -51,14 +50,13 @@ function draftRoot(): string {
   return join(ensureProject().path, 'tmp', 'lorebook')
 }
 
-function safeToolSessionId(value: string): string {
-  const cleaned = value.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)
-  if (!cleaned) throw new Error('世界书工具会话 ID 无效。')
-  return cleaned
+function draftPath(loreBookId: number): string {
+  if (!Number.isInteger(loreBookId) || loreBookId <= 0) throw new Error('世界书 ID 无效。')
+  return join(draftRoot(), `${loreBookId}.json`)
 }
 
-function draftPath(toolSessionId: string): string {
-  return join(draftRoot(), `${safeToolSessionId(toolSessionId)}.json`)
+function isLoreBookDraftFileName(fileName: string): boolean {
+  return /^\d+\.json$/.test(fileName)
 }
 
 async function ensureDraftDir(): Promise<void> {
@@ -80,9 +78,8 @@ function entryTitle(entry: WorldEntry): string {
 
 function normalizeDraftFile(value: unknown): LoreBookDraftFile | null {
   const record = asRecord(value)
-  const toolSessionId = toString(record.toolSessionId)
   const loreBookId = Number(record.loreBookId)
-  if (!toolSessionId || !Number.isInteger(loreBookId)) return null
+  if (!Number.isInteger(loreBookId) || loreBookId <= 0) return null
   const entries = Array.isArray(record.entries)
     ? record.entries.map(item => {
         const entry = asRecord(item)
@@ -98,7 +95,6 @@ function normalizeDraftFile(value: unknown): LoreBookDraftFile | null {
     : []
 
   return {
-    toolSessionId,
     loreBookId,
     createdAt: toString(record.createdAt, nowIso()),
     updatedAt: toString(record.updatedAt, nowIso()),
@@ -106,10 +102,11 @@ function normalizeDraftFile(value: unknown): LoreBookDraftFile | null {
   }
 }
 
-async function readDraft(toolSessionId: string): Promise<LoreBookDraftFile | null> {
+async function readDraft(loreBookId: number): Promise<LoreBookDraftFile | null> {
   try {
-    const parsed = JSON.parse(await readFile(draftPath(toolSessionId), 'utf-8'))
-    return normalizeDraftFile(parsed)
+    const parsed = JSON.parse(await readFile(draftPath(loreBookId), 'utf-8'))
+    const draft = normalizeDraftFile(parsed)
+    return draft?.loreBookId === loreBookId ? draft : null
   } catch {
     return null
   }
@@ -117,17 +114,16 @@ async function readDraft(toolSessionId: string): Promise<LoreBookDraftFile | nul
 
 async function writeDraft(draft: LoreBookDraftFile): Promise<void> {
   await ensureDraftDir()
-  await writeFile(draftPath(draft.toolSessionId), JSON.stringify(draft, null, 2), 'utf-8')
+  await writeFile(draftPath(draft.loreBookId), JSON.stringify(draft, null, 2), 'utf-8')
 }
 
-export async function ensureLoreBookDraft(toolSessionId: string, loreBookId: number): Promise<LoreBookDraftFile> {
+export async function ensureLoreBookDraft(loreBookId: number): Promise<LoreBookDraftFile> {
   getLoreBook(loreBookId)
-  const existing = await readDraft(toolSessionId)
-  if (existing && existing.loreBookId === loreBookId) return existing
+  const existing = await readDraft(loreBookId)
+  if (existing) return existing
 
   const now = nowIso()
   const draft: LoreBookDraftFile = {
-    toolSessionId: safeToolSessionId(toolSessionId),
     loreBookId,
     createdAt: now,
     updatedAt: now,
@@ -192,19 +188,18 @@ function applyUpsertInput(data: CharacterBookEntryData, input: LoreBookEntryUpse
   return normalizeWorldEntryData(next)
 }
 
-export async function listLoreBookDraftEntries(toolSessionId: string, loreBookId: number): Promise<Array<[number, string]>> {
-  const draft = await ensureLoreBookDraft(toolSessionId, loreBookId)
+export async function listLoreBookDraftEntries(loreBookId: number): Promise<Array<[number, string]>> {
+  const draft = await ensureLoreBookDraft(loreBookId)
   return draft.entries
     .sort((a, b) => a.stData.insertion_order - b.stData.insertion_order || a.id - b.id)
     .map(entry => [entry.id, entryTitle(entry)])
 }
 
 export async function getLoreBookDraftEntriesJson(
-  toolSessionId: string,
   loreBookId: number,
   ids: number[]
 ): Promise<WorldEntry[]> {
-  const draft = await ensureLoreBookDraft(toolSessionId, loreBookId)
+  const draft = await ensureLoreBookDraft(loreBookId)
   const entryById = new Map(draft.entries.map(entry => [entry.id, entry]))
   return ids
     .map(id => entryById.get(Number(id)))
@@ -212,17 +207,16 @@ export async function getLoreBookDraftEntriesJson(
     .map(cloneEntry)
 }
 
-export async function testLoreBookDraftTrigger(toolSessionId: string, loreBookId: number, example: string) {
-  const draft = await ensureLoreBookDraft(toolSessionId, loreBookId)
+export async function testLoreBookDraftTrigger(loreBookId: number, example: string) {
+  const draft = await ensureLoreBookDraft(loreBookId)
   return testWorldEntryActivations(draft.entries, example)
 }
 
 export async function upsertLoreBookDraftEntry(
-  toolSessionId: string,
   loreBookId: number,
   input: LoreBookEntryUpsertInput
 ): Promise<{ success: true; id: number; title: string }> {
-  const draft = await ensureLoreBookDraft(toolSessionId, loreBookId)
+  const draft = await ensureLoreBookDraft(loreBookId)
   const now = nowIso()
   const requestedId = input.id === null || input.id === undefined ? null : Number(input.id)
   const existingIndex = Number.isInteger(requestedId)
@@ -314,7 +308,6 @@ function draftSummary(draft: LoreBookDraftFile): LoreBookDraftSummary | null {
   if (!loreBook) return null
   const changes = draftChanges(draft)
   return {
-    toolSessionId: draft.toolSessionId,
     loreBookId: draft.loreBookId,
     loreBookName: loreBook.name,
     createdAt: draft.createdAt,
@@ -328,7 +321,7 @@ export async function listLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
   const files = await readdir(draftRoot()).catch(() => [])
   const drafts = await Promise.all(
     files
-      .filter(file => file.endsWith('.json'))
+      .filter(isLoreBookDraftFileName)
       .map(async file => {
         try {
           const parsed = JSON.parse(await readFile(join(draftRoot(), file), 'utf-8'))
@@ -347,7 +340,7 @@ export async function listLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
 }
 
 export async function applyLoreBookDraft(payload: LoreBookDraftApplyPayload): Promise<ProjectSnapshot> {
-  const draft = await readDraft(payload.toolSessionId)
+  const draft = await readDraft(payload.loreBookId)
   if (!draft) throw new Error('世界书副本不存在。')
   getLoreBook(draft.loreBookId)
   const selected = new Set(payload.entryIds.map(Number).filter(Number.isInteger))
@@ -375,10 +368,10 @@ export async function applyLoreBookDraft(payload: LoreBookDraftApplyPayload): Pr
     })
   }
 
-  await discardLoreBookDraft(payload.toolSessionId)
+  await discardLoreBookDraft(payload.loreBookId)
   return getProjectSnapshot()
 }
 
-export async function discardLoreBookDraft(toolSessionId: string): Promise<void> {
-  await rm(draftPath(toolSessionId), { force: true })
+export async function discardLoreBookDraft(loreBookId: number): Promise<void> {
+  await rm(draftPath(loreBookId), { force: true })
 }

@@ -208,11 +208,31 @@ function normalizeContentParts(value: unknown): ChatContentPart[] {
   if (!Array.isArray(value)) return []
   return value
     .map(part => asRecord(part))
-    .filter(part => part.type === 'text' || part.type === 'reasoning')
-    .map(part => ({
-      type: part.type as 'text' | 'reasoning',
-      text: asString(part.text)
-    }))
+    .filter(part => part.type === 'text' || part.type === 'reasoning' || part.type === 'tool_call')
+    .map(part => {
+      if (part.type === 'tool_call') {
+        const now = new Date().toISOString()
+        const status = part.status === 'success' || part.status === 'error' ? part.status : 'pending'
+        return {
+          type: 'tool_call',
+          toolCallId: asString(part.toolCallId),
+          toolName: asString(part.toolName),
+          status,
+          input: asRecord(part.input),
+          output: part.output,
+          error: asString(part.error),
+          sendAsContext: part.sendAsContext === true,
+          createdAt: asString(part.createdAt, now),
+          updatedAt: asString(part.updatedAt, now),
+          extensions: asRecord(part.extensions)
+        }
+      }
+
+      return {
+        type: part.type as 'text' | 'reasoning',
+        text: asString(part.text)
+      }
+    })
 }
 
 function normalizeBlockKind(value: unknown): ChatBlockKind {
@@ -221,8 +241,7 @@ function normalizeBlockKind(value: unknown): ChatBlockKind {
     value === 'user' ||
     value === 'assistant' ||
     value === 'injection' ||
-    value === 'tool_definition' ||
-    value === 'tool_call'
+    value === 'tool_definition'
   ) ? value : 'user'
 }
 

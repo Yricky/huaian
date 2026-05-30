@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload, MdFileUpload } from 'vue-icons-plus/md'
-import type { LoreBook, WorldEntry } from '../../../shared/types'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload, MdFileUpload, MdMoreVert, MdVisibility } from 'vue-icons-plus/md'
+import type { LoreBook, LoreBookDraftApplyPayload, WorldEntry } from '../../../shared/types'
 import { worldEntryFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
+import LoreBookDraftReviewDialog from './LoreBookDraftReviewDialog.vue'
 import VirtualGrid from './VirtualGrid.vue'
 import VirtualList from './VirtualList.vue'
 
@@ -25,17 +26,21 @@ interface WorldEntryDragState {
 }
 
 const {
+  applyLoreBookDraft,
   createLoreBook,
   createWorldEntry,
   deleteSelectedLoreBook,
   deleteSelectedWorldEntry,
+  discardLoreBookDraft,
   entrySummary,
   entryTitle,
   exportSelectedLoreBook,
   formatDate,
   importLoreBooks,
   isWorldEntryExpanded,
+  loreBookDrafts,
   moveLoreBookEntry,
+  refreshLoreBookDrafts,
   saveLoreBook,
   saveWorldEntry,
   saveWorldEntryAdvanced,
@@ -43,6 +48,7 @@ const {
   selectedLoreBook,
   selectedLoreBookEntries,
   selectedWorldEntry,
+  showToast,
   toggleWorldEntry,
   loreBookEntryCount,
   loreBooks,
@@ -54,6 +60,7 @@ const {
   worldEntryPosition,
   worldEntryProbability,
   worldEntryRole,
+  worldEntryScanDepth,
   worldEntrySelectiveLogic,
   worldEntrySecondaryKeysText
 } = useProjectWorkbench()
@@ -63,6 +70,8 @@ const isEditingLoreBookName = ref(false)
 const loreBookNameDraft = ref('')
 const loreBookNameInputRef = ref<HTMLInputElement | null>(null)
 const worldEntryDrag = ref<WorldEntryDragState | null>(null)
+const entryMenuOpen = ref(false)
+const loreBookDraftDialogOpen = ref(false)
 
 let autoScrollFrame: number | null = null
 
@@ -78,16 +87,28 @@ const worldEntryDragStyle = computed(() => {
 
 const isWorldEntryAtDepth = computed(() => Number(worldEntryPosition.value) === 4)
 const isWorldEntryOutlet = computed(() => Number(worldEntryPosition.value) === 7)
+const loreBookDraftById = computed(() => new Map(loreBookDrafts.value.map(draft => [draft.loreBookId, draft])))
+const selectedLoreBookDraft = computed(() => {
+  const id = selectedLoreBook.value?.id
+  return id === undefined ? null : loreBookDraftById.value.get(id) ?? null
+})
+const selectedLoreBookDrafts = computed(() => selectedLoreBookDraft.value ? [selectedLoreBookDraft.value] : [])
 
 watch(() => selectedLoreBook.value?.id, () => {
   isEditingLoreBookName.value = false
   loreBookNameDraft.value = selectedLoreBook.value?.name ?? ''
+  entryMenuOpen.value = false
+  loreBookDraftDialogOpen.value = false
 })
 
 watch(() => selectedLoreBook.value?.name, (name) => {
   if (!isEditingLoreBookName.value) {
     loreBookNameDraft.value = name ?? ''
   }
+})
+
+watch(() => selectedWorldEntry.value?.id, () => {
+  entryMenuOpen.value = false
 })
 
 function loreBookKey(book: LoreBook) {
@@ -118,6 +139,35 @@ async function finishLoreBookNameEdit() {
 function cancelLoreBookNameEdit() {
   loreBookNameDraft.value = selectedLoreBook.value?.name ?? ''
   isEditingLoreBookName.value = false
+}
+
+function toggleEntryMenu() {
+  entryMenuOpen.value = !entryMenuOpen.value
+}
+
+async function openLoreBookDraftReview() {
+  entryMenuOpen.value = false
+  await refreshLoreBookDrafts()
+  if (!selectedLoreBookDraft.value) {
+    showToast('当前世界书没有待审阅副本', 'info')
+    return
+  }
+  loreBookDraftDialogOpen.value = true
+}
+
+async function applySelectedLoreBookDraft(payload: LoreBookDraftApplyPayload) {
+  await applyLoreBookDraft(payload)
+  loreBookDraftDialogOpen.value = false
+}
+
+async function discardSelectedLoreBookDraft(loreBookId: number) {
+  await discardLoreBookDraft(loreBookId)
+  loreBookDraftDialogOpen.value = false
+}
+
+async function removeSelectedWorldEntryFromMenu() {
+  entryMenuOpen.value = false
+  await deleteSelectedWorldEntry()
 }
 
 function clampDropIndex(index: number) {
@@ -237,6 +287,10 @@ function isWorldEntryDropAfter(index: number) {
 onBeforeUnmount(() => {
   resetWorldEntryDrag()
 })
+
+onMounted(() => {
+  void refreshLoreBookDrafts()
+})
 </script>
 
 <template>
@@ -260,6 +314,7 @@ onBeforeUnmount(() => {
           <button class="item-card" :class="{ selected: selectedLoreBook?.id === book.id }" type="button"
             @click="selectLoreBook(book)">
             <strong>{{ book.name }}</strong>
+            <span v-if="loreBookDraftById.has(book.id)" class="draft-badge">待审阅</span>
             <span>{{ loreBookEntryCount(book) }} 个条目</span>
             <small>更新 {{ formatDate(book.updatedAt) }}</small>
           </button>
@@ -322,10 +377,20 @@ onBeforeUnmount(() => {
                 <div class="entry-editor-header">
                   <strong class="field-title" :data-tooltip="worldEntryFieldHints.order">Order {{
                     worldEntryData.insertion_order }}</strong>
-                  <button class="toolbar-button" type="button" aria-label="删除条目" data-tooltip="删除条目"
-                    @click="deleteSelectedWorldEntry">
-                    <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
-                  </button>
+                  <div class="entry-menu-wrap">
+                    <button class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
+                      @click.stop="toggleEntryMenu">
+                      <MdMoreVert class="toolbar-icon" aria-hidden="true" />
+                    </button>
+                    <div v-if="entryMenuOpen" class="entry-menu" @click.stop>
+                      <button type="button" :disabled="!selectedLoreBookDraft" @click="openLoreBookDraftReview">
+                        <MdVisibility class="menu-icon" aria-hidden="true" />审阅世界书改动
+                      </button>
+                      <button class="danger-menu-item" type="button" @click="removeSelectedWorldEntryFromMenu">
+                        <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除条目
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="entry-field-section">
@@ -390,6 +455,9 @@ onBeforeUnmount(() => {
                     <label><span class="field-title" :data-tooltip="worldEntryFieldHints.probability">Trigger
                         %</span><input v-model.number="worldEntryProbability" type="number" min="0" max="100"
                         @blur="saveWorldEntry" /></label>
+                    <label><span class="field-title" :data-tooltip="worldEntryFieldHints.scanDepth">扫描深度</span><input
+                        v-model="worldEntryScanDepth" type="number" min="0" max="1000" step="1"
+                        placeholder="使用全局设置" @blur="saveWorldEntry" /></label>
                   </div>
                 </div>
 
@@ -412,6 +480,14 @@ onBeforeUnmount(() => {
       <div v-if="worldEntryDrag" class="world-entry-drag-preview" :style="worldEntryDragStyle">
         {{ worldEntryDrag.title }}
       </div>
+
+      <LoreBookDraftReviewDialog
+        v-if="loreBookDraftDialogOpen"
+        :drafts="selectedLoreBookDrafts"
+        @apply="applySelectedLoreBookDraft"
+        @discard="discardSelectedLoreBookDraft"
+        @close="loreBookDraftDialogOpen = false"
+      />
     </div>
   </section>
 </template>
@@ -433,9 +509,25 @@ onBeforeUnmount(() => {
 }
 
 .item-card {
+  position: relative;
   width: 100%;
   height: 116px;
   overflow: hidden;
+}
+
+.draft-badge {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e1c987;
+  border-radius: 999px;
+  background: #fff8df;
+  color: #6a4a16;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .pane-title-row {
@@ -580,6 +672,7 @@ onBeforeUnmount(() => {
 }
 
 .entry-editor-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -590,6 +683,59 @@ onBeforeUnmount(() => {
 .entry-editor-header strong {
   color: #536071;
   font-size: 12px;
+}
+
+.entry-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.entry-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 184px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(32, 39, 49, 0.14);
+}
+
+.entry-menu button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #303a49;
+  padding: 7px 8px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.entry-menu button:hover:not(:disabled) {
+  background: #f1f5fa;
+}
+
+.entry-menu button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.danger-menu-item {
+  color: #9d2c2c !important;
+}
+
+.menu-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
 
 .entry-field-section {

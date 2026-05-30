@@ -224,7 +224,7 @@ export interface ChatUpdatePayload {
   runtimeConfig?: ChatRuntimeConfig
 }
 
-export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection' | 'tool_definition' | 'tool_call'
+export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection' | 'tool_definition'
 export type ChatBlockTargetRole = 'system' | 'user' | 'assistant'
 export type ChatBlockStatus = 'idle' | 'generating' | 'stopped' | 'error'
 
@@ -238,7 +238,23 @@ export interface ReasoningContentPart {
   text: string
 }
 
-export type ChatContentPart = TextContentPart | ReasoningContentPart
+export type ToolCallContentPartStatus = 'pending' | 'success' | 'error'
+
+export interface ToolCallContentPart {
+  type: 'tool_call'
+  toolCallId: string
+  toolName: string
+  status: ToolCallContentPartStatus
+  input: JsonRecord
+  output?: unknown
+  error?: string
+  sendAsContext?: boolean
+  createdAt: string
+  updatedAt: string
+  extensions: JsonRecord
+}
+
+export type ChatContentPart = TextContentPart | ReasoningContentPart | ToolCallContentPart
 
 export interface ChatBlock {
   id: number
@@ -329,7 +345,6 @@ export interface LoreBookDraftChange {
 }
 
 export interface LoreBookDraftSummary {
-  toolSessionId: string
   loreBookId: number
   loreBookName: string
   createdAt: string
@@ -338,7 +353,7 @@ export interface LoreBookDraftSummary {
 }
 
 export interface LoreBookDraftApplyPayload {
-  toolSessionId: string
+  loreBookId: number
   entryIds: number[]
 }
 
@@ -348,7 +363,6 @@ export interface ChatGenerationStartResult {
 
 export type ChatGenerationEvent =
   | { type: 'started'; chatId: number; block: ChatBlock }
-  | { type: 'block'; chatId: number; block: ChatBlock }
   | { type: 'delta'; chatId: number; blockId: number; text: string; content: string; contentParts: ChatContentPart[] }
   | { type: 'finished'; chatId: number; block: ChatBlock }
   | { type: 'stopped'; chatId: number; block: ChatBlock }

@@ -103,7 +103,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('project:applyLoreBookDraft', (_, payload: IpcJsonPayload<LoreBookDraftApplyPayload>) => (
     applyLoreBookDraft(parseIpcPayload(payload))
   ))
-  ipcMain.handle('project:discardLoreBookDraft', (_, toolSessionId: string) => discardLoreBookDraft(toolSessionId))
+  ipcMain.handle('project:discardLoreBookDraft', (_, loreBookId: number) => discardLoreBookDraft(loreBookId))
 
   ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
     createLlmProvider(parseIpcPayload(payload))

@@ -60,8 +60,8 @@ const electronAPI = {
   listLoreBookDrafts: (): Promise<LoreBookDraftSummary[]> => ipcRenderer.invoke('project:listLoreBookDrafts'),
   applyLoreBookDraft: (payload: IpcJsonPayload<LoreBookDraftApplyPayload>): Promise<ProjectSnapshot> =>
     ipcRenderer.invoke('project:applyLoreBookDraft', payload),
-  discardLoreBookDraft: (toolSessionId: string): Promise<void> =>
-    ipcRenderer.invoke('project:discardLoreBookDraft', toolSessionId),
+  discardLoreBookDraft: (loreBookId: number): Promise<void> =>
+    ipcRenderer.invoke('project:discardLoreBookDraft', loreBookId),
   createLlmProvider: (payload: IpcJsonPayload<LlmProviderCreatePayload>): Promise<LlmProvider> =>
     ipcRenderer.invoke('llm:createProvider', payload),
   updateLlmProvider: (payload: IpcJsonPayload<LlmProviderUpdatePayload>): Promise<LlmProvider> =>

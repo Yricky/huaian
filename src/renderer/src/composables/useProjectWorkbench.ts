@@ -42,6 +42,7 @@ export function createProjectWorkbench() {
   const selectedChat = ref<ChatSession | null>(null)
   const selectedPromptSnippet = ref<PromptSnippet | null>(null)
   const generatingChatIds = ref<number[]>([])
+  const loreBookDrafts = ref<LoreBookDraftSummary[]>([])
 
   const characterTagsText = ref('')
   const characterGreetingsText = ref('')
@@ -52,6 +53,7 @@ export function createProjectWorkbench() {
   const worldEntryRole = ref('0')
   const worldEntryDepth = ref(4)
   const worldEntryProbability = ref(100)
+  const worldEntryScanDepth = ref('')
   const worldEntrySelectiveLogic = ref('0')
   const worldEntryOutletName = ref('')
   const worldEntryAdvancedJson = ref('')
@@ -145,6 +147,20 @@ export function createProjectWorkbench() {
     return value.split(',').map(item => item.trim()).filter(Boolean)
   }
 
+  function scanDepthInputValue(value: unknown): string {
+    if (value === null || value === undefined || value === '') return ''
+    const number = Number(value)
+    return Number.isFinite(number) ? String(Math.max(0, Math.min(1000, Math.trunc(number)))) : ''
+  }
+
+  function scanDepthExtensionValue(value: unknown): number | null {
+    const trimmed = String(value ?? '').trim()
+    if (!trimmed) return null
+    const number = Number(trimmed)
+    if (!Number.isFinite(number)) return null
+    return Math.max(0, Math.min(1000, Math.trunc(number)))
+  }
+
   function splitGreetings(value: string): string[] {
     return value
       .split(/\n---+\n/g)
@@ -192,6 +208,7 @@ export function createProjectWorkbench() {
       role: isAtDepth ? Number(worldEntryRole.value) : null,
       depth: Number(worldEntryDepth.value),
       probability: Number(worldEntryProbability.value),
+      scan_depth: scanDepthExtensionValue(worldEntryScanDepth.value),
       selectiveLogic: Number(worldEntrySelectiveLogic.value),
       outlet_name: worldEntryOutletName.value.trim()
     }
@@ -314,6 +331,7 @@ export function createProjectWorkbench() {
       if (!selectedLlmInstance.value && llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
       if (!selectedChat.value && chats.value.length) selectedChat.value = clone(chats.value[0])
       if (!selectedPromptSnippet.value && promptSnippets.value.length) selectPromptSnippet(promptSnippets.value[0])
+      void refreshLoreBookDrafts()
     }
   }
 
@@ -335,6 +353,7 @@ export function createProjectWorkbench() {
         if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
         if (chats.value.length) selectedChat.value = clone(chats.value[0])
         if (promptSnippets.value.length) selectPromptSnippet(promptSnippets.value[0])
+        void refreshLoreBookDrafts()
         showToast('项目已打开', 'success')
       }
     } catch (error) {
@@ -521,6 +540,7 @@ export function createProjectWorkbench() {
     worldEntryRole.value = String(selectedWorldEntry.value.stData.extensions.role ?? 0)
     worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
     worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
+    worldEntryScanDepth.value = scanDepthInputValue(selectedWorldEntry.value.stData.extensions.scan_depth)
     worldEntrySelectiveLogic.value = String(selectedWorldEntry.value.stData.extensions.selectiveLogic ?? 0)
     worldEntryOutletName.value = String(selectedWorldEntry.value.stData.extensions.outlet_name ?? '')
     worldEntryAdvancedJson.value = JSON.stringify(selectedWorldEntry.value.stData, null, 2)
@@ -585,6 +605,7 @@ export function createProjectWorkbench() {
       worldEntryRole.value = String(selectedWorldEntry.value.stData.extensions.role ?? 0)
       worldEntryDepth.value = Number(selectedWorldEntry.value.stData.extensions.depth ?? 4)
       worldEntryProbability.value = Number(selectedWorldEntry.value.stData.extensions.probability ?? 100)
+      worldEntryScanDepth.value = scanDepthInputValue(selectedWorldEntry.value.stData.extensions.scan_depth)
       worldEntrySelectiveLogic.value = String(selectedWorldEntry.value.stData.extensions.selectiveLogic ?? 0)
       worldEntryOutletName.value = String(selectedWorldEntry.value.stData.extensions.outlet_name ?? '')
       await saveWorldEntry()
@@ -1002,28 +1023,36 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function listLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
+  async function refreshLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
     try {
-      return await window.electronAPI.listLoreBookDrafts()
+      loreBookDrafts.value = await window.electronAPI.listLoreBookDrafts()
+      return loreBookDrafts.value
     } catch (error) {
       showToast(errorText(error), 'error')
+      loreBookDrafts.value = []
       return []
     }
+  }
+
+  async function listLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
+    return refreshLoreBookDrafts()
   }
 
   async function applyLoreBookDraft(payload: LoreBookDraftApplyPayload) {
     try {
       project.value = await window.electronAPI.applyLoreBookDraft(toIpcJson(payload))
       refreshSelectedLoreBook()
+      await refreshLoreBookDrafts()
       showToast('世界书改动已应用', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function discardLoreBookDraft(toolSessionId: string) {
+  async function discardLoreBookDraft(loreBookId: number) {
     try {
-      await window.electronAPI.discardLoreBookDraft(toolSessionId)
+      await window.electronAPI.discardLoreBookDraft(loreBookId)
+      await refreshLoreBookDrafts()
       showToast('世界书副本已丢弃', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -1048,14 +1077,10 @@ export function createProjectWorkbench() {
       return
     }
 
-    if (event.type === 'block') {
-      replaceChatBlock(event.block)
-      return
-    }
-
     replaceChatBlock(event.block)
     generatingChatIds.value = generatingChatIds.value.filter(id => id !== event.chatId)
     refreshSelectedChat()
+    void refreshLoreBookDrafts()
     if (event.type === 'error') showToast(event.error, 'error')
   }
 
@@ -1221,6 +1246,7 @@ export function createProjectWorkbench() {
     llmInstances,
     llmProviders,
     listLoreBookDrafts,
+    loreBookDrafts,
     moveLoreBookEntry,
     openProject,
     previewChatGeneration,
@@ -1230,6 +1256,7 @@ export function createProjectWorkbench() {
     providerSnapshot,
     renamePromptTag,
     restoreProviderFromSelectedInstance,
+    refreshLoreBookDrafts,
     saveCharacter,
     saveCharacterAdvanced,
     saveChat,
@@ -1276,6 +1303,7 @@ export function createProjectWorkbench() {
     worldEntryPosition,
     worldEntryProbability,
     worldEntryRole,
+    worldEntryScanDepth,
     worldEntrySelectiveLogic,
     worldEntryOutletName,
     worldEntrySecondaryKeysText

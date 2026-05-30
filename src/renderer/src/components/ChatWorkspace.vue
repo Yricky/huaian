@@ -24,8 +24,6 @@ import type {
   ChatSession,
   CharacterEntry,
   JsonRecord,
-  LoreBookDraftApplyPayload,
-  LoreBookDraftSummary,
   LlmInstance,
   LoreBook,
   WorldEntry
@@ -33,7 +31,6 @@ import type {
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
 import JsonDialog from './JsonDialog.vue'
-import LoreBookDraftReviewDialog from './LoreBookDraftReviewDialog.vue'
 
 type ChatListItem =
   | { type: 'block'; block: ChatBlock }
@@ -52,14 +49,11 @@ interface ChatBlockRowExpose {
 const props = defineProps<{
   blocks: ChatBlock[]
   chat: ChatSession
-  applyLoreBookDraft: (payload: LoreBookDraftApplyPayload) => Promise<void>
   characters: CharacterEntry[]
   createChatBlock: (payload: ChatBlockCreatePayload) => Promise<ChatBlock | null>
   deleteChat: () => Promise<void>
   deleteChatBlock: (block: ChatBlock) => Promise<void>
-  discardLoreBookDraft: (toolSessionId: string) => Promise<void>
   frozen: boolean
-  listLoreBookDrafts: () => Promise<LoreBookDraftSummary[]>
   llmInstances: LlmInstance[]
   loreBooks: LoreBook[]
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreview | null>
@@ -83,8 +77,6 @@ const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const contextPreview = ref<ChatGenerationPreview | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
-const loreBookDrafts = ref<LoreBookDraftSummary[]>([])
-const loreBookDraftDialogOpen = ref(false)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
 
 const hasSystemBlock = computed(() => props.blocks.some(block => block.kind === 'system'))
@@ -113,11 +105,6 @@ const promptPreview = computed(() => buildSillyTavernLikePrompt({
   worldEntries: props.worldEntries,
   blocks: props.blocks
 }))
-const toolSessionIds = computed(() => new Set(props.blocks
-  .map(block => recordFromJson(block.metadata.toolDefinition).toolSessionId)
-  .filter((id): id is string => typeof id === 'string' && id.length > 0)))
-const pendingLoreBookDrafts = computed(() => loreBookDrafts.value
-  .filter(draft => toolSessionIds.value.has(draft.toolSessionId) && draft.changes.length > 0))
 const replyButtonLabel = computed(() => {
   const character = selectedCharacter.value ? characterName(selectedCharacter.value) : '无角色'
   const instance = selectedLlmInstance.value?.name ?? '未选择 LLM'
@@ -180,7 +167,6 @@ watch(() => props.chat.id, () => {
   contextPreview.value = null
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
-  refreshLoreBookDrafts()
 }, { immediate: true })
 
 watch(() => props.chat.title, (title) => {
@@ -191,10 +177,6 @@ watch(blockAutoFollowSignature, () => {
   if (shouldFollow.value) {
     nextTick(() => listRef.value?.scrollToBottom())
   }
-})
-
-watch(() => props.frozen, (frozen, previous) => {
-  if (previous && !frozen) refreshLoreBookDrafts()
 })
 
 watch(menuOpen, (open) => {
@@ -284,11 +266,6 @@ function setBlockRowRef(blockId: number, element: unknown) {
   }
 
   blockRowRefs.delete(blockId)
-}
-
-function nextToolSessionId(): string {
-  const randomId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `lorebook-edit-${randomId}`
 }
 
 function beforeListMutation() {
@@ -502,7 +479,6 @@ async function insertToolDefinitionBlock(relativeBlock: ChatBlock, placement: 'b
     metadata: {
       toolDefinition: {
         group: LOREBOOK_EDIT_TOOL_GROUP,
-        toolSessionId: nextToolSessionId(),
         loreBookId: null,
         enabledTools: ['list_lorebook_entries', 'get_lorebook_entries_json', 'test_lorebook_trigger', 'upsert_lorebook_entry']
       }
@@ -510,23 +486,6 @@ async function insertToolDefinitionBlock(relativeBlock: ChatBlock, placement: 'b
     insertRelativeBlockId: relativeBlock.id,
     insertPlacement: placement
   })
-  await refreshLoreBookDrafts()
-}
-
-async function refreshLoreBookDrafts() {
-  loreBookDrafts.value = await props.listLoreBookDrafts()
-}
-
-async function applyLoreBookDraft(payload: LoreBookDraftApplyPayload) {
-  await props.applyLoreBookDraft(payload)
-  await refreshLoreBookDrafts()
-  loreBookDraftDialogOpen.value = false
-}
-
-async function discardLoreBookDraft(toolSessionId: string) {
-  await props.discardLoreBookDraft(toolSessionId)
-  await refreshLoreBookDrafts()
-  if (!pendingLoreBookDrafts.value.length) loreBookDraftDialogOpen.value = false
 }
 
 async function saveEditingBlocks() {
@@ -535,8 +494,19 @@ async function saveEditingBlocks() {
     .filter((block): block is ChatBlock => block !== null)
 
   for (const block of editedBlocks) {
-    await props.saveChatBlock(block)
+    if (isEmptyChatBlock(block)) {
+      await props.deleteChatBlock(block)
+    } else {
+      await props.saveChatBlock(block)
+    }
   }
+}
+
+function isEmptyChatBlock(block: ChatBlock): boolean {
+  return block.contentParts.every(part => {
+    if (part.type === 'tool_call') return false
+    return part.text.trim().length === 0
+  })
 }
 
 async function showGenerationPreview() {
@@ -615,10 +585,6 @@ async function removeBlock(block: ChatBlock) {
               生成回复
             </button>
           </div>
-          <button class="md3-pill-button review-pill" type="button" :disabled="pendingLoreBookDrafts.length === 0"
-            @click="loreBookDraftDialogOpen = true">
-            审阅世界书改动<span v-if="pendingLoreBookDrafts.length">（{{ pendingLoreBookDrafts.length }}）</span>
-          </button>
         </div>
       </template>
     </ChatVirtualList>
@@ -707,13 +673,6 @@ async function removeBlock(block: ChatBlock) {
       :value="contextPreview"
       @close="contextPreview = null"
     />
-    <LoreBookDraftReviewDialog
-      v-if="loreBookDraftDialogOpen"
-      :drafts="pendingLoreBookDrafts"
-      @apply="applyLoreBookDraft"
-      @discard="discardLoreBookDraft"
-      @close="loreBookDraftDialogOpen = false"
-    />
   </main>
 </template>
 
@@ -789,16 +748,6 @@ async function removeBlock(block: ChatBlock) {
 .input-pill {
   background: #e7f4ef;
   color: #0f513a;
-}
-
-.review-pill {
-  background: #f3efe5;
-  color: #6a4a16;
-  padding: 0 16px;
-}
-
-.review-pill:hover:not(:disabled) {
-  background: #ece4d3;
 }
 
 .input-pill:hover:not(:disabled) {

@@ -9,24 +9,24 @@ const props = defineProps<{
 const emit = defineEmits<{
   apply: [payload: LoreBookDraftApplyPayload]
   close: []
-  discard: [toolSessionId: string]
+  discard: [loreBookId: number]
 }>()
 
-const selectedToolSessionId = ref('')
+const selectedLoreBookId = ref<number | null>(null)
 const selectedEntryIds = ref<number[]>([])
 
 const selectedDraft = computed(() => (
-  props.drafts.find(draft => draft.toolSessionId === selectedToolSessionId.value) ?? props.drafts[0] ?? null
+  props.drafts.find(draft => draft.loreBookId === selectedLoreBookId.value) ?? props.drafts[0] ?? null
 ))
 
 watch(() => props.drafts, () => {
   if (!props.drafts.length) {
-    selectedToolSessionId.value = ''
+    selectedLoreBookId.value = null
     selectedEntryIds.value = []
     return
   }
-  if (!props.drafts.some(draft => draft.toolSessionId === selectedToolSessionId.value)) {
-    selectedToolSessionId.value = props.drafts[0].toolSessionId
+  if (!props.drafts.some(draft => draft.loreBookId === selectedLoreBookId.value)) {
+    selectedLoreBookId.value = props.drafts[0].loreBookId
   }
 }, { immediate: true })
 
@@ -53,7 +53,7 @@ function applySelected() {
   const draft = selectedDraft.value
   if (!draft) return
   emit('apply', {
-    toolSessionId: draft.toolSessionId,
+    loreBookId: draft.loreBookId,
     entryIds: selectedEntryIds.value
   })
 }
@@ -61,7 +61,7 @@ function applySelected() {
 function discardSelected() {
   const draft = selectedDraft.value
   if (!draft) return
-  emit('discard', draft.toolSessionId)
+  emit('discard', draft.loreBookId)
 }
 </script>
 
@@ -79,8 +79,8 @@ function discardSelected() {
 
         <label v-if="drafts.length > 1" class="draft-select">
           <span>副本</span>
-          <select v-model="selectedToolSessionId">
-            <option v-for="draft in drafts" :key="draft.toolSessionId" :value="draft.toolSessionId">
+          <select v-model.number="selectedLoreBookId">
+            <option v-for="draft in drafts" :key="draft.loreBookId" :value="draft.loreBookId">
               {{ draft.loreBookName }} · {{ draft.changes.length }} 项
             </option>
           </select>

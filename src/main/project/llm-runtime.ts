@@ -26,7 +26,6 @@ import {
 } from './lorebook-drafts'
 import {
   createAssistantGenerationBlock,
-  createToolCallBlock,
   getChat,
   getLlmInstance,
   getLlmProvider,
@@ -80,7 +79,18 @@ function ensureBaseURL(value: string, fallback: string): string {
 }
 
 function blockText(block: ChatBlock): string {
-  return block.contentParts.filter(part => part.type === 'text').map(part => part.text).join('')
+  return block.contentParts
+    .map(part => {
+      if (part.type === 'text') return part.text
+      if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
+      return [
+        `[Tool call: ${part.toolName}]`,
+        `input: ${JSON.stringify(part.input)}`,
+        part.status === 'success' ? `output: ${JSON.stringify(part.output ?? null)}` : '',
+        part.status === 'error' ? `error: ${part.error ?? ''}` : ''
+      ].filter(Boolean).join('\n')
+    })
+    .join('')
 }
 
 function blockReasoningText(block: ChatBlock): string {
@@ -89,13 +99,6 @@ function blockReasoningText(block: ChatBlock): string {
 
 function shouldSendReasoning(block: ChatBlock): boolean {
   return block.metadata.sendReasoning === true
-}
-
-function generationParts(reasoning: string, text: string): ChatContentPart[] {
-  const parts: ChatContentPart[] = []
-  if (reasoning.length > 0) parts.push({ type: 'reasoning', text: reasoning })
-  parts.push({ type: 'text', text })
-  return parts
 }
 
 function usageNumber(value: unknown): number | null {
@@ -324,7 +327,6 @@ function previewGenerationSettings(instance: LlmInstance): JsonRecord {
 
 interface ActiveLoreBookToolDefinition {
   block: ChatBlock
-  toolSessionId: string
   loreBookId: number
   loreBookName: string
   toolNames: Array<typeof LOREBOOK_EDIT_TOOL_NAMES[number]>
@@ -349,8 +351,6 @@ function activeLoreBookToolDefinition(blocks: ChatBlock[]): ActiveLoreBookToolDe
     if (loreBookId === null) continue
     const loreBook = loreBookById.get(loreBookId)
     if (!loreBook) continue
-    const toolSessionId = asString(definition.toolSessionId || definition.id).trim()
-    if (!toolSessionId) continue
     const enabledTools = Array.isArray(definition.enabledTools)
       ? definition.enabledTools.filter((name): name is typeof LOREBOOK_EDIT_TOOL_NAMES[number] => (
           typeof name === 'string' && (LOREBOOK_EDIT_TOOL_NAMES as readonly string[]).includes(name)
@@ -362,7 +362,6 @@ function activeLoreBookToolDefinition(blocks: ChatBlock[]): ActiveLoreBookToolDe
       : enabledTools
     return {
       block,
-      toolSessionId,
       loreBookId,
       loreBookName: loreBook.name,
       toolNames: toolNames.length > 0 ? toolNames : [...LOREBOOK_EDIT_TOOL_NAMES]
@@ -457,44 +456,91 @@ function loreBookEditTools(definition: ActiveLoreBookToolDefinition) {
     list_lorebook_entries: tool({
       description: `获取世界书「${definition.loreBookName}」临时副本中的所有条目，只返回 [id, title] 二元组。`,
       inputSchema: schemas.list_lorebook_entries,
-      execute: async () => listLoreBookDraftEntries(definition.toolSessionId, definition.loreBookId)
+      execute: async () => listLoreBookDraftEntries(definition.loreBookId)
     }),
     get_lorebook_entries_json: tool({
       description: `按 id 列表读取世界书「${definition.loreBookName}」临时副本中的完整条目 JSON，返回匹配到的 WorldEntry 对象列表。`,
       inputSchema: schemas.get_lorebook_entries_json,
-      execute: async ({ ids }) => getLoreBookDraftEntriesJson(definition.toolSessionId, definition.loreBookId, ids)
+      execute: async ({ ids }) => getLoreBookDraftEntriesJson(definition.loreBookId, ids)
     }),
     test_lorebook_trigger: tool({
       description: `用一条例句测试世界书「${definition.loreBookName}」临时副本会触发哪些条目，返回 id/title/reason/content。`,
       inputSchema: schemas.test_lorebook_trigger,
-      execute: async ({ example }) => testLoreBookDraftTrigger(definition.toolSessionId, definition.loreBookId, example)
+      execute: async ({ example }) => testLoreBookDraftTrigger(definition.loreBookId, example)
     }),
     upsert_lorebook_entry: tool({
       description: `更新或新建世界书「${definition.loreBookName}」临时副本中的条目。只允许编辑世界书编辑 UI 中除高级 JSON 以外的字段。`,
       inputSchema: schemas.upsert_lorebook_entry,
-      execute: async (input) => upsertLoreBookDraftEntry(definition.toolSessionId, definition.loreBookId, input)
+      execute: async (input) => upsertLoreBookDraftEntry(definition.loreBookId, input)
     })
   }
 }
 
-function formatJson(value: unknown): string {
-  return JSON.stringify(value, null, 2)
+function generatedText(parts: ChatContentPart[]): string {
+  return parts.filter(part => part.type === 'text').map(part => part.text).join('')
 }
 
-function formatToolCallBlockContent(toolName: string, input: unknown, output: unknown, error?: unknown): string {
-  return [
-    `### ${toolName}`,
-    '',
-    '输入：',
-    '```json',
-    formatJson(input ?? {}),
-    '```',
-    '',
-    error === undefined ? '结果：' : '错误：',
-    '```json',
-    formatJson(error === undefined ? output : errorText(error)),
-    '```'
-  ].join('\n')
+function hasVisibleGenerationParts(parts: ChatContentPart[]): boolean {
+  return parts.some(part => (
+    (part.type === 'text' || part.type === 'reasoning') ? part.text.trim().length > 0 : true
+  ))
+}
+
+function appendTextDelta(parts: ChatContentPart[], type: 'text' | 'reasoning', text: string): ChatContentPart[] {
+  const next = [...parts]
+  const last = next.at(-1)
+  if (last?.type === type) {
+    next[next.length - 1] = { ...last, text: last.text + text }
+    return next
+  }
+  next.push({ type, text })
+  return next
+}
+
+function loreBookToolCallExtensions(definition: ActiveLoreBookToolDefinition | null): JsonRecord {
+  if (!definition) return {}
+  return {
+    loreBookEdit: {
+      sourceToolDefinitionBlockId: definition.block.id,
+      loreBookId: definition.loreBookId,
+      loreBookName: definition.loreBookName
+    }
+  }
+}
+
+function upsertToolCallPart(
+  parts: ChatContentPart[],
+  patch: {
+    toolCallId: string
+    toolName: string
+    status: 'pending' | 'success' | 'error'
+    input?: unknown
+    output?: unknown
+    error?: string
+    extensions?: JsonRecord
+  }
+): ChatContentPart[] {
+  const now = new Date().toISOString()
+  const next = [...parts]
+  const index = next.findIndex(part => part.type === 'tool_call' && part.toolCallId === patch.toolCallId)
+  const current = index >= 0 && next[index].type === 'tool_call' ? next[index] : null
+  const part = {
+    type: 'tool_call' as const,
+    toolCallId: patch.toolCallId,
+    toolName: patch.toolName,
+    status: patch.status,
+    input: patch.input === undefined ? current?.input ?? {} : asRecord(patch.input),
+    output: patch.output === undefined ? current?.output : patch.output,
+    error: patch.error === undefined ? current?.error : patch.error,
+    sendAsContext: current?.sendAsContext === true,
+    createdAt: current?.createdAt ?? now,
+    updatedAt: now,
+    extensions: patch.extensions ?? current?.extensions ?? {}
+  }
+
+  if (index >= 0) next[index] = part
+  else next.push(part)
+  return next
 }
 
 function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): ChatBlock[] {
@@ -581,7 +627,6 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
             activeTools: loreBookTools.toolNames,
             loreBookId: loreBookTools.loreBookId,
             loreBookName: loreBookTools.loreBookName,
-            toolSessionId: loreBookTools.toolSessionId,
             sourceBlockId: loreBookTools.block.id
           }
         : {},
@@ -605,8 +650,7 @@ async function runGeneration(
   abortController: AbortController,
   loreBookTools: ActiveLoreBookToolDefinition | null
 ): Promise<void> {
-  let content = ''
-  let reasoning = ''
+  let contentParts: ChatContentPart[] = []
   let lastPersistAt = 0
   let finishReason = ''
   let totalUsage: ChatBlockTokenUsage | null = null
@@ -614,7 +658,7 @@ async function runGeneration(
     const now = Date.now()
     if (!force && now - lastPersistAt < 500) return
     lastPersistAt = now
-    updateAssistantGenerationBlock(generationBlock.id, generationParts(reasoning, content), 'generating', false)
+    updateAssistantGenerationBlock(generationBlock.id, contentParts, 'generating', false)
   }
 
   try {
@@ -637,64 +681,77 @@ async function runGeneration(
         totalUsage = normalizeUsage(part.totalUsage)
         continue
       }
+      if (part.type === 'tool-call') {
+        contentParts = upsertToolCallPart(contentParts, {
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          status: 'pending',
+          input: part.input,
+          extensions: loreBookToolCallExtensions(loreBookTools)
+        })
+        persist(true)
+        sendEvent(webContents, {
+          type: 'delta',
+          chatId: generationBlock.chatId,
+          blockId: generationBlock.id,
+          text: '',
+          content: generatedText(contentParts),
+          contentParts
+        })
+        continue
+      }
       if (part.type === 'tool-result') {
-        const block = createToolCallBlock(
-          generationBlock.chatId,
-          `工具调用：${part.toolName}`,
-          loreBookTools ? `世界书：${loreBookTools.loreBookName}` : '',
-          formatToolCallBlockContent(part.toolName, part.input, part.output),
-          {
-            toolCall: {
-              toolName: part.toolName,
-              toolCallId: part.toolCallId,
-              input: part.input,
-              output: part.output,
-              toolSessionId: loreBookTools?.toolSessionId ?? '',
-              sourceToolDefinitionBlockId: loreBookTools?.block.id ?? null
-            }
-          },
-          generationBlock.id
-        )
-        sendEvent(webContents, { type: 'block', chatId: generationBlock.chatId, block })
+        contentParts = upsertToolCallPart(contentParts, {
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          status: 'success',
+          input: part.input,
+          output: part.output,
+          extensions: loreBookToolCallExtensions(loreBookTools)
+        })
+        persist(true)
+        sendEvent(webContents, {
+          type: 'delta',
+          chatId: generationBlock.chatId,
+          blockId: generationBlock.id,
+          text: '',
+          content: generatedText(contentParts),
+          contentParts
+        })
         continue
       }
       if (part.type === 'tool-error') {
         const input = asRecord((part as any).input)
-        const block = createToolCallBlock(
-          generationBlock.chatId,
-          `工具调用失败：${part.toolName}`,
-          loreBookTools ? `世界书：${loreBookTools.loreBookName}` : '',
-          formatToolCallBlockContent(part.toolName, input, null, (part as any).error),
-          {
-            toolCall: {
-              toolName: part.toolName,
-              toolCallId: part.toolCallId,
-              input,
-              error: errorText((part as any).error),
-              toolSessionId: loreBookTools?.toolSessionId ?? '',
-              sourceToolDefinitionBlockId: loreBookTools?.block.id ?? null
-            }
-          },
-          generationBlock.id
-        )
-        sendEvent(webContents, { type: 'block', chatId: generationBlock.chatId, block })
+        contentParts = upsertToolCallPart(contentParts, {
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          status: 'error',
+          input,
+          error: errorText((part as any).error),
+          extensions: loreBookToolCallExtensions(loreBookTools)
+        })
+        persist(true)
+        sendEvent(webContents, {
+          type: 'delta',
+          chatId: generationBlock.chatId,
+          blockId: generationBlock.id,
+          text: '',
+          content: generatedText(contentParts),
+          contentParts
+        })
         continue
       }
       if (part.type !== 'text-delta' && part.type !== 'reasoning-delta') continue
       const text = part.text
-      if (part.type === 'reasoning-delta') {
-        reasoning += text
-      } else {
-        content += text
-      }
+      contentParts = appendTextDelta(contentParts, part.type === 'reasoning-delta' ? 'reasoning' : 'text', text)
       persist()
       sendEvent(webContents, {
         type: 'delta',
         chatId: generationBlock.chatId,
         blockId: generationBlock.id,
         text,
-        content,
-        contentParts: generationParts(reasoning, content)
+        content: generatedText(contentParts),
+        contentParts
       })
     }
 
@@ -715,9 +772,9 @@ async function runGeneration(
 
     const block = updateAssistantGenerationBlock(
       generationBlock.id,
-      generationParts(reasoning, content),
+      contentParts,
       'idle',
-      content.trim().length > 0,
+      hasVisibleGenerationParts(contentParts),
       '',
       metadataPatch
     )
@@ -726,9 +783,9 @@ async function runGeneration(
     if (isAbortError(error) || abortController.signal.aborted) {
       const block = updateAssistantGenerationBlock(
         generationBlock.id,
-        generationParts(reasoning, content),
+        contentParts,
         'stopped',
-        content.trim().length > 0,
+        hasVisibleGenerationParts(contentParts),
         '',
         { generationFinishedAt: new Date().toISOString() }
       )
@@ -739,7 +796,7 @@ async function runGeneration(
     const message = errorText(error)
     const block = updateAssistantGenerationBlock(
       generationBlock.id,
-      generationParts(reasoning, content),
+      contentParts,
       'error',
       false,
       message,

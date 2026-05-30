@@ -29,6 +29,7 @@ export const worldEntryFieldHints = {
   depth: 'Depth：仅在 At Depth 时控制插入位置；0 最靠近下一次回复，1 在最新上下文消息前。它不是关键词扫描深度。',
   outletName: 'Outlet 名称：仅在 Position 为 Outlet 时使用。条目不会自动进提示词，需要在提示词中写 {{outlet::名称}} 来放置内容。',
   probability: 'Trigger %：主/次关键词条件命中后，再按这个概率决定是否插入；100 表示每次命中都插入。',
+  scanDepth: '扫描深度：覆盖此条目用于关键词匹配的聊天消息数量；留空使用全局默认值，范围 0-1000。它不是 At Depth 的插入深度。',
   enabled: '启用：切换世界书条目的激活状态。',
   constant: '常驻：不依赖关键词，条目会直接参与激活；仍会受启用状态、概率和预算等规则影响。',
   selective: '启用次关键词过滤：主关键词命中后，还会用次关键词和下面的逻辑继续判断。',

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue'
 import {
   MdCheck,
   MdClose,
   MdCode,
   MdDeleteOutline,
-  MdEdit,
   MdFormatListBulleted,
   MdLibraryAdd,
   MdKeyboardArrowDown,
@@ -19,7 +18,7 @@ import {
 } from 'vue-icons-plus/md'
 import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
-import type { ChatBlock, LoreBook } from '../../../shared/types'
+import type { ChatBlock, ToolCallContentPart, LoreBook } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
@@ -48,26 +47,24 @@ const menuOpen = ref(false)
 const isCollapsed = ref(props.collapsed)
 const injectionViewMode = ref<InjectionViewMode>('structured')
 const reasoningOpen = ref(false)
+const editingPartIndex = ref<number | null>(null)
+const openToolCalls = ref<Record<string, boolean>>({})
 const editorRef = ref<HTMLTextAreaElement | null>(null)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
 
 const text = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
-const reasoningText = computed(() => props.block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join(''))
-const hasReasoning = computed(() => reasoningText.value.trim().length > 0)
 const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
 const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
 const isToolDefinition = computed(() => props.block.kind === 'tool_definition')
-const isToolCall = computed(() => props.block.kind === 'tool_call')
 const numberFormatter = new Intl.NumberFormat()
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
   if (props.block.kind === 'assistant') return 'assistant'
   if (props.block.kind === 'injection') return `injection → ${props.block.targetRole}`
   if (props.block.kind === 'tool_definition') return 'tool definition'
-  if (props.block.kind === 'tool_call') return 'tool call'
   return 'user'
 })
 const statusLabel = computed(() => {
@@ -88,8 +85,8 @@ const blockSubMeta = computed(() => [
   isVirtual.value ? '' : tokenLabel.value
 ].filter(Boolean).join(' · '))
 const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
-const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value && !isToolCall.value)
-const showMarkdown = computed(() => !isCollapsed.value && !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value)
+const showMarkdown = computed(() => !isCollapsed.value && !isEmptySystem.value && props.block.kind !== 'injection')
 const toolDefinition = computed(() => recordFromMetadata(props.block.metadata.toolDefinition))
 const toolDefinitionLoreBookId = computed(() => numberFromMetadata(toolDefinition.value.loreBookId))
 const selectedToolLoreBook = computed(() => {
@@ -116,11 +113,16 @@ const detailJson = computed(() => ({
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
   content: text.value,
+  contentParts: props.block.contentParts,
   metadata: props.block.metadata
 }))
+const visibleContentParts = computed(() => props.block.contentParts
+  .map((part, index) => ({ part, index }))
+  .filter(item => item.part.type !== 'reasoning' || item.part.text.trim().length > 0))
 
 watch(() => props.block.id, () => {
   editing.value = false
+  editingPartIndex.value = null
   menuOpen.value = false
   isCollapsed.value = props.collapsed
   injectionViewMode.value = 'structured'
@@ -241,9 +243,20 @@ function formatDateTime(value: string): string {
   return date.toLocaleString()
 }
 
-function startEdit() {
+function setEditorElement(element: Element | ComponentPublicInstance | null) {
+  editorRef.value = element instanceof HTMLTextAreaElement ? element : null
+}
+
+function firstTextPartIndex(): number {
+  const index = props.block.contentParts.findIndex(part => part.type === 'text')
+  return index >= 0 ? index : props.block.contentParts.length
+}
+
+function startEdit(partIndex = firstTextPartIndex()) {
   if (!canEdit.value) return
-  draft.value = text.value
+  const part = props.block.contentParts[partIndex]
+  draft.value = part?.type === 'text' ? part.text : ''
+  editingPartIndex.value = partIndex
   setCollapsed(false)
   editing.value = true
   menuOpen.value = false
@@ -253,13 +266,21 @@ function startEdit() {
 function cancelEdit() {
   draft.value = text.value
   editing.value = false
+  editingPartIndex.value = null
   menuOpen.value = false
+  if (isEmptyChatBlock(props.block)) {
+    emit('delete', props.block)
+  }
 }
 
 function editedBlock(): ChatBlock {
   const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
-  const reasoningParts = next.contentParts.filter(part => part.type === 'reasoning')
-  next.contentParts = [...reasoningParts, { type: 'text', text: draft.value }]
+  const partIndex = editingPartIndex.value ?? firstTextPartIndex()
+  if (next.contentParts[partIndex]?.type === 'text') {
+    next.contentParts[partIndex] = { type: 'text', text: draft.value }
+  } else {
+    next.contentParts.splice(partIndex, 0, { type: 'text', text: draft.value })
+  }
   return next
 }
 
@@ -267,6 +288,7 @@ function commitEdit(): ChatBlock | null {
   if (!editing.value) return null
   const next = editedBlock()
   editing.value = false
+  editingPartIndex.value = null
   menuOpen.value = false
   return next
 }
@@ -274,7 +296,23 @@ function commitEdit(): ChatBlock | null {
 function saveEdit() {
   const next = commitEdit()
   if (!next) return
+  if (isEmptyChatBlock(next)) {
+    emit('delete', props.block)
+    return
+  }
   emit('save', next)
+}
+
+function autoSaveEdit() {
+  if (!editing.value) return
+  saveEdit()
+}
+
+function isEmptyChatBlock(block: ChatBlock): boolean {
+  return block.contentParts.every(part => {
+    if (part.type === 'tool_call') return false
+    return part.text.trim().length === 0
+  })
 }
 
 function toggleEnabled() {
@@ -296,9 +334,54 @@ function toggleSendReasoning() {
   emit('save', next)
 }
 
-function nextToolSessionId(): string {
-  const randomId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return `lorebook-edit-${randomId}`
+function toolCallTitle(part: ToolCallContentPart): string {
+  if (part.status === 'pending') return `准备调用：${part.toolName}`
+  if (part.status === 'error') return `调用失败：${part.toolName}`
+  return `工具调用：${part.toolName}`
+}
+
+function toolCallSummary(part: ToolCallContentPart): string {
+  const extension = recordFromMetadata(part.extensions.loreBookEdit)
+  const loreBookName = stringFromMetadata(extension.loreBookName)
+  return [toolCallStatusLabel(part), loreBookName].filter(Boolean).join(' · ')
+}
+
+function toolCallStatusLabel(part: ToolCallContentPart): string {
+  if (part.status === 'pending') return '待调用'
+  if (part.status === 'error') return '失败'
+  return '成功'
+}
+
+function toolCallJson(part: ToolCallContentPart): Record<string, unknown> {
+  return {
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+    status: part.status,
+    input: part.input,
+    output: part.output,
+    error: part.error,
+    extensions: part.extensions
+  }
+}
+
+function isToolCallOpen(part: ToolCallContentPart): boolean {
+  return openToolCalls.value[part.toolCallId] === true
+}
+
+function toggleToolCallOpen(part: ToolCallContentPart) {
+  openToolCalls.value = {
+    ...openToolCalls.value,
+    [part.toolCallId]: !isToolCallOpen(part)
+  }
+}
+
+function toggleToolCallContext(partIndex: number) {
+  if (!canEdit.value) return
+  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const part = next.contentParts[partIndex]
+  if (part?.type !== 'tool_call') return
+  part.sendAsContext = part.sendAsContext !== true
+  emit('save', next)
 }
 
 function updateToolTargetLine(value: string, loreBook: LoreBook | null): string {
@@ -320,10 +403,11 @@ function updateToolLoreBook(event: Event) {
   next.metadata = {
     ...next.metadata,
     toolDefinition: {
-      ...currentDefinition,
       group: LOREBOOK_EDIT_TOOL_GROUP,
-      toolSessionId: stringFromMetadata(currentDefinition.toolSessionId) || stringFromMetadata(currentDefinition.id) || nextToolSessionId(),
-      loreBookId: loreBook?.id ?? null
+      loreBookId: loreBook?.id ?? null,
+      enabledTools: Array.isArray(currentDefinition.enabledTools)
+        ? currentDefinition.enabledTools
+        : ['list_lorebook_entries', 'get_lorebook_entries_json', 'test_lorebook_trigger', 'upsert_lorebook_entry']
     }
   }
   next.contentParts = [{ type: 'text', text: updateToolTargetLine(text.value, loreBook) }]
@@ -389,7 +473,8 @@ defineExpose({
       <div class="block-actions">
         <button class="toolbar-button" type="button" :aria-label="isCollapsed ? '展开块' : '折叠块'"
           :data-tooltip="isCollapsed ? '展开' : '折叠'" :disabled="editing" @click="toggleCollapsed">
-          <component :is="isCollapsed ? MdKeyboardArrowDown : MdKeyboardArrowUp" class="toolbar-icon" aria-hidden="true" />
+          <component :is="isCollapsed ? MdKeyboardArrowDown : MdKeyboardArrowUp" class="toolbar-icon"
+            aria-hidden="true" />
         </button>
         <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
           @click.stop="toggleMenu">
@@ -398,14 +483,20 @@ defineExpose({
       </div>
     </header>
 
-    <textarea v-if="editing" ref="editorRef" v-model="draft" class="block-editor" rows="6" />
-    <template v-else-if="!isCollapsed">
-      <button v-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit" @click="startEdit">
+    <template v-if="!isCollapsed">
+      <textarea v-if="editing && isEmptySystem" :ref="setEditorElement" v-model="draft" class="block-editor"
+        rows="6" @blur="autoSaveEdit" />
+
+      <button v-else-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit"
+        @click="() => startEdit()">
         点击可输入系统提示词
       </button>
 
       <div v-else-if="isInjection" class="injection-body">
-        <div class="injection-mode-tabs" aria-label="注入内容展示方式">
+        <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded" rows="6"
+          @blur="autoSaveEdit" />
+
+        <div v-else class="injection-mode-tabs" aria-label="注入内容展示方式">
           <button type="button" :class="{ selected: currentInjectionViewMode === 'markdown' }"
             @click="switchInjectionViewMode('markdown')">
             <MdCode class="tab-icon" aria-hidden="true" />Markdown
@@ -417,11 +508,11 @@ defineExpose({
           </button>
         </div>
 
-        <div v-if="currentInjectionViewMode === 'markdown'" class="block-content injection-markdown">
+        <div v-if="!editing && currentInjectionViewMode === 'markdown'" class="block-content injection-markdown">
           <MarkdownView :markdown="text" />
         </div>
 
-        <div v-else class="injection-detail-list">
+        <div v-else-if="!editing" class="injection-detail-list">
           <section v-for="(detail, index) in injectionDetails" :key="`${detail.source}-${detail.entryId ?? index}`"
             class="injection-detail-item">
             <header>
@@ -445,22 +536,51 @@ defineExpose({
         <p v-if="selectedToolLoreBook" class="tool-definition-note">世界书编辑工具组已绑定：{{ selectedToolLoreBook.name }}</p>
         <p v-else class="tool-definition-note invalid">未绑定有效世界书时，此工具定义不会发送给 LLM。</p>
         <div class="block-content tool-definition-prompt">
-          <MarkdownView :markdown="text" />
+          <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded"
+            rows="8" @blur="autoSaveEdit" />
+          <MarkdownView v-else :markdown="text" />
         </div>
       </div>
 
       <div v-else-if="showMarkdown" class="block-content">
-        <section v-if="hasReasoning" class="reasoning-panel">
-          <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
-            <MdPsychology class="reasoning-icon" aria-hidden="true" />
-            <span>思考</span>
-            <small @click="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
-          </button>
-          <div v-if="reasoningOpen" class="reasoning-body">
-            <MarkdownView :markdown="reasoningText" />
-          </div>
-        </section>
-        <MarkdownView :markdown="text" />
+        <template v-for="{ part, index } in visibleContentParts" :key="`${part.type}-${index}`">
+          <section v-if="part.type === 'reasoning'" class="reasoning-panel content-segment">
+            <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+              <MdPsychology class="reasoning-icon" aria-hidden="true" />
+              <span>思考</span>
+              <small @click.stop="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
+            </button>
+            <div v-if="reasoningOpen" class="reasoning-body">
+              <MarkdownView :markdown="part.text" />
+            </div>
+          </section>
+
+          <section v-else-if="part.type === 'tool_call'" class="tool-call-panel content-segment"
+            :class="part.status">
+            <header class="tool-call-header">
+              <button class="tool-call-toggle" type="button" @click="toggleToolCallOpen(part)">
+                <MdCode class="tool-call-icon" aria-hidden="true" />
+                <span>{{ toolCallTitle(part) }}</span>
+                <small>{{ toolCallSummary(part) }}</small>
+              </button>
+              <button class="tool-call-context" type="button" :disabled="!canEdit"
+                @click="toggleToolCallContext(index)">
+                {{ part.sendAsContext ? '作为上下文' : '不作为上下文' }}
+              </button>
+            </header>
+            <pre v-if="isToolCallOpen(part)" class="tool-call-body">{{ JSON.stringify(toolCallJson(part), null, 2) }}</pre>
+          </section>
+
+          <section v-else class="text-segment content-segment" :class="{ editable: canEdit }"
+            @dblclick="startEdit(index)">
+            <textarea v-if="editing && editingPartIndex === index" :ref="setEditorElement" v-model="draft"
+              class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
+            <MarkdownView v-else :markdown="part.text" />
+          </section>
+        </template>
+
+        <textarea v-if="editing && editingPartIndex === block.contentParts.length" :ref="setEditorElement"
+          v-model="draft" class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
       </div>
     </template>
 
@@ -489,9 +609,6 @@ defineExpose({
           @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
         </button>
-        <button v-if="!editing && !isVirtual" type="button" :disabled="!canEdit" @click="startEdit">
-          <MdEdit class="menu-icon" aria-hidden="true" />编辑
-        </button>
         <button v-if="!editing && !isVirtual" type="button" :disabled="frozen" @click="insertToolDefinition('before')">
           <MdLibraryAdd class="menu-icon" aria-hidden="true" />上方插入工具
         </button>
@@ -518,7 +635,7 @@ defineExpose({
   gap: 8px;
   overflow: visible;
   border-bottom: 1px solid #edf0f4;
-  padding: 12px 14px;
+  padding: 6px 12px;
   background: #ffffff;
 }
 
@@ -536,10 +653,6 @@ defineExpose({
 
 .chat-block.tool_definition {
   background: #f7fbff;
-}
-
-.chat-block.tool_call {
-  background: #fbfaf7;
 }
 
 .chat-block.error {
@@ -647,11 +760,29 @@ defineExpose({
   min-height: 130px;
 }
 
+.block-editor.embedded {
+  width: 100%;
+  margin-inline: 0;
+}
+
 .block-content {
   margin-inline: var(--chat-block-content-inset);
   min-width: 0;
   display: grid;
   gap: 8px;
+}
+
+.content-segment {
+  min-width: 0;
+}
+
+.text-segment {
+  display: grid;
+  gap: 6px;
+}
+
+.text-segment.editable {
+  cursor: text;
 }
 
 .reasoning-panel {
@@ -704,6 +835,108 @@ defineExpose({
   border-top: 1px solid #e4e9f0;
   padding: 10px;
   color: #4e5d70;
+}
+
+.tool-call-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #d8dee7;
+  border-radius: 8px;
+  background: #fbfaf7;
+}
+
+.tool-call-panel.success {
+  border-color: #cadfce;
+  background: #f8fcf8;
+}
+
+.tool-call-panel.error {
+  border-color: #efcaca;
+  background: #fff8f8;
+}
+
+.tool-call-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.tool-call-toggle {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #526173;
+  padding: 3px 0;
+  text-align: left;
+}
+
+.tool-call-toggle span,
+.tool-call-toggle small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-toggle span {
+  color: #334052;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-call-toggle small {
+  color: #7a8797;
+  font-size: 12px;
+}
+
+.tool-call-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.tool-call-context {
+  min-height: 26px;
+  flex-shrink: 0;
+  border: 1px solid #d8dee7;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #657085;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.tool-call-context:hover:not(:disabled) {
+  background: #f4f8ff;
+  color: #174f99;
+}
+
+.tool-call-context:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.tool-call-body {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #e4e9f0;
+  background: #ffffff;
+  color: #303a49;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .system-hint,
@@ -893,5 +1126,4 @@ defineExpose({
 .error-detail {
   color: #9d2c2c !important;
 }
-
 </style>
