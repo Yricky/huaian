@@ -25,6 +25,7 @@ import type {
   PromptTag,
   PromptTagCreatePayload,
   PromptTagUpdatePayload,
+  ProjectImportResult,
   ProjectSnapshot,
   LoreBook,
   LoreBookUpdatePayload,
@@ -52,6 +53,8 @@ const electronAPI = {
   deleteLoreBook: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteLoreBook', id),
   exportCharacter: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportCharacter', id),
   exportLoreBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportLoreBook', id),
+  importCharacters: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importCharacters'),
+  importLoreBooks: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importLoreBooks'),
   createLlmProvider: (payload: IpcJsonPayload<LlmProviderCreatePayload>): Promise<LlmProvider> =>
     ipcRenderer.invoke('llm:createProvider', payload),
   updateLlmProvider: (payload: IpcJsonPayload<LlmProviderUpdatePayload>): Promise<LlmProvider> =>

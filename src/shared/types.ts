@@ -20,6 +20,7 @@ export interface CharacterEntry {
   id: number
   createdAt: string
   updatedAt: string
+  assetPath: string | null
   stData: JsonRecord
   forgeData: CharacterForgeData
 }
@@ -122,6 +123,19 @@ export interface ProjectSnapshot {
 export interface ExportResult {
   historyPath: string
   savedPath?: string
+}
+
+export interface ImportFailure {
+  filePath: string
+  message: string
+}
+
+export interface ProjectImportResult {
+  snapshot: ProjectSnapshot
+  importedCharacterIds: number[]
+  importedLoreBookIds: number[]
+  importedWorldEntryIds: number[]
+  failures: ImportFailure[]
 }
 
 export type LlmProviderType = 'openai' | 'openai-compatible' | 'anthropic' | 'google' | 'ollama' | 'custom'

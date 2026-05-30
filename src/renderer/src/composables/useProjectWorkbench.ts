@@ -14,6 +14,7 @@ import type {
   LlmProviderCreatePayload,
   PromptSnippet,
   PromptTag,
+  ProjectImportResult,
   ProjectSnapshot,
   SidebarView,
   LoreBook,
@@ -353,6 +354,22 @@ export function createProjectWorkbench() {
     return worldEntries.value.filter(entry => entry.loreBookId === book.id).length
   }
 
+  function pathToFileUrl(path: string): string {
+    const normalized = path.replace(/\\/g, '/')
+    const encoded = normalized
+      .split('/')
+      .map((part, index) => index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part))
+      .join('/')
+    return normalized.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`
+  }
+
+  function characterAssetUrl(entry: CharacterEntry): string {
+    if (!project.value || !entry.assetPath) return ''
+    const projectPath = project.value.path.replace(/\\/g, '/').replace(/\/+$/, '')
+    const assetPath = entry.assetPath.replace(/\\/g, '/').replace(/^\/+/, '')
+    return pathToFileUrl(`${projectPath}/${assetPath}`)
+  }
+
   function selectCharacter(entry: CharacterEntry) {
     selectedCharacter.value = clone(entry)
     characterTagsText.value = (characterData.value.tags ?? []).join(', ')
@@ -375,6 +392,48 @@ export function createProjectWorkbench() {
       replaceCharacter(entry)
       activeView.value = 'characters'
       showToast('角色卡已创建', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  function showImportResult(result: ProjectImportResult, importedLabel: string, importedCount: number) {
+    if (importedCount > 0 && result.failures.length > 0) {
+      showToast(`已导入 ${importedCount} 个${importedLabel}，${result.failures.length} 个文件失败：${result.failures[0].message}`, 'error')
+      return
+    }
+    if (importedCount > 0) {
+      showToast(`已导入 ${importedCount} 个${importedLabel}`, 'success')
+      return
+    }
+    if (result.failures.length > 0) {
+      showToast(`导入失败：${result.failures[0].message}`, 'error')
+    }
+  }
+
+  function applyImportResult(result: ProjectImportResult) {
+    project.value = result.snapshot
+
+    const characterId = result.importedCharacterIds.at(-1)
+    if (characterId !== undefined) {
+      const importedCharacter = characters.value.find(character => character.id === characterId)
+      if (importedCharacter) selectCharacter(importedCharacter)
+    }
+
+    const loreBookId = result.importedLoreBookIds.at(-1)
+    if (loreBookId !== undefined) {
+      const importedLoreBook = loreBooks.value.find(book => book.id === loreBookId)
+      if (importedLoreBook) selectLoreBook(importedLoreBook)
+    }
+  }
+
+  async function importCharacters() {
+    try {
+      const result = await window.electronAPI.importCharacters()
+      if (!result) return
+      applyImportResult(result)
+      activeView.value = 'characters'
+      showImportResult(result, '角色卡', result.importedCharacterIds.length)
     } catch (error) {
       showToast(errorText(error), 'error')
     }
@@ -966,6 +1025,18 @@ export function createProjectWorkbench() {
     }
   }
 
+  async function importLoreBooks() {
+    try {
+      const result = await window.electronAPI.importLoreBooks()
+      if (!result) return
+      applyImportResult(result)
+      activeView.value = 'loreBooks'
+      showImportResult(result, '世界书', result.importedLoreBookIds.length)
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
   async function saveLoreBook() {
     const payload = loreBookSavePayload()
     if (!selectedLoreBook.value || !payload) return
@@ -1056,6 +1127,7 @@ export function createProjectWorkbench() {
     characterData,
     characterExtensions,
     characterGreetingsText,
+    characterAssetUrl,
     characterListName,
     characterListNotes,
     characterListTags,
@@ -1095,6 +1167,8 @@ export function createProjectWorkbench() {
     formatDate,
     generatingChatIds,
     isCharacterLoreBookSelected,
+    importCharacters,
+    importLoreBooks,
     isSelectedChatGenerating,
     isWorldEntryExpanded,
     llmInstances,

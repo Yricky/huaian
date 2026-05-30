@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { MdAdd, MdDeleteOutline, MdFileDownload } from 'vue-icons-plus/md'
+import { MdAdd, MdDeleteOutline, MdFileDownload, MdFileUpload } from 'vue-icons-plus/md'
 import { characterFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
 
 const {
   characterAdvancedJson,
+  characterAssetUrl,
   characterData,
   characterExtensions,
   characterGreetingsText,
@@ -21,6 +22,7 @@ const {
   deleteSelectedCharacter,
   depthPrompt,
   exportSelectedCharacter,
+  importCharacters,
   isCharacterLoreBookSelected,
   saveCharacter,
   saveCharacterAdvanced,
@@ -37,18 +39,28 @@ const {
     <div class="list-pane">
       <div class="pane-header">
         <h2>角色卡</h2>
-        <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createCharacter">
-          <MdAdd class="toolbar-icon" aria-hidden="true" />
-        </button>
+        <div class="button-row">
+          <button class="toolbar-button" type="button" aria-label="导入" data-tooltip="导入" @click="importCharacters">
+            <MdFileDownload class="toolbar-icon" aria-hidden="true" />
+          </button>
+          <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createCharacter">
+            <MdAdd class="toolbar-icon" aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <div class="card-grid">
         <button v-for="entry in characters" :key="entry.id" class="item-card"
           :class="{ selected: selectedCharacter?.id === entry.id }" @click="selectCharacter(entry)">
-          <strong>{{ characterListName(entry) }}</strong>
-          <span>{{ characterListNotes(entry) }}</span>
-          <small>{{ characterListVersion(entry) }}</small>
-          <div class="tag-row">
-            <em v-for="tag in characterListTags(entry)" :key="tag">{{ tag }}</em>
+          <div class="character-card-body">
+            <img v-if="characterAssetUrl(entry)" class="character-card-avatar" :src="characterAssetUrl(entry)" alt="" />
+            <div class="character-card-copy">
+              <strong>{{ characterListName(entry) }}</strong>
+              <span>{{ characterListNotes(entry) }}</span>
+              <small>{{ characterListVersion(entry) }}</small>
+              <div class="tag-row">
+                <em v-for="tag in characterListTags(entry)" :key="tag">{{ tag }}</em>
+              </div>
+            </div>
           </div>
         </button>
       </div>
@@ -60,7 +72,7 @@ const {
         <div class="button-row">
           <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON"
             @click="exportSelectedCharacter">
-            <MdFileDownload class="toolbar-icon" aria-hidden="true" />
+            <MdFileUpload class="toolbar-icon" aria-hidden="true" />
           </button>
           <button class="toolbar-button" type="button" aria-label="删除" data-tooltip="删除"
             @click="deleteSelectedCharacter">
@@ -151,6 +163,31 @@ const {
 </template>
 
 <style scoped>
+.character-card-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.character-card-avatar {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 56px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  background: #eef2f6;
+  object-fit: cover;
+}
+
+.character-card-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;

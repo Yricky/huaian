@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload } from 'vue-icons-plus/md'
+import { MdAdd, MdDeleteOutline, MdDragIndicator, MdEdit, MdFileDownload, MdFileUpload } from 'vue-icons-plus/md'
 import type { LoreBook, WorldEntry } from '../../../shared/types'
 import { worldEntryFieldHints } from '../fieldHints'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
@@ -14,6 +14,7 @@ interface VirtualListExpose {
   scrollToIndex: (index: number) => void
   scrollToTop: () => void
 }
+
 
 interface WorldEntryDragState {
   entryId: number
@@ -32,6 +33,7 @@ const {
   entryTitle,
   exportSelectedLoreBook,
   formatDate,
+  importLoreBooks,
   isWorldEntryExpanded,
   moveLoreBookEntry,
   saveLoreBook,
@@ -237,9 +239,14 @@ onBeforeUnmount(() => {
     <div class="list-pane world-books-list-pane">
       <div class="pane-header">
         <h2>世界书</h2>
-        <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createLoreBook">
-          <MdAdd class="toolbar-icon" aria-hidden="true" />
-        </button>
+        <div class="button-row">
+          <button class="toolbar-button" type="button" aria-label="导入" data-tooltip="导入" @click="importLoreBooks">
+            <MdFileDownload class="toolbar-icon" aria-hidden="true" />
+          </button>
+          <button class="toolbar-button" type="button" aria-label="新建" data-tooltip="新建" @click="createLoreBook">
+            <MdAdd class="toolbar-icon" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <VirtualGrid class="world-book-grid-viewport" :items="loreBooks" :item-key="loreBookKey" :item-height="116"
@@ -274,7 +281,7 @@ onBeforeUnmount(() => {
           </button>
           <button class="toolbar-button" type="button" aria-label="导出 JSON" data-tooltip="导出 JSON"
             @click="exportSelectedLoreBook">
-            <MdFileDownload class="toolbar-icon" aria-hidden="true" />
+            <MdFileUpload class="toolbar-icon" aria-hidden="true" />
           </button>
           <button class="toolbar-button" type="button" aria-label="删除世界书" data-tooltip="删除世界书"
             @click="deleteSelectedLoreBook">

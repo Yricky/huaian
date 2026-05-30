@@ -19,6 +19,7 @@ import type {
 } from '../shared/types'
 import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { exportCharacter, exportLoreBook } from './project/exporters'
+import { importCharactersFromDialog, importLoreBooksFromDialog } from './project/importers'
 import { hasProject } from './project/state'
 import {
   clearLlmProviderModelsCache,
@@ -94,6 +95,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('project:exportCharacter', (_, id: number) => exportCharacter(id))
   ipcMain.handle('project:exportLoreBook', (_, id: number) => exportLoreBook(id))
+  ipcMain.handle('project:importCharacters', () => importCharactersFromDialog())
+  ipcMain.handle('project:importLoreBooks', () => importLoreBooksFromDialog())
 
   ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
     createLlmProvider(parseIpcPayload(payload))

@@ -119,6 +119,7 @@ export function normalizeWorldEntryData(value: unknown): CharacterBookEntryData 
   const extensions = asRecord(data.extensions)
   const numericPosition = toNumber(extensions.position ?? data.position, data.position === 'after_char' ? 1 : 0)
   const position = data.position === 'after_char' || numericPosition === 1 ? 'after_char' : 'before_char'
+  const id = toNumber(data.id, Number.NaN)
 
   extensions.position = numericPosition
   extensions.depth = toNumber(extensions.depth, 4)
@@ -127,7 +128,7 @@ export function normalizeWorldEntryData(value: unknown): CharacterBookEntryData 
   extensions.useProbability = toBoolean(extensions.useProbability, true)
   extensions.display_index = toNumber(extensions.display_index, 0)
 
-  return {
+  const normalized: CharacterBookEntryData = {
     keys: toStringArray(data.keys ?? data.key),
     secondary_keys: toStringArray(data.secondary_keys ?? data.keysecondary),
     comment: toString(data.comment),
@@ -140,6 +141,8 @@ export function normalizeWorldEntryData(value: unknown): CharacterBookEntryData 
     case_sensitive: data.case_sensitive === undefined ? undefined : toBoolean(data.case_sensitive, false),
     extensions
   }
+  if (Number.isInteger(id)) normalized.id = id
+  return normalized
 }
 
 export function defaultWorldEntry(): CharacterBookEntryData {

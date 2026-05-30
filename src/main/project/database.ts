@@ -35,6 +35,7 @@ export function initDatabase(dbPath: string): any {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      asset_path TEXT,
       st_data TEXT NOT NULL,
       forge_data TEXT NOT NULL
     );
@@ -127,7 +128,14 @@ export function initDatabase(dbPath: string): any {
       PRIMARY KEY (prompt_id, tag_id)
     );
   `)
+  ensureColumn(db, 'character_entries', 'asset_path', 'TEXT')
   return db
+}
+
+function ensureColumn(db: any, tableName: string, columnName: string, definition: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all()
+  if (rows.some((row: any) => row.name === columnName)) return
+  db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`).run()
 }
 
 function parseJsonColumn(value: string): unknown {
@@ -222,6 +230,7 @@ export function rowToCharacter(row: any): CharacterEntry {
     id: row.id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    assetPath: row.asset_path ?? null,
     stData: normalizeCharacterCard(parseJsonColumn(row.st_data), row.created_at),
     forgeData: normalizeCharacterForgeData(parseJsonColumn(row.forge_data))
   }

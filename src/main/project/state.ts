@@ -5,6 +5,7 @@ export interface ProjectContext {
   dbPath: string
   configPath: string
   exportsPath: string
+  assetsPath: string
   db: any
   config: ProjectConfig
 }

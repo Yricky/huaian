@@ -32,7 +32,7 @@ import type {
   WorldEntryUpdatePayload
 } from '../../shared/types'
 import { readConfig, saveConfig } from './app-config'
-import { DATABASE_FILE, EXPORTS_DIR, PROJECT_FILE } from './constants'
+import { ASSETS_DIR, DATABASE_FILE, EXPORTS_DIR, PROJECT_FILE } from './constants'
 import {
   initDatabase,
   rowToCharacter,
@@ -97,21 +97,25 @@ export async function openProjectAt(projectPath: string): Promise<ProjectSnapsho
   const configPath = join(projectPath, PROJECT_FILE)
   const dbPath = join(projectPath, DATABASE_FILE)
   const exportsPath = join(projectPath, EXPORTS_DIR)
+  const assetsPath = join(projectPath, ASSETS_DIR)
 
   if (!await isValidProject(projectPath)) {
     if (!await isEmptyDirectory(projectPath)) {
       throw new Error('请选择空目录，或已包含 forge.db 与 forge.project.json 的项目目录。')
     }
     await mkdir(exportsPath, { recursive: true })
+    await mkdir(assetsPath, { recursive: true })
     await writeFile(configPath, JSON.stringify(defaultProjectConfig(), null, 2), 'utf-8')
   }
 
   await mkdir(exportsPath, { recursive: true })
+  await mkdir(assetsPath, { recursive: true })
   const project: ProjectContext = {
     path: projectPath,
     dbPath,
     configPath,
     exportsPath,
+    assetsPath,
     db: initDatabase(dbPath),
     config: await readProjectConfig(configPath)
   }
@@ -299,9 +303,9 @@ export function createCharacter(): CharacterEntry {
   const project = ensureProject()
   const now = new Date().toISOString()
   const result = project.db.prepare(`
-    INSERT INTO character_entries (created_at, updated_at, st_data, forge_data)
-    VALUES (?, ?, ?, ?)
-  `).run(now, now, JSON.stringify(defaultCharacterCard()), JSON.stringify({
+    INSERT INTO character_entries (created_at, updated_at, asset_path, st_data, forge_data)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(now, now, null, JSON.stringify(defaultCharacterCard()), JSON.stringify({
     loreBookId: null,
     exportFileName: '',
     characterBookName: ''
