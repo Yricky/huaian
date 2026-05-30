@@ -65,7 +65,7 @@ function nullableInteger(value: unknown): number | null {
   return Number.isInteger(number) ? number : null
 }
 
-export function normalizeChatRuntimeConfig(value: unknown, legacyLlmInstanceId: unknown = null): ChatRuntimeConfig {
+export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
   const data = asRecord(value)
   const loreBookIds = Array.isArray(data.loreBookIds)
     ? data.loreBookIds.map(item => Number(item)).filter(Number.isInteger)
@@ -73,7 +73,7 @@ export function normalizeChatRuntimeConfig(value: unknown, legacyLlmInstanceId: 
 
   return {
     characterId: nullableInteger(data.characterId),
-    llmInstanceId: nullableInteger(data.llmInstanceId) ?? nullableInteger(legacyLlmInstanceId),
+    llmInstanceId: nullableInteger(data.llmInstanceId),
     loreBookIds: [...new Set(loreBookIds)]
   }
 }

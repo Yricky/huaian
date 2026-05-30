@@ -7,6 +7,7 @@ import {
   MdDeleteOutline,
   MdEdit,
   MdFormatListBulleted,
+  MdLibraryAdd,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
   MdMoreVert,
@@ -16,8 +17,9 @@ import {
   MdVisibility,
   MdVisibilityOff
 } from 'vue-icons-plus/md'
+import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
-import type { ChatBlock } from '../../../shared/types'
+import type { ChatBlock, LoreBook } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
@@ -27,6 +29,7 @@ const props = defineProps<{
   block: ChatBlock
   collapsed: boolean
   frozen: boolean
+  loreBooks: LoreBook[]
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +38,7 @@ const emit = defineEmits<{
   'collapse-change': [collapsed: boolean]
   regenerate: [block: ChatBlock]
   stop: [chatId: number]
+  'insert-tool-definition': [block: ChatBlock, placement: 'before' | 'after']
 }>()
 
 const editing = ref(false)
@@ -55,11 +59,15 @@ const hasReasoning = computed(() => reasoningText.value.trim().length > 0)
 const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
 const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
+const isToolDefinition = computed(() => props.block.kind === 'tool_definition')
+const isToolCall = computed(() => props.block.kind === 'tool_call')
 const numberFormatter = new Intl.NumberFormat()
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
   if (props.block.kind === 'assistant') return 'assistant'
   if (props.block.kind === 'injection') return `injection → ${props.block.targetRole}`
+  if (props.block.kind === 'tool_definition') return 'tool definition'
+  if (props.block.kind === 'tool_call') return 'tool call'
   return 'user'
 })
 const statusLabel = computed(() => {
@@ -80,8 +88,14 @@ const blockSubMeta = computed(() => [
   isVirtual.value ? '' : tokenLabel.value
 ].filter(Boolean).join(' · '))
 const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
-const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value)
+const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value && !isToolCall.value)
 const showMarkdown = computed(() => !isCollapsed.value && !editing.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const toolDefinition = computed(() => recordFromMetadata(props.block.metadata.toolDefinition))
+const toolDefinitionLoreBookId = computed(() => numberFromMetadata(toolDefinition.value.loreBookId))
+const selectedToolLoreBook = computed(() => {
+  const id = toolDefinitionLoreBookId.value
+  return id === null ? null : props.loreBooks.find(book => book.id === id) ?? null
+})
 const injectionDetails = computed(() => {
   const raw = props.block.metadata.injectionDetails
   if (!Array.isArray(raw)) return []
@@ -159,7 +173,7 @@ function updateMenuPosition() {
   if (!button) return
 
   const rect = button.getBoundingClientRect()
-  const width = 148
+  const width = 180
   const gap = 6
   const margin = 8
   const height = menuRef.value?.offsetHeight ?? 244
@@ -282,6 +296,40 @@ function toggleSendReasoning() {
   emit('save', next)
 }
 
+function nextToolSessionId(): string {
+  const randomId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `lorebook-edit-${randomId}`
+}
+
+function updateToolTargetLine(value: string, loreBook: LoreBook | null): string {
+  const targetLine = loreBook
+    ? `当前绑定世界书：${loreBook.name}（ID ${loreBook.id}）。`
+    : '当前工具定义块尚未绑定世界书。'
+  if (!value.trim()) return defaultLoreBookEditPrompt(loreBook)
+  const pattern = /当前绑定世界书：.*?。\n?|当前工具定义块尚未绑定世界书。\n?/
+  return pattern.test(value) ? value.replace(pattern, `${targetLine}\n`) : value
+}
+
+function updateToolLoreBook(event: Event) {
+  if (!canEdit.value) return
+  const value = (event.target as HTMLSelectElement).value
+  const loreBookId = value ? Number(value) : null
+  const loreBook = loreBookId === null ? null : props.loreBooks.find(book => book.id === loreBookId) ?? null
+  const currentDefinition = toolDefinition.value
+  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  next.metadata = {
+    ...next.metadata,
+    toolDefinition: {
+      ...currentDefinition,
+      group: LOREBOOK_EDIT_TOOL_GROUP,
+      toolSessionId: stringFromMetadata(currentDefinition.toolSessionId) || stringFromMetadata(currentDefinition.id) || nextToolSessionId(),
+      loreBookId: loreBook?.id ?? null
+    }
+  }
+  next.contentParts = [{ type: 'text', text: updateToolTargetLine(text.value, loreBook) }]
+  emit('save', next)
+}
+
 function regenerate() {
   if (isVirtual.value) return
   menuOpen.value = false
@@ -297,6 +345,12 @@ function remove() {
   if (!canEdit.value) return
   menuOpen.value = false
   emit('delete', props.block)
+}
+
+function insertToolDefinition(placement: 'before' | 'after') {
+  if (props.frozen || isVirtual.value) return
+  menuOpen.value = false
+  emit('insert-tool-definition', props.block, placement)
 }
 
 function openDetails() {
@@ -380,6 +434,21 @@ defineExpose({
         </div>
       </div>
 
+      <div v-else-if="isToolDefinition" class="tool-definition-body">
+        <label class="tool-definition-selector">
+          <span>绑定世界书</span>
+          <select :value="toolDefinitionLoreBookId ?? ''" :disabled="!canEdit" @change="updateToolLoreBook">
+            <option value="">未选择世界书</option>
+            <option v-for="book in loreBooks" :key="book.id" :value="book.id">{{ book.name }}</option>
+          </select>
+        </label>
+        <p v-if="selectedToolLoreBook" class="tool-definition-note">世界书编辑工具组已绑定：{{ selectedToolLoreBook.name }}</p>
+        <p v-else class="tool-definition-note invalid">未绑定有效世界书时，此工具定义不会发送给 LLM。</p>
+        <div class="block-content tool-definition-prompt">
+          <MarkdownView :markdown="text" />
+        </div>
+      </div>
+
       <div v-else-if="showMarkdown" class="block-content">
         <section v-if="hasReasoning" class="reasoning-panel">
           <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
@@ -423,6 +492,12 @@ defineExpose({
         <button v-if="!editing && !isVirtual" type="button" :disabled="!canEdit" @click="startEdit">
           <MdEdit class="menu-icon" aria-hidden="true" />编辑
         </button>
+        <button v-if="!editing && !isVirtual" type="button" :disabled="frozen" @click="insertToolDefinition('before')">
+          <MdLibraryAdd class="menu-icon" aria-hidden="true" />上方插入工具
+        </button>
+        <button v-if="!editing && !isVirtual" type="button" :disabled="frozen" @click="insertToolDefinition('after')">
+          <MdLibraryAdd class="menu-icon" aria-hidden="true" />下方插入工具
+        </button>
         <button type="button" @click="openDetails">
           <MdVisibility class="menu-icon" aria-hidden="true" />详情
         </button>
@@ -457,6 +532,14 @@ defineExpose({
 
 .chat-block.injection {
   background: #fffdf7;
+}
+
+.chat-block.tool_definition {
+  background: #f7fbff;
+}
+
+.chat-block.tool_call {
+  background: #fbfaf7;
 }
 
 .chat-block.error {
@@ -624,7 +707,8 @@ defineExpose({
 }
 
 .system-hint,
-.injection-body {
+.injection-body,
+.tool-definition-body {
   width: auto;
   margin-inline: var(--chat-block-content-inset);
 }
@@ -642,6 +726,43 @@ defineExpose({
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.tool-definition-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-definition-selector {
+  width: min(420px, 100%);
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.tool-definition-selector span {
+  color: #526173;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tool-definition-note {
+  margin: 0;
+  color: #526173;
+  font-size: 12px;
+}
+
+.tool-definition-note.invalid {
+  color: #9d2c2c;
+}
+
+.tool-definition-prompt {
+  margin-inline: 0;
+  border: 1px solid #dce6f2;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
 }
 
 .injection-mode-tabs {

@@ -14,6 +14,8 @@ import type {
   CharacterUpdatePayload,
   ExportResult,
   IpcJsonPayload,
+  LoreBookDraftApplyPayload,
+  LoreBookDraftSummary,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
@@ -55,6 +57,11 @@ const electronAPI = {
   exportLoreBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportLoreBook', id),
   importCharacters: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importCharacters'),
   importLoreBooks: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importLoreBooks'),
+  listLoreBookDrafts: (): Promise<LoreBookDraftSummary[]> => ipcRenderer.invoke('project:listLoreBookDrafts'),
+  applyLoreBookDraft: (payload: IpcJsonPayload<LoreBookDraftApplyPayload>): Promise<ProjectSnapshot> =>
+    ipcRenderer.invoke('project:applyLoreBookDraft', payload),
+  discardLoreBookDraft: (toolSessionId: string): Promise<void> =>
+    ipcRenderer.invoke('project:discardLoreBookDraft', toolSessionId),
   createLlmProvider: (payload: IpcJsonPayload<LlmProviderCreatePayload>): Promise<LlmProvider> =>
     ipcRenderer.invoke('llm:createProvider', payload),
   updateLlmProvider: (payload: IpcJsonPayload<LlmProviderUpdatePayload>): Promise<LlmProvider> =>

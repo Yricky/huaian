@@ -1,5 +1,7 @@
 import type { WebContents } from 'electron'
-import { streamText, type LanguageModelUsage } from 'ai'
+import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
+import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
+import { LOREBOOK_EDIT_TOOL_GROUP, LOREBOOK_EDIT_TOOL_NAMES, loreBookToolFieldHints } from '../../shared/lorebook-tooling'
 import type {
   ChatBlock,
   ChatBlockTokenUsage,
@@ -16,7 +18,15 @@ import type {
   ProviderModelCacheItem
 } from '../../shared/types'
 import {
+  getLoreBookDraftEntriesJson,
+  listLoreBookDraftEntries,
+  testLoreBookDraftTrigger,
+  upsertLoreBookDraftEntry,
+  type LoreBookEntryUpsertInput
+} from './lorebook-drafts'
+import {
   createAssistantGenerationBlock,
+  createToolCallBlock,
   getChat,
   getLlmInstance,
   getLlmProvider,
@@ -28,7 +38,6 @@ import {
   updateAssistantGenerationBlock,
   updateLlmProviderModelsCache
 } from './store'
-import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
 
 type ModelMessage = ChatGenerationPreviewMessage
 
@@ -41,6 +50,11 @@ interface ActiveGeneration {
 const activeGenerations = new Map<number, ActiveGeneration>()
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
+const LEGACY_LOREBOOK_EDIT_TOOL_NAMES = [
+  'list_lorebook_entries',
+  'test_lorebook_trigger',
+  'upsert_lorebook_entry'
+] as const
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
@@ -308,6 +322,181 @@ function previewGenerationSettings(instance: LlmInstance): JsonRecord {
   }
 }
 
+interface ActiveLoreBookToolDefinition {
+  block: ChatBlock
+  toolSessionId: string
+  loreBookId: number
+  loreBookName: string
+  toolNames: Array<typeof LOREBOOK_EDIT_TOOL_NAMES[number]>
+}
+
+function numberFromToolDefinition(value: unknown): number | null {
+  const number = Number(value)
+  return Number.isInteger(number) ? number : null
+}
+
+function activeLoreBookToolDefinition(blocks: ChatBlock[]): ActiveLoreBookToolDefinition | null {
+  const loreBooks = listLoreBooks()
+  const loreBookById = new Map(loreBooks.map(book => [book.id, book]))
+  const definitions = [...blocks]
+    .filter(block => block.enabled && block.kind === 'tool_definition')
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
+
+  for (const block of definitions.reverse()) {
+    const definition = asRecord(block.metadata.toolDefinition)
+    if (asString(definition.group) !== LOREBOOK_EDIT_TOOL_GROUP) continue
+    const loreBookId = numberFromToolDefinition(definition.loreBookId)
+    if (loreBookId === null) continue
+    const loreBook = loreBookById.get(loreBookId)
+    if (!loreBook) continue
+    const toolSessionId = asString(definition.toolSessionId || definition.id).trim()
+    if (!toolSessionId) continue
+    const enabledTools = Array.isArray(definition.enabledTools)
+      ? definition.enabledTools.filter((name): name is typeof LOREBOOK_EDIT_TOOL_NAMES[number] => (
+          typeof name === 'string' && (LOREBOOK_EDIT_TOOL_NAMES as readonly string[]).includes(name)
+        ))
+      : [...LOREBOOK_EDIT_TOOL_NAMES]
+    const hasLegacyFullSet = LEGACY_LOREBOOK_EDIT_TOOL_NAMES.every(name => enabledTools.includes(name))
+    const toolNames = hasLegacyFullSet
+      ? [...new Set([...enabledTools, 'get_lorebook_entries_json' as const])]
+      : enabledTools
+    return {
+      block,
+      toolSessionId,
+      loreBookId,
+      loreBookName: loreBook.name,
+      toolNames: toolNames.length > 0 ? toolNames : [...LOREBOOK_EDIT_TOOL_NAMES]
+    }
+  }
+
+  return null
+}
+
+function loreBookToolSchemas() {
+  return {
+    list_lorebook_entries: jsonSchema<Record<string, never>>({
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    }),
+    get_lorebook_entries_json: jsonSchema<{ ids: number[] }>({
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: '要读取完整 JSON 的世界书条目 id 列表。可包含正式条目 id 或临时副本中新建条目的负数 id。'
+        }
+      },
+      required: ['ids'],
+      additionalProperties: false
+    }),
+    test_lorebook_trigger: jsonSchema<{ example: string }>({
+      type: 'object',
+      properties: {
+        example: {
+          type: 'string',
+          description: '用于测试世界书触发的例句。系统会把它当作最新一条用户消息进行扫描。'
+        }
+      },
+      required: ['example'],
+      additionalProperties: false
+    }),
+    upsert_lorebook_entry: jsonSchema<LoreBookEntryUpsertInput>({
+      type: 'object',
+      properties: {
+        id: {
+          type: 'number',
+          description: '要更新的世界书条目 id；不传或传入不存在的 id 时会新建条目，并返回新条目 id。'
+        },
+        title: { type: 'string', description: loreBookToolFieldHints.title },
+        order: { type: 'number', description: loreBookToolFieldHints.order },
+        position: {
+          type: 'number',
+          enum: [0, 1, 2, 3, 4, 5, 6, 7],
+          description: `${loreBookToolFieldHints.position} 0=Before Char Defs，1=After Char Defs，2=Before Author's Note，3=After Author's Note，4=At Depth，5=Before Example Messages，6=After Example Messages，7=Outlet。`
+        },
+        role: {
+          anyOf: [
+            { type: 'number', enum: [0, 1, 2] },
+            { type: 'string', enum: ['system', 'user', 'assistant'] }
+          ],
+          description: `${loreBookToolFieldHints.role} 0/system，1/user，2/assistant。`
+        },
+        depth: { type: 'number', description: loreBookToolFieldHints.depth },
+        outletName: { type: 'string', description: loreBookToolFieldHints.outletName },
+        probability: { type: 'number', minimum: 0, maximum: 100, description: loreBookToolFieldHints.probability },
+        enabled: { type: 'boolean', description: loreBookToolFieldHints.enabled },
+        constant: { type: 'boolean', description: loreBookToolFieldHints.constant },
+        selective: { type: 'boolean', description: loreBookToolFieldHints.selective },
+        selectiveLogic: {
+          type: 'number',
+          enum: [0, 1, 2, 3],
+          description: `${loreBookToolFieldHints.selectiveLogic} 0=AND ANY，3=AND ALL，1=NOT ALL，2=NOT ANY。`
+        },
+        keys: {
+          type: 'array',
+          items: { type: 'string' },
+          description: loreBookToolFieldHints.keys
+        },
+        secondaryKeys: {
+          type: 'array',
+          items: { type: 'string' },
+          description: loreBookToolFieldHints.secondaryKeys
+        },
+        content: { type: 'string', description: loreBookToolFieldHints.content }
+      },
+      additionalProperties: false
+    })
+  }
+}
+
+function loreBookEditTools(definition: ActiveLoreBookToolDefinition) {
+  const schemas = loreBookToolSchemas()
+  return {
+    list_lorebook_entries: tool({
+      description: `获取世界书「${definition.loreBookName}」临时副本中的所有条目，只返回 [id, title] 二元组。`,
+      inputSchema: schemas.list_lorebook_entries,
+      execute: async () => listLoreBookDraftEntries(definition.toolSessionId, definition.loreBookId)
+    }),
+    get_lorebook_entries_json: tool({
+      description: `按 id 列表读取世界书「${definition.loreBookName}」临时副本中的完整条目 JSON，返回匹配到的 WorldEntry 对象列表。`,
+      inputSchema: schemas.get_lorebook_entries_json,
+      execute: async ({ ids }) => getLoreBookDraftEntriesJson(definition.toolSessionId, definition.loreBookId, ids)
+    }),
+    test_lorebook_trigger: tool({
+      description: `用一条例句测试世界书「${definition.loreBookName}」临时副本会触发哪些条目，返回 id/title/reason/content。`,
+      inputSchema: schemas.test_lorebook_trigger,
+      execute: async ({ example }) => testLoreBookDraftTrigger(definition.toolSessionId, definition.loreBookId, example)
+    }),
+    upsert_lorebook_entry: tool({
+      description: `更新或新建世界书「${definition.loreBookName}」临时副本中的条目。只允许编辑世界书编辑 UI 中除高级 JSON 以外的字段。`,
+      inputSchema: schemas.upsert_lorebook_entry,
+      execute: async (input) => upsertLoreBookDraftEntry(definition.toolSessionId, definition.loreBookId, input)
+    })
+  }
+}
+
+function formatJson(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+}
+
+function formatToolCallBlockContent(toolName: string, input: unknown, output: unknown, error?: unknown): string {
+  return [
+    `### ${toolName}`,
+    '',
+    '输入：',
+    '```json',
+    formatJson(input ?? {}),
+    '```',
+    '',
+    error === undefined ? '结果：' : '错误：',
+    '```json',
+    formatJson(error === undefined ? output : errorText(error)),
+    '```'
+  ].join('\n')
+}
+
 function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): ChatBlock[] {
   const blocks = listChatBlocksForChat(chatId)
   if (!regenerateBlockId) return blocks
@@ -360,6 +549,7 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
   const prompt = buildPrompt(chat, contextBlocks)
+  const loreBookTools = activeLoreBookToolDefinition(contextBlocks)
   const messages = prompt.messages
   if (!messages.length) {
     throw new Error('没有可发送的内容块。')
@@ -386,6 +576,15 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
         providerType: instance.providerSnapshot.type,
         modelId: instance.modelId
       },
+      tools: loreBookTools
+        ? {
+            activeTools: loreBookTools.toolNames,
+            loreBookId: loreBookTools.loreBookId,
+            loreBookName: loreBookTools.loreBookName,
+            toolSessionId: loreBookTools.toolSessionId,
+            sourceBlockId: loreBookTools.block.id
+          }
+        : {},
       messages
     },
     contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks),
@@ -403,7 +602,8 @@ async function runGeneration(
   provider: LlmProvider,
   messages: ModelMessage[],
   generationBlock: ChatBlock,
-  abortController: AbortController
+  abortController: AbortController,
+  loreBookTools: ActiveLoreBookToolDefinition | null
 ): Promise<void> {
   let content = ''
   let reasoning = ''
@@ -419,8 +619,14 @@ async function runGeneration(
 
   try {
     const model = await createLanguageModel(instance, provider)
+    const settings = generationSettings(instance, abortController.signal)
+    if (loreBookTools) {
+      settings.tools = loreBookEditTools(loreBookTools)
+      settings.activeTools = loreBookTools.toolNames
+      if (!settings.stopWhen) settings.stopWhen = stepCountIs(8)
+    }
     const result = streamText({
-      ...generationSettings(instance, abortController.signal),
+      ...settings,
       model,
       messages
     } as any)
@@ -429,6 +635,49 @@ async function runGeneration(
       if (part.type === 'finish') {
         finishReason = part.finishReason
         totalUsage = normalizeUsage(part.totalUsage)
+        continue
+      }
+      if (part.type === 'tool-result') {
+        const block = createToolCallBlock(
+          generationBlock.chatId,
+          `工具调用：${part.toolName}`,
+          loreBookTools ? `世界书：${loreBookTools.loreBookName}` : '',
+          formatToolCallBlockContent(part.toolName, part.input, part.output),
+          {
+            toolCall: {
+              toolName: part.toolName,
+              toolCallId: part.toolCallId,
+              input: part.input,
+              output: part.output,
+              toolSessionId: loreBookTools?.toolSessionId ?? '',
+              sourceToolDefinitionBlockId: loreBookTools?.block.id ?? null
+            }
+          },
+          generationBlock.id
+        )
+        sendEvent(webContents, { type: 'block', chatId: generationBlock.chatId, block })
+        continue
+      }
+      if (part.type === 'tool-error') {
+        const input = asRecord((part as any).input)
+        const block = createToolCallBlock(
+          generationBlock.chatId,
+          `工具调用失败：${part.toolName}`,
+          loreBookTools ? `世界书：${loreBookTools.loreBookName}` : '',
+          formatToolCallBlockContent(part.toolName, input, null, (part as any).error),
+          {
+            toolCall: {
+              toolName: part.toolName,
+              toolCallId: part.toolCallId,
+              input,
+              error: errorText((part as any).error),
+              toolSessionId: loreBookTools?.toolSessionId ?? '',
+              sourceToolDefinitionBlockId: loreBookTools?.block.id ?? null
+            }
+          },
+          generationBlock.id
+        )
+        sendEvent(webContents, { type: 'block', chatId: generationBlock.chatId, block })
         continue
       }
       if (part.type !== 'text-delta' && part.type !== 'reasoning-delta') continue
@@ -524,6 +773,7 @@ export function startChatGeneration(
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
   const prompt = buildPrompt(chat, contextBlocks)
+  const loreBookTools = activeLoreBookToolDefinition(contextBlocks)
   const messages = prompt.messages
   if (!messages.length) {
     throw new Error('没有可发送的内容块。')
@@ -541,7 +791,7 @@ export function startChatGeneration(
   })
   sendEvent(webContents, { type: 'started', chatId: chat.id, block: generationBlock })
 
-  void runGeneration(webContents, instance, provider, messages, generationBlock, abortController)
+  void runGeneration(webContents, instance, provider, messages, generationBlock, abortController, loreBookTools)
 
   return { block: generationBlock }
 }

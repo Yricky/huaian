@@ -6,6 +6,7 @@ import type {
   ChatUpdatePayload,
   CharacterUpdatePayload,
   IpcJsonPayload,
+  LoreBookDraftApplyPayload,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
   LlmProviderCreatePayload,
@@ -20,6 +21,7 @@ import type {
 import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { exportCharacter, exportLoreBook } from './project/exporters'
 import { importCharactersFromDialog, importLoreBooksFromDialog } from './project/importers'
+import { applyLoreBookDraft, discardLoreBookDraft, listLoreBookDrafts } from './project/lorebook-drafts'
 import { hasProject } from './project/state'
 import {
   clearLlmProviderModelsCache,
@@ -97,6 +99,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('project:exportLoreBook', (_, id: number) => exportLoreBook(id))
   ipcMain.handle('project:importCharacters', () => importCharactersFromDialog())
   ipcMain.handle('project:importLoreBooks', () => importLoreBooksFromDialog())
+  ipcMain.handle('project:listLoreBookDrafts', () => listLoreBookDrafts())
+  ipcMain.handle('project:applyLoreBookDraft', (_, payload: IpcJsonPayload<LoreBookDraftApplyPayload>) => (
+    applyLoreBookDraft(parseIpcPayload(payload))
+  ))
+  ipcMain.handle('project:discardLoreBookDraft', (_, toolSessionId: string) => discardLoreBookDraft(toolSessionId))
 
   ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
     createLlmProvider(parseIpcPayload(payload))

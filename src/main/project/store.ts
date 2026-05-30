@@ -3,6 +3,7 @@ import { join } from 'path'
 import type {
   ChatBlock,
   ChatBlockCreatePayload,
+  ChatBlockTargetRole,
   ChatBlockUpdatePayload,
   ChatContentPart,
   ChatRuntimeConfig,
@@ -659,7 +660,6 @@ export async function deleteLlmInstance(id: number): Promise<ProjectSnapshot> {
   getLlmInstance(id)
   const transaction = project.db.transaction(() => {
     const now = nowIso()
-    project.db.prepare('UPDATE chat_sessions SET llm_instance_id = NULL, updated_at = ? WHERE llm_instance_id = ?').run(now, id)
     const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
     for (const chat of listChats()) {
       if (chat.runtimeConfig.llmInstanceId !== id) continue
@@ -686,9 +686,9 @@ export function createChat(): ChatSession {
   const recentInstance = listLlmInstances()[0] ?? null
   const transaction = project.db.transaction(() => {
     const result = project.db.prepare(`
-      INSERT INTO chat_sessions (title, llm_instance_id, runtime_config_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('新聊天', recentInstance?.id ?? null, json(defaultChatRuntimeConfig(recentInstance?.id ?? null)), now, now)
+      INSERT INTO chat_sessions (title, runtime_config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run('新聊天', json(defaultChatRuntimeConfig(recentInstance?.id ?? null)), now, now)
     const chatId = Number(result.lastInsertRowid)
     project.db.prepare(`
       INSERT INTO chat_blocks (
@@ -724,10 +724,9 @@ export function updateChat(payload: ChatUpdatePayload): ChatSession {
   const chat = getChat(payload.id)
   const now = nowIso()
   project.db.prepare(`
-    UPDATE chat_sessions SET title = ?, llm_instance_id = ?, runtime_config_json = ?, updated_at = ? WHERE id = ?
+    UPDATE chat_sessions SET title = ?, runtime_config_json = ?, updated_at = ? WHERE id = ?
   `).run(
     payload.title === undefined ? chat.title : normalizeName(payload.title, '新聊天'),
-    payload.runtimeConfig === undefined ? chat.runtimeConfig.llmInstanceId : payload.runtimeConfig.llmInstanceId,
     json(normalizeChatRuntimeConfig(payload.runtimeConfig ?? chat.runtimeConfig)),
     now,
     payload.id
@@ -756,16 +755,39 @@ function renumberChatBlocks(chatId: number): void {
   rows.forEach((row, index) => update.run(index + 1, now, row.id))
 }
 
+function chatBlockDefaultTargetRole(kind: ChatBlockCreatePayload['kind']): ChatBlockTargetRole {
+  if (kind === 'user') return 'user'
+  if (kind === 'assistant' || kind === 'tool_call') return 'assistant'
+  return 'system'
+}
+
+function chatBlockInsertionOrder(payload: ChatBlockCreatePayload): number {
+  const project = ensureProject()
+  if (payload.insertRelativeBlockId && payload.insertPlacement) {
+    const relative = getChatBlock(payload.insertRelativeBlockId)
+    if (relative.chatId !== payload.chatId) throw new Error('插入位置不属于当前聊天。')
+    const orderIndex = payload.insertPlacement === 'before'
+      ? relative.orderIndex
+      : relative.orderIndex + 1
+    project.db.prepare(`
+      UPDATE chat_blocks SET order_index = order_index + 1 WHERE chat_id = ? AND order_index >= ?
+    `).run(payload.chatId, orderIndex)
+    return orderIndex
+  }
+
+  if (payload.kind === 'system') {
+    project.db.prepare('UPDATE chat_blocks SET order_index = order_index + 1 WHERE chat_id = ?').run(payload.chatId)
+    return 1
+  }
+
+  return nextChatBlockOrder(payload.chatId)
+}
+
 export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   const project = ensureProject()
   getChat(payload.chatId)
   const now = nowIso()
-  const orderIndex = payload.kind === 'system'
-    ? 1
-    : nextChatBlockOrder(payload.chatId)
-  if (payload.kind === 'system') {
-    project.db.prepare('UPDATE chat_blocks SET order_index = order_index + 1 WHERE chat_id = ?').run(payload.chatId)
-  }
+  const orderIndex = chatBlockInsertionOrder(payload)
   const result = project.db.prepare(`
     INSERT INTO chat_blocks (
       chat_id, kind, target_role, enabled, status, order_index, title, summary,
@@ -776,7 +798,7 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   `).run(
     payload.chatId,
     payload.kind,
-    payload.targetRole ?? (payload.kind === 'injection' ? 'system' : payload.kind),
+    payload.targetRole ?? chatBlockDefaultTargetRole(payload.kind),
     payload.enabled === false ? 0 : 1,
     'idle',
     orderIndex,
@@ -793,6 +815,28 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   renumberChatBlocks(payload.chatId)
   touchChat(payload.chatId)
   return getChatBlock(Number(result.lastInsertRowid))
+}
+
+export function createToolCallBlock(
+  chatId: number,
+  title: string,
+  summary: string,
+  content: string,
+  metadata: JsonRecord,
+  insertBeforeBlockId?: number
+): ChatBlock {
+  return createChatBlock({
+    chatId,
+    kind: 'tool_call',
+    targetRole: 'assistant',
+    enabled: false,
+    title,
+    summary,
+    contentParts: [{ type: 'text', text: content }],
+    metadata,
+    insertRelativeBlockId: insertBeforeBlockId,
+    insertPlacement: insertBeforeBlockId === undefined ? undefined : 'before'
+  })
 }
 
 export function updateChatBlock(payload: ChatBlockUpdatePayload): ChatBlock {

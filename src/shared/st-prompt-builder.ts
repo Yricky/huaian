@@ -10,7 +10,7 @@ import type {
   WorldEntry
 } from './types'
 
-type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'contentParts' | 'metadata'>
+type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
 
 export interface InjectionDetail {
   title: string
@@ -49,6 +49,13 @@ export interface PromptBuildResult {
   requestBlockIds: number[]
   character: CharacterEntry | null
   activeLoreBookIds: number[]
+}
+
+export interface WorldEntryActivationTestResult {
+  id: number
+  title: string
+  reason: string
+  content: string
 }
 
 interface ActivationEntry {
@@ -100,7 +107,51 @@ function shouldSendReasoning(block: RuntimeBlock): boolean {
 }
 
 function blockRole(block: RuntimeBlock): 'system' | 'user' | 'assistant' {
+  if (block.kind === 'tool_definition') return 'system'
+  if (block.kind === 'tool_call') return 'assistant'
   return block.kind === 'injection' ? block.targetRole : block.kind as 'system' | 'user' | 'assistant'
+}
+
+function numberFromMetadata(value: unknown): number | null {
+  const number = Number(value)
+  return Number.isInteger(number) ? number : null
+}
+
+function stringFromMetadata(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function toolDefinitionRecord(block: RuntimeBlock): JsonRecord {
+  return asRecord(block.metadata.toolDefinition)
+}
+
+function toolDefinitionGroup(block: RuntimeBlock): string {
+  return stringFromMetadata(toolDefinitionRecord(block).group)
+}
+
+function toolDefinitionLoreBookId(block: RuntimeBlock): number | null {
+  return numberFromMetadata(toolDefinitionRecord(block).loreBookId)
+}
+
+function activeLoreBookToolDefinitionIds(blocks: RuntimeBlock[], loreBooks: LoreBook[]): Set<number> {
+  const loreBookIds = new Set(loreBooks.map(book => book.id))
+  const active = [...blocks]
+    .filter(block => block.enabled && block.kind === 'tool_definition')
+    .filter(block => toolDefinitionGroup(block) === 'lorebook_edit')
+    .filter(block => {
+      const loreBookId = toolDefinitionLoreBookId(block)
+      return loreBookId !== null && loreBookIds.has(loreBookId)
+    })
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
+    .at(-1)
+  return active ? new Set([active.id]) : new Set()
+}
+
+function shouldSendBlock(block: RuntimeBlock, activeToolDefinitionIds: Set<number>): boolean {
+  if (!block.enabled) return false
+  if (block.kind === 'tool_call') return false
+  if (block.kind === 'tool_definition') return activeToolDefinitionIds.has(block.id)
+  return true
 }
 
 function roleFromExtension(value: unknown): ChatBlockTargetRole {
@@ -318,6 +369,20 @@ function activateWorldEntries(entries: WorldEntry[], scanMessages: string[], cha
   return activated
 }
 
+export function testWorldEntryActivations(
+  entries: WorldEntry[],
+  example: string,
+  character: CharacterEntry | null = null
+): WorldEntryActivationTestResult[] {
+  const line = `${DEFAULT_USER_NAME}: ${example.trim()}`
+  return activateWorldEntries(entries, [line], character).map(entry => ({
+    id: entry.entry.id,
+    title: entryTitle(entry.entry),
+    reason: entry.reason,
+    content: entry.content
+  }))
+}
+
 function pushMessage(messages: ChatGenerationPreviewMessage[], role: 'system' | 'user' | 'assistant', content: string | ChatContentPart[]) {
   if (Array.isArray(content)) {
     if (content.length > 0) messages.push({ role, content })
@@ -327,8 +392,8 @@ function pushMessage(messages: ChatGenerationPreviewMessage[], role: 'system' | 
   if (text) messages.push({ role, content: text })
 }
 
-function realBlockMessage(block: RuntimeBlock): ChatGenerationPreviewMessage | null {
-  if (!block.enabled) return null
+function realBlockMessage(block: RuntimeBlock, activeToolDefinitionIds: Set<number>): ChatGenerationPreviewMessage | null {
+  if (!shouldSendBlock(block, activeToolDefinitionIds)) return null
   const text = blockText(block).trim()
   const reasoning = blockReasoningText(block).trim()
   const role = blockRole(block)
@@ -343,6 +408,7 @@ function realBlockMessage(block: RuntimeBlock): ChatGenerationPreviewMessage | n
 }
 
 function realBlockScanLine(block: RuntimeBlock, character: CharacterEntry | null): string {
+  if (block.kind === 'tool_definition' || block.kind === 'tool_call') return ''
   const text = blockText(block).trim()
   if (!text) return ''
   const role = blockRole(block)
@@ -454,9 +520,10 @@ function virtualBlock(id: number, chat: PromptBuildInput['chat'], role: ChatBloc
 
 export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuildResult {
   const character = input.characters.find(item => item.id === input.chat.runtimeConfig.characterId) ?? null
+  const activeToolDefinitionIds = activeLoreBookToolDefinitionIds(input.blocks, input.loreBooks)
   const loreBookIds = activeLoreBookIds(input.chat.runtimeConfig, character)
   const loreEntries = entriesForLoreBooks(input.worldEntries, loreBookIds)
-  const enabledRealBlocks = input.blocks.filter(block => block.enabled)
+  const enabledRealBlocks = input.blocks.filter(block => shouldSendBlock(block, activeToolDefinitionIds))
   const scanMessages = enabledRealBlocks.map(block => realBlockScanLine(block, character)).filter(Boolean).reverse()
   const activated = activateWorldEntries(loreEntries, scanMessages, character)
 
@@ -525,7 +592,7 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   }
 
   const realMessageItems = enabledRealBlocks
-    .map(block => ({ block, message: realBlockMessage(block) }))
+    .map(block => ({ block, message: realBlockMessage(block, activeToolDefinitionIds) }))
     .filter((item): item is { block: RuntimeBlock; message: ChatGenerationPreviewMessage } => item.message !== null)
   const realMessages = realMessageItems.map(item => item.message)
   const depthInjections = activated.filter(entry => entry.position === 4 && entry.content.trim())

@@ -9,6 +9,8 @@ import type {
   CharacterEntry,
   ExportResult,
   LlmInstance,
+  LoreBookDraftApplyPayload,
+  LoreBookDraftSummary,
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
@@ -1000,6 +1002,34 @@ export function createProjectWorkbench() {
     }
   }
 
+  async function listLoreBookDrafts(): Promise<LoreBookDraftSummary[]> {
+    try {
+      return await window.electronAPI.listLoreBookDrafts()
+    } catch (error) {
+      showToast(errorText(error), 'error')
+      return []
+    }
+  }
+
+  async function applyLoreBookDraft(payload: LoreBookDraftApplyPayload) {
+    try {
+      project.value = await window.electronAPI.applyLoreBookDraft(toIpcJson(payload))
+      refreshSelectedLoreBook()
+      showToast('世界书改动已应用', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function discardLoreBookDraft(toolSessionId: string) {
+    try {
+      await window.electronAPI.discardLoreBookDraft(toolSessionId)
+      showToast('世界书副本已丢弃', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
   function handleGenerationEvent(event: ChatGenerationEvent) {
     if (event.type === 'started') {
       replaceChatBlock(event.block)
@@ -1015,6 +1045,11 @@ export function createProjectWorkbench() {
         block.contentParts = event.contentParts
         block.status = 'generating'
       }
+      return
+    }
+
+    if (event.type === 'block') {
+      replaceChatBlock(event.block)
       return
     }
 
@@ -1133,6 +1168,7 @@ export function createProjectWorkbench() {
 
   return {
     activeView,
+    applyLoreBookDraft,
     characterAdvancedJson,
     characterData,
     characterExtensions,
@@ -1167,6 +1203,7 @@ export function createProjectWorkbench() {
     deleteSelectedPromptSnippet,
     deleteSelectedLoreBook,
     deleteSelectedWorldEntry,
+    discardLoreBookDraft,
     fetchSelectedLlmProviderModels,
     depthPrompt,
     draggingLoreBookIndex,
@@ -1183,6 +1220,7 @@ export function createProjectWorkbench() {
     isWorldEntryExpanded,
     llmInstances,
     llmProviders,
+    listLoreBookDrafts,
     moveLoreBookEntry,
     openProject,
     previewChatGeneration,

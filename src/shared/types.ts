@@ -224,7 +224,7 @@ export interface ChatUpdatePayload {
   runtimeConfig?: ChatRuntimeConfig
 }
 
-export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection'
+export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection' | 'tool_definition' | 'tool_call'
 export type ChatBlockTargetRole = 'system' | 'user' | 'assistant'
 export type ChatBlockStatus = 'idle' | 'generating' | 'stopped' | 'error'
 
@@ -268,6 +268,8 @@ export interface ChatBlockCreatePayload {
   summary?: string
   contentParts: ChatContentPart[]
   metadata?: JsonRecord
+  insertRelativeBlockId?: number | null
+  insertPlacement?: 'before' | 'after' | null
 }
 
 export interface ChatBlockUpdatePayload {
@@ -318,12 +320,35 @@ export interface ChatGenerationPreview {
   requestBlockIds: number[]
 }
 
+export interface LoreBookDraftChange {
+  id: number
+  kind: 'created' | 'updated'
+  title: string
+  original: CharacterBookEntryData | null
+  draft: CharacterBookEntryData
+}
+
+export interface LoreBookDraftSummary {
+  toolSessionId: string
+  loreBookId: number
+  loreBookName: string
+  createdAt: string
+  updatedAt: string
+  changes: LoreBookDraftChange[]
+}
+
+export interface LoreBookDraftApplyPayload {
+  toolSessionId: string
+  entryIds: number[]
+}
+
 export interface ChatGenerationStartResult {
   block: ChatBlock
 }
 
 export type ChatGenerationEvent =
   | { type: 'started'; chatId: number; block: ChatBlock }
+  | { type: 'block'; chatId: number; block: ChatBlock }
   | { type: 'delta'; chatId: number; blockId: number; text: string; content: string; contentParts: ChatContentPart[] }
   | { type: 'finished'; chatId: number; block: ChatBlock }
   | { type: 'stopped'; chatId: number; block: ChatBlock }

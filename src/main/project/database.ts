@@ -83,7 +83,6 @@ export function initDatabase(dbPath: string): any {
     CREATE TABLE IF NOT EXISTS chat_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
-      llm_instance_id INTEGER,
       runtime_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -217,7 +216,14 @@ function normalizeContentParts(value: unknown): ChatContentPart[] {
 }
 
 function normalizeBlockKind(value: unknown): ChatBlockKind {
-  return value === 'system' || value === 'user' || value === 'assistant' || value === 'injection' ? value : 'user'
+  return (
+    value === 'system' ||
+    value === 'user' ||
+    value === 'assistant' ||
+    value === 'injection' ||
+    value === 'tool_definition' ||
+    value === 'tool_call'
+  ) ? value : 'user'
 }
 
 function normalizeTargetRole(value: unknown): ChatBlockTargetRole {
@@ -290,10 +296,7 @@ export function rowToChatSession(row: any): ChatSession {
   return {
     id: row.id,
     title: row.title,
-    runtimeConfig: normalizeChatRuntimeConfig(
-      parseJsonColumn(row.runtime_config_json ?? '{}'),
-      row.llm_instance_id
-    ),
+    runtimeConfig: normalizeChatRuntimeConfig(parseJsonColumn(row.runtime_config_json ?? '{}')),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
