@@ -89,6 +89,11 @@ export interface ProjectSnapshot {
   chatBlocks: ChatBlock[]
 }
 
+export interface RecentProject {
+  path: string
+  name: string
+}
+
 export interface ExportResult {
   historyPath: string
   savedPath?: string

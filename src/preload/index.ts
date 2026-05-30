@@ -24,6 +24,7 @@ import type {
   LlmProviderUpdatePayload,
   ProjectImportResult,
   ProjectSnapshot,
+  RecentProject,
   LoreBook,
   LoreBookUpdatePayload,
   WorldEntry,
@@ -32,8 +33,10 @@ import type {
 } from '../shared/types'
 
 const electronAPI = {
-  getProject: (): Promise<ProjectSnapshot | null> => ipcRenderer.invoke('project:get'),
+  getProject: (): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:get'),
+  listRecentProjects: (): Promise<RecentProject[]> => ipcRenderer.invoke('project:listRecent'),
   openProject: (): Promise<ProjectSnapshot | null> => ipcRenderer.invoke('project:open'),
+  openProjectPath: (path: string): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:openPath', path),
   createCharacter: (): Promise<CharacterEntry> => ipcRenderer.invoke('project:createCharacter'),
   updateCharacter: (payload: IpcJsonPayload<CharacterUpdatePayload>): Promise<CharacterEntry> =>
     ipcRenderer.invoke('project:updateCharacter', payload),

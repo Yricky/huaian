@@ -16,6 +16,7 @@ import type {
   LlmProviderCreatePayload,
   ProjectImportResult,
   ProjectSnapshot,
+  RecentProject,
   SidebarView,
   LoreBook,
   WorldEntry
@@ -31,6 +32,7 @@ export interface ToastMessage {
 
 export function createProjectWorkbench() {
   const project = ref<ProjectSnapshot | null>(null)
+  const recentProjects = ref<RecentProject[]>([])
   const activeView = ref<SidebarView>('characters')
   const selectedCharacter = ref<CharacterEntry | null>(null)
   const selectedLoreBook = ref<LoreBook | null>(null)
@@ -293,39 +295,65 @@ export function createProjectWorkbench() {
     selectedChat.value = fresh ? clone(fresh) : null
   }
 
+  function resetProjectSelections() {
+    selectedCharacter.value = null
+    selectedLoreBook.value = null
+    selectedWorldEntry.value = null
+    selectedLlmProvider.value = null
+    selectedLlmInstance.value = null
+    selectedChat.value = null
+  }
+
+  function selectInitialProjectItems() {
+    if (characters.value.length) selectCharacter(characters.value[0])
+    if (loreBooks.value.length) selectLoreBook(loreBooks.value[0])
+    if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
+    if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
+    if (chats.value.length) selectedChat.value = clone(chats.value[0])
+  }
+
+  async function refreshRecentProjects() {
+    recentProjects.value = await window.electronAPI.listRecentProjects()
+  }
+
+  function applyProjectSnapshot(snapshot: ProjectSnapshot) {
+    project.value = snapshot
+    resetProjectSelections()
+    selectInitialProjectItems()
+    void refreshLoreBookDrafts()
+    void refreshRecentProjects()
+  }
+
   async function loadProject() {
-    project.value = await window.electronAPI.getProject()
-    if (project.value) {
-      if (!selectedCharacter.value && characters.value.length) selectCharacter(characters.value[0])
-      if (!selectedLoreBook.value && loreBooks.value.length) selectLoreBook(loreBooks.value[0])
-      if (!selectedLlmProvider.value && llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
-      if (!selectedLlmInstance.value && llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
-      if (!selectedChat.value && chats.value.length) selectedChat.value = clone(chats.value[0])
-      void refreshLoreBookDrafts()
+    try {
+      applyProjectSnapshot(await window.electronAPI.getProject())
+    } catch (error) {
+      showToast(errorText(error), 'error')
     }
   }
 
   async function openProject() {
     try {
+      const previousPath = project.value?.path
       const snapshot = await window.electronAPI.openProject()
       if (snapshot) {
-        project.value = snapshot
-        selectedCharacter.value = null
-        selectedLoreBook.value = null
-        selectedWorldEntry.value = null
-        selectedLlmProvider.value = null
-        selectedLlmInstance.value = null
-        selectedChat.value = null
-        if (characters.value.length) selectCharacter(characters.value[0])
-        if (loreBooks.value.length) selectLoreBook(loreBooks.value[0])
-        if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
-        if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
-        if (chats.value.length) selectedChat.value = clone(chats.value[0])
-        void refreshLoreBookDrafts()
-        showToast('项目已打开', 'success')
+        applyProjectSnapshot(snapshot)
+        if (snapshot.path !== previousPath) showToast('项目已打开', 'success')
       }
     } catch (error) {
       showToast(errorText(error), 'error')
+      await refreshRecentProjects()
+    }
+  }
+
+  async function openRecentProject(projectPath: string) {
+    if (project.value?.path === projectPath) return
+    try {
+      applyProjectSnapshot(await window.electronAPI.openProjectPath(projectPath))
+      showToast('项目已打开', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+      await refreshRecentProjects()
     }
   }
 
@@ -1114,11 +1142,14 @@ export function createProjectWorkbench() {
     loreBookDrafts,
     moveLoreBookEntry,
     openProject,
+    openRecentProject,
     previewChatGeneration,
     project,
+    recentProjects,
     providerSnapshot,
     restoreProviderFromSelectedInstance,
     refreshLoreBookDrafts,
+    refreshRecentProjects,
     saveCharacter,
     saveCharacterAdvanced,
     saveChat,

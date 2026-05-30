@@ -51,7 +51,13 @@ function chatKey(chat: ChatSession) {
           @click="selectChat(chat)"
         >
           <strong>{{ chat.title }}</strong>
-          <span>{{ generatingChatIds.includes(chat.id) ? '生成中' : new Date(chat.updatedAt).toLocaleString() }}</span>
+          <span class="chat-list-updated">{{ new Date(chat.updatedAt).toLocaleString() }}</span>
+          <span
+            v-if="generatingChatIds.includes(chat.id)"
+            class="chat-generating-indicator"
+            aria-label="生成中"
+            title="生成中"
+          />
         </button>
       </div>
     </aside>
@@ -107,7 +113,13 @@ function chatKey(chat: ChatSession) {
 .chat-list-item {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  grid-template-areas:
+    "title status"
+    "meta status";
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center;
   text-align: left;
   border: 1px solid #d4dbe4;
   border-radius: 8px;
@@ -129,13 +141,48 @@ function chatKey(chat: ChatSession) {
 }
 
 .chat-list-item strong {
+  grid-area: title;
   color: #243041;
   font-size: 13px;
 }
 
-.chat-list-item span {
+.chat-list-updated {
+  grid-area: meta;
   color: #697386;
   font-size: 12px;
+}
+
+.chat-generating-indicator {
+  grid-area: status;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  justify-self: end;
+  border-radius: 50%;
+}
+
+.chat-generating-indicator::before,
+.chat-generating-indicator::after {
+  position: absolute;
+  inset: 4px;
+  content: "";
+  border-radius: 50%;
+}
+
+.chat-generating-indicator::before {
+  border: 2px solid #bfd4f4;
+}
+
+.chat-generating-indicator::after {
+  border: 2px solid transparent;
+  border-top-color: #2f6fca;
+  animation: chat-generating-spin 780ms linear infinite;
+}
+
+@keyframes chat-generating-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .chat-empty {

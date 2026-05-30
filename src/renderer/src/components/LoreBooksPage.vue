@@ -336,6 +336,10 @@ onMounted(() => {
         </div>
 
         <div class="button-row">
+          <button class="toolbar-button" type="button" aria-label="审阅世界书改动" data-tooltip="审阅世界书改动"
+            :disabled="!selectedLoreBookDraft" @click="openLoreBookDraftReview">
+            <MdVisibility class="toolbar-icon" aria-hidden="true" />
+          </button>
           <button class="toolbar-button" type="button" aria-label="新增条目" data-tooltip="新增条目" @click="createWorldEntry">
             <MdAdd class="toolbar-icon" aria-hidden="true" />
           </button>

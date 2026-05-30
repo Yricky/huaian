@@ -22,6 +22,7 @@ import type {
   ProviderModelCacheItem,
   ProjectConfig,
   ProjectSnapshot,
+  RecentProject,
   LoreBook,
   LoreBookUpdatePayload,
   WorldEntry,
@@ -29,7 +30,8 @@ import type {
   WorldEntryUpdatePayload
 } from '../../shared/types'
 import { readConfig, saveConfig } from './app-config'
-import { ASSETS_DIR, DATABASE_FILE, EXPORTS_DIR, PROJECT_FILE } from './constants'
+import { app } from 'electron'
+import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
 import {
   initDatabase,
   rowToCharacter,
@@ -52,6 +54,8 @@ import {
   toNumber
 } from './normalizers'
 import { ensureProject, getCurrentProject, setCurrentProject, type ProjectContext } from './state'
+
+const MAX_RECENT_PROJECTS = 20
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -89,6 +93,76 @@ export async function isValidProject(projectPath: string): Promise<boolean> {
   return await pathExists(join(projectPath, PROJECT_FILE)) && await pathExists(join(projectPath, DATABASE_FILE))
 }
 
+function projectDisplayName(projectPath: string): string {
+  return projectPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || projectPath
+}
+
+function uniqueProjectPaths(paths: Array<string | undefined>): string[] {
+  const seen = new Set<string>()
+  return paths
+    .map(path => path?.trim() ?? '')
+    .filter(path => {
+      if (!path || seen.has(path)) return false
+      seen.add(path)
+      return true
+    })
+}
+
+async function rememberProjectPath(projectPath: string): Promise<void> {
+  const config = await readConfig()
+  const recentProjectPaths = uniqueProjectPaths([projectPath, ...(config.recentProjectPaths ?? [])])
+    .slice(0, MAX_RECENT_PROJECTS)
+  await saveConfig({
+    ...config,
+    lastProjectPath: projectPath,
+    recentProjectPaths
+  })
+}
+
+export async function listRecentProjects(): Promise<RecentProject[]> {
+  const config = await readConfig()
+  const configuredPaths = uniqueProjectPaths(config.recentProjectPaths ?? [])
+  const validPaths: string[] = []
+
+  for (const projectPath of configuredPaths) {
+    if (await isValidProject(projectPath)) validPaths.push(projectPath)
+  }
+
+  if (validPaths.length !== configuredPaths.length || config.lastProjectPath && !validPaths.includes(config.lastProjectPath)) {
+    await saveConfig({
+      ...config,
+      lastProjectPath: validPaths[0],
+      recentProjectPaths: validPaths
+    })
+  }
+
+  return validPaths.map(projectPath => ({
+    path: projectPath,
+    name: projectDisplayName(projectPath)
+  }))
+}
+
+export async function forgetRecentProject(projectPath: string): Promise<void> {
+  const config = await readConfig()
+  const recentProjectPaths = uniqueProjectPaths(config.recentProjectPaths ?? [])
+    .filter(path => path !== projectPath)
+  await saveConfig({
+    ...config,
+    lastProjectPath: config.lastProjectPath === projectPath ? recentProjectPaths[0] : config.lastProjectPath,
+    recentProjectPaths
+  })
+}
+
+export function defaultProjectPath(): string {
+  return join(app.getPath('userData'), DEFAULT_PROJECT_DIR)
+}
+
+export async function openDefaultProject(): Promise<ProjectSnapshot> {
+  const projectPath = defaultProjectPath()
+  await mkdir(projectPath, { recursive: true })
+  return openProjectAt(projectPath)
+}
+
 export async function openProjectAt(projectPath: string): Promise<ProjectSnapshot> {
   const configPath = join(projectPath, PROJECT_FILE)
   const dbPath = join(projectPath, DATABASE_FILE)
@@ -118,7 +192,7 @@ export async function openProjectAt(projectPath: string): Promise<ProjectSnapsho
 
   setCurrentProject(project)
   await writeProjectConfig(project)
-  await saveConfig({ ...(await readConfig()), lastProjectPath: projectPath })
+  await rememberProjectPath(projectPath)
   return getProjectSnapshot()
 }
 

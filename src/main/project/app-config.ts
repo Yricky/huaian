@@ -4,6 +4,7 @@ import { CONFIG_PATH } from './constants'
 
 export interface AppConfig {
   lastProjectPath?: string
+  recentProjectPaths?: string[]
 }
 
 export async function readConfig(): Promise<AppConfig> {

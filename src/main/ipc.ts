@@ -36,8 +36,11 @@ import {
   deleteLlmProvider,
   deleteLoreBook,
   deleteWorldEntry,
+  forgetRecentProject,
   getChatBlock,
   getProjectSnapshot,
+  listRecentProjects,
+  openDefaultProject,
   openProjectAt,
   reorderWorldEntries,
   restoreLlmProviderFromInstance,
@@ -54,15 +57,29 @@ function parseIpcPayload<T>(payload: IpcJsonPayload<T>): T {
   return typeof payload === 'string' ? JSON.parse(payload) : payload
 }
 
+function ensureCanSwitchProject(): void {
+  if (hasActiveGeneration()) {
+    throw new Error('有聊天正在生成，请先停止生成后再切换项目。')
+  }
+}
+
 export function registerIpcHandlers(): void {
-  ipcMain.handle('project:get', async () => hasProject() ? getProjectSnapshot() : null)
+  ipcMain.handle('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
+  ipcMain.handle('project:listRecent', () => listRecentProjects())
   ipcMain.handle('project:open', async () => {
-    if (hasActiveGeneration()) {
-      throw new Error('有聊天正在生成，请先停止生成后再切换项目。')
-    }
+    ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
-    if (result.canceled || !result.filePaths[0]) return hasProject() ? getProjectSnapshot() : null
+    if (result.canceled || !result.filePaths[0]) return hasProject() ? getProjectSnapshot() : openDefaultProject()
     return openProjectAt(result.filePaths[0])
+  })
+  ipcMain.handle('project:openPath', async (_, projectPath: string) => {
+    ensureCanSwitchProject()
+    try {
+      return await openProjectAt(projectPath)
+    } catch (error) {
+      await forgetRecentProject(projectPath)
+      throw error
+    }
   })
 
   ipcMain.handle('project:createCharacter', () => createCharacter())

@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { registerIpcHandlers } from './ipc'
 import { readConfig } from './project/app-config'
 import { closeCurrentProject } from './project/state'
-import { isValidProject, openProjectAt } from './project/store'
+import { isValidProject, openDefaultProject, openProjectAt } from './project/store'
 import { createWindow } from './window'
 
 registerIpcHandlers()
@@ -10,15 +10,28 @@ registerIpcHandlers()
 app.whenReady().then(async () => {
   app.setAboutPanelOptions({ authors: ['Yricky'] })
   const config = await readConfig()
-  if (config.lastProjectPath) {
+  const candidateProjectPaths = [
+    config.lastProjectPath,
+    ...(config.recentProjectPaths ?? [])
+  ].filter((path, index, paths): path is string => Boolean(path) && paths.indexOf(path) === index)
+  let openedProject = false
+
+  for (const projectPath of candidateProjectPaths) {
     try {
-      if (await isValidProject(config.lastProjectPath)) {
-        await openProjectAt(config.lastProjectPath)
+      if (await isValidProject(projectPath)) {
+        await openProjectAt(projectPath)
+        openedProject = true
+        break
       }
     } catch (error) {
-      console.warn('Failed to reopen last project:', error)
+      console.warn('Failed to reopen project:', error)
     }
   }
+
+  if (!openedProject) {
+    await openDefaultProject()
+  }
+
   createWindow()
 })
 
