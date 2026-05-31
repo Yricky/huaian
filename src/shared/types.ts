@@ -79,13 +79,76 @@ export interface ChatCreationDefaults {
   characterRegexScriptsEnabled: boolean
 }
 
+export interface PromptTemplateSettings {
+  enabled: boolean
+  generateEnabled: boolean
+  generateLoaderEnabled: boolean
+  renderEnabled: boolean
+  renderLoaderEnabled: boolean
+  rawMessageEvaluationEnabled: boolean
+  filterMessageEnabled: boolean
+  injectLoaderEnabled: boolean
+  invertEnabled: boolean
+  sandbox: boolean
+  withContextDisabled: boolean
+  debugEnabled: boolean
+  cacheEnabled: 0 | 1 | 2
+  cacheSize: number
+}
+
+export interface PromptTemplateProjectConfig {
+  settings: PromptTemplateSettings
+  globalVariables: JsonRecord
+}
+
+export interface PromptTemplateVariables {
+  global: JsonRecord
+  local: JsonRecord
+  message: JsonRecord
+  initial: JsonRecord
+  cache: JsonRecord
+}
+
+export type PromptTemplateDiagnosticLevel = 'debug' | 'info' | 'warning' | 'error'
+
+export interface PromptTemplateDiagnostic {
+  level: PromptTemplateDiagnosticLevel
+  phase: 'preprocess' | 'generate' | 'inject' | 'render' | 'variables'
+  message: string
+  source?: string
+  entryId?: number
+  loreBookId?: number
+  blockId?: number
+  details?: JsonRecord
+}
+
+export interface PromptTemplateRenderResult {
+  text: string
+  diagnostics: PromptTemplateDiagnostic[]
+  variables: PromptTemplateVariables
+}
+
+export interface PromptTemplateBlockRenderRequest {
+  chatId: number
+  blockId: number
+}
+
+export interface PromptTemplateBlockRenderResult {
+  blockId: number
+  contentParts: ChatContentPart[]
+  diagnostics: PromptTemplateDiagnostic[]
+  variables: PromptTemplateVariables
+}
+
 export interface ProjectConfig {
   schemaVersion: number
   chatCreateDefaults: ChatCreationDefaults
+  promptTemplate: PromptTemplateProjectConfig
 }
 
 export interface ProjectConfigUpdatePayload {
   chatCreateDefaults?: ChatCreationDefaults
+  promptTemplate?: PromptTemplateProjectConfig
 }
 
 export interface ProjectSnapshot {
@@ -194,6 +257,7 @@ export interface ChatRuntimeConfig {
   llmInstanceId: number | null
   loreBookIds: number[]
   characterRegexScriptsEnabled: boolean
+  promptTemplateVariables: JsonRecord
 }
 
 export interface ChatSession {
@@ -310,6 +374,9 @@ export interface ChatGenerationPreview {
     }
     messages: ChatGenerationPreviewMessage[]
   }
+  messages: ChatGenerationPreviewMessage[]
+  templateDiagnostics: PromptTemplateDiagnostic[]
+  templateVariables: PromptTemplateVariables
   contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'status' | 'orderIndex'> & {
     targetRole: ChatBlockTargetRole
     title: string

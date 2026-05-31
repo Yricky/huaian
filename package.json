@@ -67,9 +67,15 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.66",
     "@ai-sdk/openai-compatible": "^1.0.39",
+    "@faker-js/faker": "^10.4.0",
     "ai": "^6.0.193",
     "better-sqlite3": "^12.10.0",
+    "ejs": "^6.0.1",
+    "jsonrepair": "^3.14.0",
+    "lodash": "^4.18.1",
     "ollama-ai-provider-v2": "^1.5.5",
-    "vuedraggable": "^4.1.0"
+    "syntax-error": "^1.4.0",
+    "vuedraggable": "^4.1.0",
+    "zod": "^4.4.3"
   }
 }

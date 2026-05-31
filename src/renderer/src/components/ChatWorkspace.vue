@@ -17,7 +17,9 @@ import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../sh
 import type {
   ChatBlock,
   ChatBlockCreatePayload,
+  ChatContentPart,
   ChatGenerationPreview,
+  ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatRuntimeConfig,
   ChatSession,
@@ -25,11 +27,13 @@ import type {
   JsonRecord,
   LlmInstance,
   LoreBook,
+  PromptTemplateBlockRenderRequest,
+  PromptTemplateBlockRenderResult,
+  PromptTemplateProjectConfig,
   WorldEntry
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
-import JsonDialog from './JsonDialog.vue'
 
 type ChatListItem =
   | { type: 'block'; block: ChatBlock }
@@ -55,6 +59,8 @@ const props = defineProps<{
   llmInstances: LlmInstance[]
   loreBooks: LoreBook[]
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreview | null>
+  promptTemplateConfig: PromptTemplateProjectConfig | null
+  renderPromptTemplateBlock: (payload: PromptTemplateBlockRenderRequest) => Promise<PromptTemplateBlockRenderResult | null>
   saveChat: (chat: ChatSession) => Promise<void>
   saveChatBlock: (block: ChatBlock) => Promise<void>
   startChatGeneration: (payload: ChatGenerationRequest) => Promise<void>
@@ -75,8 +81,10 @@ const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const contextPreview = ref<ChatGenerationPreview | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
+const renderedContentPartsByBlockId = ref<Record<number, ChatContentPart[]>>({})
 const showVirtualEntries = ref(false)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
+let renderProjectionVersion = 0
 
 const canGenerateReply = computed(() => Boolean(
   props.chat.runtimeConfig.llmInstanceId && !props.frozen
@@ -116,6 +124,21 @@ const displayRegexDepthByBlockId = computed(() => {
   ))
   return new Map(regexBlocks.map((block, index) => [block.id, regexBlocks.length - index - 1]))
 })
+const previewVirtualBlocks = computed(() => contextPreview.value?.contextBlocks.filter(block => block.virtual) ?? [])
+const previewDiagnostics = computed(() => contextPreview.value?.templateDiagnostics ?? [])
+const previewErrorCount = computed(() => previewDiagnostics.value.filter(item => item.level === 'error').length)
+const previewWarningCount = computed(() => previewDiagnostics.value.filter(item => item.level === 'warning').length)
+const previewVariableSummary = computed(() => {
+  const variables = contextPreview.value?.templateVariables
+  if (!variables) return []
+  return [
+    { label: 'global', count: Object.keys(variables.global).length },
+    { label: 'local', count: Object.keys(variables.local).length },
+    { label: 'message', count: Object.keys(variables.message).length },
+    { label: 'initial', count: Object.keys(variables.initial).length },
+    { label: 'cache', count: Object.keys(variables.cache).length }
+  ]
+})
 const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
@@ -126,6 +149,31 @@ const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.s
   requestBlockIds: block.requestBlockIds,
   errorText: block.errorText
 })).join('\u001f'))
+const renderProjectionSignature = computed(() => props.blocks
+  .filter(block => block.metadata.virtual !== true && block.status !== 'generating')
+  .map(block => JSON.stringify({
+    id: block.id,
+    enabled: block.enabled,
+    status: block.status,
+    orderIndex: block.orderIndex,
+    metadata: block.metadata,
+    contentParts: block.contentParts
+  }))
+  .join('\u001f') + `\u001e${JSON.stringify({
+    chatId: props.chat.id,
+    runtimeConfig: props.chat.runtimeConfig,
+    promptTemplateConfig: props.promptTemplateConfig,
+    worldEntries: props.worldEntries.map(entry => ({
+      id: entry.id,
+      loreBookId: entry.loreBookId,
+      stData: entry.stData
+    })),
+    characters: props.characters.map(character => ({
+      id: character.id,
+      stData: character.stData,
+      forgeData: character.forgeData
+    }))
+  })}`)
 const chatListItems = computed<ChatListItem[]>(() => {
   const startBlocks: ChatBlock[] = []
   const endBlocks: ChatBlock[] = []
@@ -171,6 +219,7 @@ watch(() => props.chat.id, () => {
   menuOpen.value = false
   replyPanelOpen.value = false
   contextPreview.value = null
+  renderedContentPartsByBlockId.value = {}
   showVirtualEntries.value = false
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
@@ -185,6 +234,10 @@ watch(blockAutoFollowSignature, () => {
     nextTick(() => listRef.value?.scrollToBottom())
   }
 })
+
+watch(renderProjectionSignature, () => {
+  void refreshPromptTemplateRenderProjection()
+}, { immediate: true })
 
 watch(menuOpen, (open) => {
   if (open) {
@@ -375,6 +428,43 @@ function stringFromJson(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+async function refreshPromptTemplateRenderProjection() {
+  const version = ++renderProjectionVersion
+  const blocks = props.blocks.filter(block => block.metadata.virtual !== true && block.status !== 'generating')
+  const entries = await Promise.all(blocks.map(async block => {
+    const result = await props.renderPromptTemplateBlock({ chatId: props.chat.id, blockId: block.id })
+    return [block.id, result?.contentParts ?? block.contentParts] as const
+  }))
+  if (version !== renderProjectionVersion) return
+  renderedContentPartsByBlockId.value = Object.fromEntries(entries)
+}
+
+function formatJson(value: unknown): string {
+  return JSON.stringify(value, null, 2) ?? 'undefined'
+}
+
+function contentPartText(part: ChatContentPart): string {
+  if (part.type === 'text' || part.type === 'reasoning') return part.text
+  return [
+    `[Tool call: ${part.toolName}]`,
+    `input: ${formatJson(part.input)}`,
+    part.status === 'success' ? `output: ${formatJson(part.output ?? null)}` : '',
+    part.status === 'error' ? `error: ${part.error ?? ''}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+function messageText(message: ChatGenerationPreviewMessage): string {
+  return typeof message.content === 'string'
+    ? message.content
+    : message.content.map(contentPartText).filter(Boolean).join('\n')
+}
+
+function roleLabel(role: ChatGenerationPreviewMessage['role']): string {
+  if (role === 'assistant') return '助手'
+  if (role === 'user') return '用户'
+  return '系统'
+}
+
 function characterName(character: CharacterEntry): string {
   const data = recordFromJson(character.stData.data)
   return stringFromJson(data.name, `角色 #${character.id}`).trim() || `角色 #${character.id}`
@@ -387,7 +477,10 @@ function runtimeConfigWith(patch: Partial<ChatRuntimeConfig>): ChatRuntimeConfig
     loreBookIds: patch.loreBookIds === undefined ? [...props.chat.runtimeConfig.loreBookIds] : [...patch.loreBookIds],
     characterRegexScriptsEnabled: patch.characterRegexScriptsEnabled === undefined
       ? characterRegexScriptsEnabled.value
-      : patch.characterRegexScriptsEnabled
+      : patch.characterRegexScriptsEnabled,
+    promptTemplateVariables: patch.promptTemplateVariables === undefined
+      ? recordFromJson(props.chat.runtimeConfig.promptTemplateVariables)
+      : recordFromJson(patch.promptTemplateVariables)
   }
 }
 
@@ -545,6 +638,7 @@ async function removeBlock(block: ChatBlock) {
       <template #item="{ item: chatItem }">
         <ChatBlockRow v-if="chatItem.type === 'block'" :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
           :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen" :lore-books="loreBooks"
+          :rendered-content-parts="renderedContentPartsByBlockId[chatItem.block.id]"
           :character="selectedCharacter" :character-regex-scripts-enabled="characterRegexScriptsEnabled"
           :display-regex-depth="displayRegexDepthByBlockId.get(chatItem.block.id) ?? 0"
           @collapse-change="setBlockCollapsed(chatItem.block, $event)" @save="saveChatBlock" @delete="removeBlock"
@@ -641,7 +735,89 @@ async function removeBlock(block: ChatBlock) {
       </div>
     </Teleport>
 
-    <JsonDialog v-if="contextPreview" title="将要发送的上下文" :value="contextPreview" @close="contextPreview = null" />
+    <Teleport to="body">
+      <div v-if="contextPreview" class="preview-dialog" role="dialog" aria-modal="true"
+        @click.self="contextPreview = null">
+        <section class="preview-panel">
+          <header class="preview-header">
+            <div>
+              <h2>将要发送的上下文</h2>
+              <p>{{ contextPreview.messages.length }} 条最终 messages · {{ contextPreview.contextBlocks.length }} 个上下文块</p>
+            </div>
+            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭"
+              @click="contextPreview = null">
+              <MdClose class="toolbar-icon" aria-hidden="true" />
+            </button>
+          </header>
+
+          <div class="preview-body">
+            <section class="preview-strip">
+              <div class="preview-stat">
+                <span>错误</span>
+                <strong>{{ previewErrorCount }}</strong>
+              </div>
+              <div class="preview-stat">
+                <span>警告</span>
+                <strong>{{ previewWarningCount }}</strong>
+              </div>
+              <div class="preview-stat">
+                <span>注入块</span>
+                <strong>{{ previewVirtualBlocks.length }}</strong>
+              </div>
+              <div v-for="item in previewVariableSummary" :key="item.label" class="preview-stat">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.count }}</strong>
+              </div>
+            </section>
+
+            <section v-if="previewDiagnostics.length" class="preview-section">
+              <h3>模板诊断</h3>
+              <div class="diagnostic-list">
+                <article v-for="(item, index) in previewDiagnostics" :key="index" class="diagnostic-row"
+                  :class="`diagnostic-${item.level}`">
+                  <strong>{{ item.level }}</strong>
+                  <span>{{ item.phase }}</span>
+                  <p>{{ item.message }}</p>
+                  <small v-if="item.source || item.entryId || item.blockId">
+                    {{ [item.source, item.entryId ? `entry #${item.entryId}` : '', item.blockId ? `block #${item.blockId}` : ''].filter(Boolean).join(' · ') }}
+                  </small>
+                </article>
+              </div>
+            </section>
+
+            <section v-if="previewVirtualBlocks.length" class="preview-section">
+              <h3>触发条目与注入来源</h3>
+              <div class="context-block-list">
+                <article v-for="block in previewVirtualBlocks" :key="`${block.id}:${block.orderIndex}:${block.title}`"
+                  class="context-block-row">
+                  <strong>{{ block.title }}</strong>
+                  <span>{{ block.targetRole }} · {{ block.summary }}</span>
+                  <pre v-if="block.text">{{ block.text }}</pre>
+                </article>
+              </div>
+            </section>
+
+            <section class="preview-section">
+              <h3>最终 Messages</h3>
+              <div class="message-preview-list">
+                <article v-for="(message, index) in contextPreview.messages" :key="index" class="message-preview-row">
+                  <header>
+                    <strong>{{ roleLabel(message.role) }}</strong>
+                    <span>{{ messageText(message).length }} 字符</span>
+                  </header>
+                  <pre>{{ messageText(message) }}</pre>
+                </article>
+              </div>
+            </section>
+
+            <section class="preview-section">
+              <h3>变量快照</h3>
+              <pre class="json-preview">{{ formatJson(contextPreview.templateVariables) }}</pre>
+            </section>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </main>
 </template>
 
@@ -783,6 +959,177 @@ async function removeBlock(block: ChatBlock) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.preview-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  background: rgba(25, 31, 39, 0.34);
+  padding: 24px;
+}
+
+.preview-panel {
+  width: min(1040px, 94vw);
+  max-height: min(820px, 88vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(26, 33, 42, 0.26);
+}
+
+.preview-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #edf0f4;
+  padding: 10px 12px;
+}
+
+.preview-header h2 {
+  margin: 0;
+  color: #253044;
+  font-size: 16px;
+}
+
+.preview-header p {
+  margin: 3px 0 0;
+  color: #6a7687;
+  font-size: 12px;
+}
+
+.preview-body {
+  min-width: 0;
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  background: #fbfcfd;
+  padding: 14px;
+}
+
+.preview-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.preview-stat {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.preview-stat span {
+  color: #657184;
+  font-size: 11px;
+}
+
+.preview-stat strong {
+  color: #253044;
+  font-size: 17px;
+}
+
+.preview-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.preview-section h3 {
+  margin: 0;
+  color: #314052;
+  font-size: 13px;
+}
+
+.diagnostic-list,
+.context-block-list,
+.message-preview-list {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostic-row,
+.context-block-row,
+.message-preview-row {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e1e7ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 9px 10px;
+}
+
+.diagnostic-row {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.diagnostic-row p,
+.diagnostic-row small {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.diagnostic-row strong,
+.diagnostic-row span,
+.diagnostic-row small,
+.context-block-row span,
+.message-preview-row span {
+  color: #657184;
+  font-size: 11px;
+}
+
+.diagnostic-error {
+  border-color: #f0b7b7;
+  background: #fff8f8;
+}
+
+.diagnostic-warning {
+  border-color: #efd18e;
+  background: #fffaf0;
+}
+
+.context-block-row strong,
+.message-preview-row strong {
+  color: #253044;
+  font-size: 12px;
+}
+
+.context-block-row pre,
+.message-preview-row pre,
+.json-preview {
+  min-width: 0;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #edf0f4;
+  border-radius: 6px;
+  background: #f7f9fb;
+  color: #273245;
+  padding: 9px 10px;
+  font: 12px/1.55 "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-preview-row header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .workspace-menu,

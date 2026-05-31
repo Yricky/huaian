@@ -20,7 +20,7 @@ import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../sh
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
 import { REGEX_PLACEMENT, getRegexedMarkdownString, type RegexPlacement } from '../../../shared/st-regex-scripts'
-import type { ChatBlock, CharacterEntry, LoreBook, ReasoningContentPart, ToolCallContentPart } from '../../../shared/types'
+import type { ChatBlock, ChatContentPart, CharacterEntry, LoreBook, ReasoningContentPart, ToolCallContentPart } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
@@ -34,6 +34,7 @@ const props = defineProps<{
   displayRegexDepth: number
   frozen: boolean
   loreBooks: LoreBook[]
+  renderedContentParts?: ChatContentPart[]
 }>()
 
 const emit = defineEmits<{
@@ -60,6 +61,8 @@ const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
 
 const text = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
+const displayContentParts = computed(() => props.renderedContentParts ?? props.block.contentParts)
+const displayText = computed(() => displayContentParts.value.filter(part => part.type === 'text').map(part => part.text).join(''))
 const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
 const isToolDefinition = computed(() => props.block.kind === 'tool_definition')
@@ -116,10 +119,12 @@ const detailJson = computed(() => ({
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
   content: text.value,
+  renderedContent: props.renderedContentParts ? displayText.value : null,
   contentParts: props.block.contentParts,
+  renderedContentParts: props.renderedContentParts ?? null,
   metadata: props.block.metadata
 }))
-const visibleContentParts = computed(() => props.block.contentParts
+const visibleContentParts = computed(() => displayContentParts.value
   .map((part, index) => ({ part, index }))
   .filter(item => item.part.type !== 'reasoning' || item.part.text.trim().length > 0))
 

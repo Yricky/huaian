@@ -47,6 +47,17 @@ export interface InjectionPreviewBlock extends ChatBlock {
   }
 }
 
+type InjectionPreviewMetadataInput = JsonRecord & {
+  virtual: true
+  source: 'character' | 'worldInfo'
+  activatedEntryIds?: number[]
+  loreBookIds?: number[]
+  injectionDetails?: InjectionDetail[]
+  displaySlot?: 'start' | 'end'
+  displayBeforeBlockId?: number
+  displayAfterBlockId?: number
+}
+
 export interface PromptBuildInput {
   chat: { id: number; runtimeConfig: ChatRuntimeConfig; createdAt: string; updatedAt: string }
   characters: CharacterEntry[]
@@ -570,7 +581,7 @@ function virtualBlock(
   chat: PromptBuildInput['chat'],
   role: ChatBlockTargetRole,
   content: string,
-  metadata: Omit<InjectionPreviewBlock['metadata'], 'targetRole'>
+  metadata: InjectionPreviewMetadataInput
 ): InjectionPreviewBlock {
   return {
     id,

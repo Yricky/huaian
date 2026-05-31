@@ -5,7 +5,8 @@ import type {
   LlmInstance,
   LlmProvider,
   LlmProviderType,
-  JsonRecord
+  JsonRecord,
+  PromptTemplateSettings
 } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
@@ -28,8 +29,10 @@ const {
   fetchSelectedLlmProviderModels,
   llmInstances,
   llmProviders,
+  project,
   providerSnapshot,
   restoreProviderFromSelectedInstance,
+  saveProjectConfig,
   saveLlmInstance,
   saveLlmProvider,
   selectLlmInstance,
@@ -46,6 +49,8 @@ const providerConfigJson = ref('{}')
 const modelDraft = ref('')
 const instanceDraft = ref<LlmInstance | null>(null)
 const instanceExtraJson = ref('{}')
+const promptTemplateDraft = ref<PromptTemplateSettings | null>(null)
+const promptTemplateGlobalJson = ref('{}')
 
 const providerTitle = computed(() => providerDraft.value?.name || '提供商')
 const instanceTitle = computed(() => instanceDraft.value?.name || 'LLM 实例')
@@ -71,6 +76,11 @@ watch([selectedLlmProvider, selectedLlmInstance], ([provider, instance]) => {
   if (activeSettingsEditor.value === 'provider' && !provider && instance) activeSettingsEditor.value = 'instance'
   if (activeSettingsEditor.value === 'instance' && !instance && provider) activeSettingsEditor.value = 'provider'
 }, { immediate: true })
+
+watch(() => project.value?.config.promptTemplate, (config) => {
+  promptTemplateDraft.value = config ? JSON.parse(JSON.stringify(config.settings)) : null
+  promptTemplateGlobalJson.value = JSON.stringify(config?.globalVariables ?? {}, null, 2)
+}, { immediate: true, deep: true })
 
 function selectedProviderConfig() {
   if (!providerDraft.value) return null
@@ -116,6 +126,29 @@ async function saveInstanceDraft() {
   instanceDraft.value.extra = extra
   instanceDraft.value.parameters = {}
   await saveLlmInstance(instanceDraft.value)
+}
+
+async function savePromptTemplateDraft() {
+  if (!project.value || !promptTemplateDraft.value) return
+  let globalVariables: JsonRecord
+  try {
+    const parsed = JSON.parse(promptTemplateGlobalJson.value)
+    if (!isJsonRecord(parsed)) {
+      window.alert('Prompt Template 全局变量 JSON 必须是对象。')
+      return
+    }
+    globalVariables = parsed
+  } catch {
+    window.alert('Prompt Template 全局变量 JSON 格式不正确。')
+    return
+  }
+  const saved = await saveProjectConfig({
+    promptTemplate: {
+      settings: promptTemplateDraft.value,
+      globalVariables
+    }
+  })
+  if (saved) window.alert('Prompt Template 设置已保存。')
 }
 
 async function createProviderForEditing() {
@@ -372,6 +405,50 @@ function selectModel(modelId: string) {
         </div>
         <p v-else class="empty-note">还没有 LLM 实例。先选择提供商并输入模型 ID 创建一个。</p>
       </section>
+
+      <section class="settings-section prompt-template-section">
+        <div class="pane-header">
+          <h2>Prompt Template</h2>
+          <div class="button-row">
+            <button class="toolbar-button" type="button" aria-label="保存 Prompt Template 设置"
+              data-tooltip="保存 Prompt Template 设置" @click="savePromptTemplateDraft">
+              <MdSave class="toolbar-icon" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+
+        <div v-if="promptTemplateDraft" class="settings-form">
+          <div class="switch-grid">
+            <label><input v-model="promptTemplateDraft.enabled" type="checkbox" />启用扩展</label>
+            <label><input v-model="promptTemplateDraft.generateEnabled" type="checkbox" />处理生成内容</label>
+            <label><input v-model="promptTemplateDraft.generateLoaderEnabled" type="checkbox" />[GENERATE] 注入</label>
+            <label><input v-model="promptTemplateDraft.injectLoaderEnabled" type="checkbox" />@INJECT 注入</label>
+            <label><input v-model="promptTemplateDraft.renderEnabled" type="checkbox" />处理楼层消息</label>
+            <label><input v-model="promptTemplateDraft.renderLoaderEnabled" type="checkbox" />[RENDER] 注入</label>
+            <label><input v-model="promptTemplateDraft.rawMessageEvaluationEnabled" type="checkbox" />生成后处理原始消息</label>
+            <label><input v-model="promptTemplateDraft.filterMessageEnabled" type="checkbox" />生成时过滤楼层 EJS</label>
+            <label><input v-model="promptTemplateDraft.invertEnabled" type="checkbox" />旧版禁用即启用</label>
+            <label><input v-model="promptTemplateDraft.sandbox" type="checkbox" />沙盒执行</label>
+            <label><input v-model="promptTemplateDraft.withContextDisabled" type="checkbox" />禁用 with 上下文</label>
+            <label><input v-model="promptTemplateDraft.debugEnabled" type="checkbox" />调试日志</label>
+          </div>
+
+          <div class="form-grid three">
+            <label>缓存模式
+              <select v-model.number="promptTemplateDraft.cacheEnabled">
+                <option :value="0">关闭</option>
+                <option :value="1">全部</option>
+                <option :value="2">仅世界书</option>
+              </select>
+            </label>
+            <label>缓存大小<input v-model.number="promptTemplateDraft.cacheSize" type="number" min="0" step="1" /></label>
+          </div>
+
+          <label>全局变量 JSON
+            <JsonEditor v-model="promptTemplateGlobalJson" :rows="8" aria-label="Prompt Template 全局变量 JSON" />
+          </label>
+        </div>
+      </section>
     </main>
   </section>
 </template>
@@ -450,6 +527,21 @@ function selectModel(modelId: string) {
 .settings-form {
   display: grid;
   gap: 10px;
+}
+
+.switch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.switch-grid label {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #314052;
+  font-size: 12px;
 }
 
 .model-tools {

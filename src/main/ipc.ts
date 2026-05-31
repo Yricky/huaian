@@ -4,6 +4,7 @@ import type {
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatGenerationRequest,
+  PromptTemplateBlockRenderRequest,
   ChatUpdatePayload,
   CharacterUpdatePayload,
   IpcJsonPayload,
@@ -17,7 +18,7 @@ import type {
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
-import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, renderPromptTemplateBlock, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { exportCharacter, exportLoreBook } from './project/exporters'
 import { importCharactersFromDialog, importLoreBooksFromDialog } from './project/importers'
 import { applyLoreBookDraft, discardLoreBookDraft, listLoreBookDrafts } from './project/lorebook-drafts'
@@ -177,6 +178,9 @@ export function registerIpcHandlers(): void {
   ))
   ipcMain.handle('chat:previewGeneration', (_, payload: IpcJsonPayload<ChatGenerationRequest>) => (
     previewChatGeneration(parseIpcPayload(payload))
+  ))
+  ipcMain.handle('chat:renderPromptTemplateBlock', (_, payload: IpcJsonPayload<PromptTemplateBlockRenderRequest>) => (
+    renderPromptTemplateBlock(parseIpcPayload(payload))
   ))
   ipcMain.handle('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
 

@@ -26,6 +26,8 @@ import type {
   ProjectImportResult,
   ProjectConfig,
   ProjectConfigUpdatePayload,
+  PromptTemplateBlockRenderRequest,
+  PromptTemplateBlockRenderResult,
   ProjectSnapshot,
   RecentProject,
   LoreBook,
@@ -93,6 +95,8 @@ const electronAPI = {
     ipcRenderer.invoke('chat:startGeneration', payload),
   previewChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationPreview> =>
     ipcRenderer.invoke('chat:previewGeneration', payload),
+  renderPromptTemplateBlock: (payload: IpcJsonPayload<PromptTemplateBlockRenderRequest>): Promise<PromptTemplateBlockRenderResult> =>
+    ipcRenderer.invoke('chat:renderPromptTemplateBlock', payload),
   stopChatGeneration: (chatId: number): Promise<boolean> => ipcRenderer.invoke('chat:stopGeneration', chatId),
   onChatGenerationEvent: (callback: (event: ChatGenerationEvent) => void): (() => void) => {
     const listener = (_: IpcRendererEvent, event: ChatGenerationEvent) => callback(event)

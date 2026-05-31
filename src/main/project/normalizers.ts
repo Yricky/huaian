@@ -4,6 +4,8 @@ import type {
   CharacterForgeData,
   ChatRuntimeConfig,
   JsonRecord,
+  PromptTemplateProjectConfig,
+  PromptTemplateSettings,
   ProjectConfig
 } from '../../shared/types'
 import { asBoolean, asRecord, asString } from '../../shared/value-utils'
@@ -13,7 +15,8 @@ export { asRecord }
 export function defaultProjectConfig(): ProjectConfig {
   return {
     schemaVersion: 1,
-    chatCreateDefaults: defaultChatCreationDefaults()
+    chatCreateDefaults: defaultChatCreationDefaults(),
+    promptTemplate: defaultPromptTemplateConfig()
   }
 }
 
@@ -71,6 +74,66 @@ export function defaultChatCreationDefaults(): ChatCreationDefaults {
   }
 }
 
+export function defaultPromptTemplateSettings(): PromptTemplateSettings {
+  return {
+    enabled: true,
+    generateEnabled: true,
+    generateLoaderEnabled: true,
+    renderEnabled: true,
+    renderLoaderEnabled: true,
+    rawMessageEvaluationEnabled: true,
+    filterMessageEnabled: true,
+    injectLoaderEnabled: true,
+    invertEnabled: true,
+    sandbox: true,
+    withContextDisabled: false,
+    debugEnabled: false,
+    cacheEnabled: 0,
+    cacheSize: 64
+  }
+}
+
+function cacheMode(value: unknown): 0 | 1 | 2 {
+  const number = toNumber(value, 0)
+  return number === 1 || number === 2 ? number : 0
+}
+
+export function normalizePromptTemplateSettings(value: unknown): PromptTemplateSettings {
+  const data = asRecord(value)
+  const defaults = defaultPromptTemplateSettings()
+  return {
+    enabled: toBoolean(data.enabled, defaults.enabled),
+    generateEnabled: toBoolean(data.generateEnabled, defaults.generateEnabled),
+    generateLoaderEnabled: toBoolean(data.generateLoaderEnabled, defaults.generateLoaderEnabled),
+    renderEnabled: toBoolean(data.renderEnabled, defaults.renderEnabled),
+    renderLoaderEnabled: toBoolean(data.renderLoaderEnabled, defaults.renderLoaderEnabled),
+    rawMessageEvaluationEnabled: toBoolean(data.rawMessageEvaluationEnabled, defaults.rawMessageEvaluationEnabled),
+    filterMessageEnabled: toBoolean(data.filterMessageEnabled, defaults.filterMessageEnabled),
+    injectLoaderEnabled: toBoolean(data.injectLoaderEnabled, defaults.injectLoaderEnabled),
+    invertEnabled: toBoolean(data.invertEnabled, defaults.invertEnabled),
+    sandbox: toBoolean(data.sandbox, defaults.sandbox),
+    withContextDisabled: toBoolean(data.withContextDisabled, defaults.withContextDisabled),
+    debugEnabled: toBoolean(data.debugEnabled, defaults.debugEnabled),
+    cacheEnabled: cacheMode(data.cacheEnabled),
+    cacheSize: Math.max(0, Math.trunc(toNumber(data.cacheSize, defaults.cacheSize)))
+  }
+}
+
+export function defaultPromptTemplateConfig(): PromptTemplateProjectConfig {
+  return {
+    settings: defaultPromptTemplateSettings(),
+    globalVariables: {}
+  }
+}
+
+export function normalizePromptTemplateConfig(value: unknown): PromptTemplateProjectConfig {
+  const data = asRecord(value)
+  return {
+    settings: normalizePromptTemplateSettings(data.settings ?? data),
+    globalVariables: asRecord(data.globalVariables)
+  }
+}
+
 export function normalizeChatCreationDefaults(value: unknown): ChatCreationDefaults {
   const data = asRecord(value)
   const loreBookIds = Array.isArray(data.loreBookIds)
@@ -88,7 +151,8 @@ export function normalizeProjectConfig(value: unknown): ProjectConfig {
   const data = asRecord(value)
   return {
     schemaVersion: toNumber(data.schemaVersion, 1),
-    chatCreateDefaults: normalizeChatCreationDefaults(data.chatCreateDefaults)
+    chatCreateDefaults: normalizeChatCreationDefaults(data.chatCreateDefaults),
+    promptTemplate: normalizePromptTemplateConfig(data.promptTemplate)
   }
 }
 
@@ -102,7 +166,8 @@ export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
     characterId: nullableInteger(data.characterId),
     llmInstanceId: nullableInteger(data.llmInstanceId),
     loreBookIds: [...new Set(loreBookIds)],
-    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false
+    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false,
+    promptTemplateVariables: asRecord(data.promptTemplateVariables)
   }
 }
 

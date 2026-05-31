@@ -519,7 +519,8 @@ function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRunt
     characterId: null,
     llmInstanceId,
     loreBookIds: [],
-    characterRegexScriptsEnabled: true
+    characterRegexScriptsEnabled: true,
+    promptTemplateVariables: {}
   }
 }
 

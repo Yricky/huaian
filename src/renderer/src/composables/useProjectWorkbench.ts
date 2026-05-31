@@ -17,6 +17,8 @@ import type {
   LlmProviderCreatePayload,
   ProjectConfigUpdatePayload,
   ProjectImportResult,
+  PromptTemplateBlockRenderRequest,
+  PromptTemplateBlockRenderResult,
   ProjectSnapshot,
   RecentProject,
   SidebarView,
@@ -929,6 +931,14 @@ export function createProjectWorkbench() {
     }
   }
 
+  async function renderPromptTemplateBlock(payload: PromptTemplateBlockRenderRequest): Promise<PromptTemplateBlockRenderResult | null> {
+    try {
+      return await window.electronAPI.renderPromptTemplateBlock(toIpcJson(payload))
+    } catch {
+      return null
+    }
+  }
+
   async function stopChatGeneration(chatId: number) {
     try {
       await window.electronAPI.stopChatGeneration(chatId)
@@ -1162,6 +1172,7 @@ export function createProjectWorkbench() {
     openProject,
     openRecentProject,
     previewChatGeneration,
+    renderPromptTemplateBlock,
     project,
     recentProjects,
     providerSnapshot,

@@ -27,6 +27,7 @@ const {
   loreBooks,
   previewChatGeneration,
   project,
+  renderPromptTemplateBlock,
   saveProjectConfig,
   saveChat,
   saveChatBlock,
@@ -321,6 +322,8 @@ async function deleteContextChat() {
       :llm-instances="llmInstances"
       :lore-books="loreBooks"
       :preview-chat-generation="previewChatGeneration"
+      :prompt-template-config="project?.config.promptTemplate ?? null"
+      :render-prompt-template-block="renderPromptTemplateBlock"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"
       :start-chat-generation="startChatGeneration"

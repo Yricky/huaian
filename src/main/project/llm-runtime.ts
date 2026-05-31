@@ -4,6 +4,16 @@ import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../shared/chat-blocks'
 import { LOREBOOK_EDIT_TOOL_GROUP, LOREBOOK_EDIT_TOOL_NAMES, loreBookToolFieldHints } from '../../shared/lorebook-tooling'
 import { asRecord, asString } from '../../shared/value-utils'
+import {
+  filterPromptTemplateMessageBlocks,
+  preprocessPromptTemplate,
+  processPromptTemplateBlockRender,
+  processPromptTemplateGeneration,
+  processPromptTemplateOutput,
+  type PromptTemplateGenerationResult,
+  type PromptTemplatePreprocessResult,
+  type RuntimeWorldEntry
+} from './prompt-template'
 import type {
   ChatBlock,
   ChatBlockTokenUsage,
@@ -18,6 +28,10 @@ import type {
   LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
+  PromptTemplateDiagnostic,
+  PromptTemplateBlockRenderRequest,
+  PromptTemplateBlockRenderResult,
+  PromptTemplateVariables,
   ProviderModelCacheItem
 } from '../../shared/types'
 import {
@@ -30,13 +44,17 @@ import {
 import {
   createAssistantGenerationBlock,
   getChat,
+  getChatBlock,
   getLlmInstance,
   getLlmProvider,
+  getProjectSnapshot,
   listCharacters,
   listChatBlocksForChat,
   listLoreBooks,
   listWorldEntries,
   prepareAssistantBlockForRegeneration,
+  updateChat,
+  updateProjectConfig,
   updateAssistantGenerationBlock,
   updateLlmProviderModelsCache
 } from './store'
@@ -47,6 +65,19 @@ interface ActiveGeneration {
   abortController: AbortController
   blockId: number
   chatId: number
+}
+
+interface PromptTemplateBundle {
+  messages: ModelMessage[]
+  virtualBlocks: ChatBlock[]
+  requestBlockIds: number[]
+  character: CharacterEntry | null
+  templateDiagnostics: PromptTemplateDiagnostic[]
+  templateVariables: PromptTemplateVariables
+  templateGlobalVariables: JsonRecord
+  templateLocalVariables: JsonRecord
+  templateMessageVariablesByBlockId: Map<number, JsonRecord>
+  specialEntries: RuntimeWorldEntry[]
 }
 
 const activeGenerations = new Map<number, ActiveGeneration>()
@@ -557,14 +588,74 @@ function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number |
   return blocks.filter(block => block.orderIndex < target.orderIndex)
 }
 
-function buildPrompt(chat: ReturnType<typeof getChat>, blocks: ChatBlock[]) {
-  return buildSillyTavernLikePrompt({
+async function buildPromptBundle(
+  chat: ReturnType<typeof getChat>,
+  blocks: ChatBlock[],
+  options: { dryRun?: boolean } = {}
+): Promise<PromptTemplateBundle> {
+  const config = getProjectSnapshot().config.promptTemplate
+  const settings = config.settings
+  const contextBlocks = filterPromptTemplateMessageBlocks(settings, blocks)
+  const characters = listCharacters()
+  const loreBooks = listLoreBooks()
+  const worldEntries = listWorldEntries()
+  const preprocessed: PromptTemplatePreprocessResult = await preprocessPromptTemplate({
     chat,
-    characters: listCharacters(),
-    loreBooks: listLoreBooks(),
-    worldEntries: listWorldEntries(),
-    blocks
+    characters,
+    loreBooks,
+    worldEntries,
+    blocks: contextBlocks,
+    settings,
+    globalVariables: config.globalVariables,
+    dryRun: options.dryRun
   })
+  const prompt = buildSillyTavernLikePrompt({
+    chat: {
+      ...chat,
+      runtimeConfig: {
+        ...chat.runtimeConfig,
+        promptTemplateVariables: preprocessed.localVariables
+      }
+    },
+    characters,
+    loreBooks,
+    worldEntries: preprocessed.worldEntries,
+    blocks: contextBlocks
+  })
+  const generated: PromptTemplateGenerationResult = await processPromptTemplateGeneration({
+    chat: {
+      ...chat,
+      runtimeConfig: {
+        ...chat.runtimeConfig,
+        promptTemplateVariables: preprocessed.localVariables
+      }
+    },
+    characters,
+    loreBooks,
+    worldEntries: preprocessed.worldEntries,
+    blocks: contextBlocks,
+    settings,
+    globalVariables: preprocessed.globalVariables,
+    initialVariables: preprocessed.variables.initial,
+    messageVariablesByBlockId: preprocessed.messageVariablesByBlockId,
+    dryRun: options.dryRun,
+    messages: prompt.messages,
+    virtualBlocks: prompt.virtualBlocks,
+    specialEntries: preprocessed.specialEntries
+  })
+
+  return {
+    messages: generated.messages,
+    virtualBlocks: generated.virtualBlocks,
+    requestBlockIds: prompt.requestBlockIds,
+    character: prompt.character,
+    templateDiagnostics: [...preprocessed.diagnostics, ...generated.diagnostics],
+    templateVariables: generated.variables,
+    templateGlobalVariables: generated.globalVariables,
+    templateLocalVariables: generated.localVariables,
+    templateMessageVariablesByBlockId: generated.messageVariablesByBlockId,
+    specialEntries: preprocessed.specialEntries
+  }
 }
 
 function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[], character: CharacterEntry | null): ChatGenerationPreview['contextBlocks'] {
@@ -583,7 +674,24 @@ function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[], c
   }))
 }
 
-export function previewChatGeneration(request: ChatGenerationRequest): ChatGenerationPreview {
+async function persistPromptTemplateVariables(chat: ReturnType<typeof getChat>, bundle: Pick<PromptTemplateBundle, 'templateGlobalVariables' | 'templateLocalVariables'>): Promise<void> {
+  await updateProjectConfig({
+    promptTemplate: {
+      ...getProjectSnapshot().config.promptTemplate,
+      globalVariables: bundle.templateGlobalVariables
+    }
+  })
+  const currentChat = getChat(chat.id)
+  updateChat({
+    id: chat.id,
+    runtimeConfig: {
+      ...currentChat.runtimeConfig,
+      promptTemplateVariables: bundle.templateLocalVariables
+    }
+  })
+}
+
+export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreview> {
   const chat = getChat(request.chatId)
   if (activeGenerations.has(chat.id)) {
     throw new Error('当前聊天已有正在生成的块。')
@@ -601,7 +709,7 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
   const provider = getLlmProvider(instance.providerId)
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
-  const prompt = buildPrompt(chat, contextBlocks)
+  const prompt = await buildPromptBundle(chat, contextBlocks, { dryRun: true })
   const loreBookTools = activeLoreBookToolDefinition(contextBlocks)
   const messages = prompt.messages
   if (!messages.length) {
@@ -639,8 +747,61 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
         : {},
       messages
     },
+    messages,
+    templateDiagnostics: prompt.templateDiagnostics,
+    templateVariables: prompt.templateVariables,
     contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks, prompt.character),
     requestBlockIds: prompt.requestBlockIds
+  }
+}
+
+export async function renderPromptTemplateBlock(request: PromptTemplateBlockRenderRequest): Promise<PromptTemplateBlockRenderResult> {
+  const chat = getChat(request.chatId)
+  const block = getChatBlock(request.blockId)
+  if (block.chatId !== chat.id) throw new Error('要渲染的聊天块不属于当前聊天。')
+
+  const config = getProjectSnapshot().config.promptTemplate
+  const characters = listCharacters()
+  const loreBooks = listLoreBooks()
+  const worldEntries = listWorldEntries()
+  const blocks = listChatBlocksForChat(chat.id).filter(item => item.orderIndex <= block.orderIndex)
+  const preprocessed = await preprocessPromptTemplate({
+    chat,
+    characters,
+    loreBooks,
+    worldEntries,
+    blocks,
+    settings: config.settings,
+    globalVariables: config.globalVariables,
+    dryRun: true
+  })
+  const rendered = await processPromptTemplateBlockRender({
+    chat: {
+      ...chat,
+      runtimeConfig: {
+        ...chat.runtimeConfig,
+        promptTemplateVariables: preprocessed.localVariables
+      }
+    },
+    characters,
+    loreBooks,
+    worldEntries: preprocessed.worldEntries,
+    blocks,
+    settings: config.settings,
+    globalVariables: preprocessed.globalVariables,
+    initialVariables: preprocessed.variables.initial,
+    messageVariablesByBlockId: preprocessed.messageVariablesByBlockId,
+    dryRun: true,
+    block,
+    contentParts: block.contentParts,
+    specialEntries: preprocessed.specialEntries
+  })
+
+  return {
+    blockId: block.id,
+    contentParts: rendered.contentParts,
+    diagnostics: [...preprocessed.diagnostics, ...rendered.diagnostics],
+    variables: rendered.variables
   }
 }
 
@@ -650,12 +811,15 @@ function isAbortError(error: unknown): boolean {
 
 async function runGeneration(
   webContents: WebContents,
+  chat: ReturnType<typeof getChat>,
   instance: LlmInstance,
   provider: LlmProvider,
   messages: ModelMessage[],
   generationBlock: ChatBlock,
   abortController: AbortController,
-  loreBookTools: ActiveLoreBookToolDefinition | null
+  loreBookTools: ActiveLoreBookToolDefinition | null,
+  promptBundle: PromptTemplateBundle,
+  contextBlocks: ChatBlock[]
 ): Promise<void> {
   let contentParts: ChatContentPart[] = []
   let lastPersistAt = 0
@@ -769,10 +933,54 @@ async function runGeneration(
         totalUsage = null
       }
     }
+    let outputDiagnostics: PromptTemplateDiagnostic[] = []
+    let messageVariables: JsonRecord = {}
+    try {
+      const config = getProjectSnapshot().config.promptTemplate
+      const output = await processPromptTemplateOutput({
+        chat: {
+          ...getChat(chat.id),
+          runtimeConfig: {
+            ...getChat(chat.id).runtimeConfig,
+            promptTemplateVariables: promptBundle.templateLocalVariables
+          }
+        },
+        characters: listCharacters(),
+        loreBooks: listLoreBooks(),
+        worldEntries: listWorldEntries(),
+        blocks: [...contextBlocks, generationBlock],
+        settings: config.settings,
+        globalVariables: promptBundle.templateGlobalVariables,
+        initialVariables: promptBundle.templateVariables.initial,
+        messageVariablesByBlockId: promptBundle.templateMessageVariablesByBlockId,
+        block: generationBlock,
+        contentParts,
+        specialEntries: promptBundle.specialEntries
+      })
+      contentParts = output.contentParts
+      outputDiagnostics = output.diagnostics
+      messageVariables = output.messageVariables
+      await persistPromptTemplateVariables(getChat(chat.id), {
+        templateGlobalVariables: output.globalVariables,
+        templateLocalVariables: output.localVariables
+      })
+    } catch (error) {
+      outputDiagnostics = [{
+        level: 'error',
+        phase: 'render',
+        message: `Prompt Template output processing failed: ${errorText(error)}`
+      }]
+    }
+
     const finishedAt = new Date().toISOString()
     const metadataPatch: JsonRecord = {
       generationFinishedAt: finishedAt,
-      usageRecordedAt: finishedAt
+      usageRecordedAt: finishedAt,
+      promptTemplate: {
+        ...asRecord(generationBlock.metadata.promptTemplate),
+        variables: messageVariables,
+        diagnostics: [...promptBundle.templateDiagnostics, ...outputDiagnostics]
+      }
     }
     if (finishReason) metadataPatch.finishReason = finishReason
     if (totalUsage) metadataPatch.usage = totalUsage
@@ -815,10 +1023,10 @@ async function runGeneration(
   }
 }
 
-export function startChatGeneration(
+export async function startChatGeneration(
   request: ChatGenerationRequest,
   webContents: WebContents
-): ChatGenerationStartResult {
+): Promise<ChatGenerationStartResult> {
   const chat = getChat(request.chatId)
   if (activeGenerations.has(chat.id)) {
     throw new Error('当前聊天已有正在生成的块。')
@@ -836,7 +1044,7 @@ export function startChatGeneration(
   const provider = getLlmProvider(instance.providerId)
   const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
     .filter(block => block.id !== request.regenerateBlockId)
-  const prompt = buildPrompt(chat, contextBlocks)
+  const prompt = await buildPromptBundle(chat, contextBlocks)
   const loreBookTools = activeLoreBookToolDefinition(contextBlocks)
   const messages = prompt.messages
   if (!messages.length) {
@@ -846,18 +1054,36 @@ export function startChatGeneration(
   const generationBlock = request.regenerateBlockId
     ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance, prompt.requestBlockIds)
     : createAssistantGenerationBlock(chat.id, instance, prompt.requestBlockIds)
+  const promptTemplateMetadata = {
+    ...generationBlock.metadata,
+    promptTemplate: {
+      ...asRecord(generationBlock.metadata.promptTemplate),
+      variables: asRecord(prompt.templateMessageVariablesByBlockId.get(generationBlock.id)),
+      diagnostics: prompt.templateDiagnostics
+    }
+  }
+  updateAssistantGenerationBlock(
+    generationBlock.id,
+    generationBlock.contentParts,
+    generationBlock.status,
+    generationBlock.enabled,
+    generationBlock.errorText,
+    promptTemplateMetadata
+  )
+  const currentGenerationBlock = getChatBlock(generationBlock.id)
+  await persistPromptTemplateVariables(chat, prompt)
   const abortController = new AbortController()
 
   activeGenerations.set(chat.id, {
     abortController,
-    blockId: generationBlock.id,
+    blockId: currentGenerationBlock.id,
     chatId: chat.id
   })
-  sendEvent(webContents, { type: 'started', chatId: chat.id, block: generationBlock })
+  sendEvent(webContents, { type: 'started', chatId: chat.id, block: currentGenerationBlock })
 
-  void runGeneration(webContents, instance, provider, messages, generationBlock, abortController, loreBookTools)
+  void runGeneration(webContents, chat, instance, provider, messages, currentGenerationBlock, abortController, loreBookTools, prompt, contextBlocks)
 
-  return { block: generationBlock }
+  return { block: currentGenerationBlock }
 }
 
 export function stopChatGeneration(chatId: number): boolean {
