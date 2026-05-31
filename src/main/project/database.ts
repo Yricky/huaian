@@ -204,8 +204,16 @@ function normalizeContentParts(value: unknown): ChatContentPart[] {
         }
       }
 
+      if (part.type === 'reasoning') {
+        return {
+          type: 'reasoning',
+          text: asString(part.text),
+          sendAsContext: part.sendAsContext === true
+        }
+      }
+
       return {
-        type: part.type as 'text' | 'reasoning',
+        type: 'text',
         text: asString(part.text)
       }
     })

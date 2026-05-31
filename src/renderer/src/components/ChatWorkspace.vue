@@ -110,6 +110,14 @@ const replyButtonLabel = computed(() => {
   const instance = selectedLlmInstance.value?.name ?? '未选择 LLM'
   return `${character} · ${instance}`
 })
+const characterRegexScriptsEnabled = computed(() => props.chat.runtimeConfig.characterRegexScriptsEnabled !== false)
+const displayRegexDepthByBlockId = computed(() => {
+  const regexBlocks = props.blocks.filter(block => (
+    (block.kind === 'user' || block.kind === 'assistant') &&
+    block.contentParts.some(part => part.type !== 'tool_call' && part.text.trim().length > 0)
+  ))
+  return new Map(regexBlocks.map((block, index) => [block.id, regexBlocks.length - index - 1]))
+})
 const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
@@ -377,7 +385,10 @@ function runtimeConfigWith(patch: Partial<ChatRuntimeConfig>): ChatRuntimeConfig
   return {
     characterId: patch.characterId === undefined ? props.chat.runtimeConfig.characterId : patch.characterId,
     llmInstanceId: patch.llmInstanceId === undefined ? props.chat.runtimeConfig.llmInstanceId : patch.llmInstanceId,
-    loreBookIds: patch.loreBookIds === undefined ? [...props.chat.runtimeConfig.loreBookIds] : [...patch.loreBookIds]
+    loreBookIds: patch.loreBookIds === undefined ? [...props.chat.runtimeConfig.loreBookIds] : [...patch.loreBookIds],
+    characterRegexScriptsEnabled: patch.characterRegexScriptsEnabled === undefined
+      ? characterRegexScriptsEnabled.value
+      : patch.characterRegexScriptsEnabled
   }
 }
 
@@ -398,6 +409,12 @@ async function selectReplyLlmInstance(llmInstanceId: number | null) {
 
 async function setChatLoreBookIds(loreBookIds: number[]) {
   await saveRuntimeConfig(runtimeConfigWith({ loreBookIds: [...new Set(loreBookIds)] }))
+}
+
+async function setCharacterRegexScriptsEnabled(event: Event) {
+  await saveRuntimeConfig(runtimeConfigWith({
+    characterRegexScriptsEnabled: (event.target as HTMLInputElement).checked
+  }))
 }
 
 async function addLoreBook(event: Event) {
@@ -568,6 +585,8 @@ async function removeBlock(block: ChatBlock) {
       <template #item="{ item: chatItem }">
         <ChatBlockRow v-if="chatItem.type === 'block'" :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
           :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen" :lore-books="loreBooks"
+          :character="selectedCharacter" :character-regex-scripts-enabled="characterRegexScriptsEnabled"
+          :display-regex-depth="displayRegexDepthByBlockId.get(chatItem.block.id) ?? 0"
           @collapse-change="setBlockCollapsed(chatItem.block, $event)" @save="saveChatBlock" @delete="removeBlock"
           @regenerate="regenerate" @stop="stopChatGeneration" @insert-tool-definition="insertToolDefinitionBlock" />
         <div v-else class="chat-action-strip">
@@ -648,6 +667,10 @@ async function removeBlock(block: ChatBlock) {
             @click="selectReplyCharacter(character.id)">
             <span>{{ characterName(character) }}</span>
           </button>
+          <label class="choice-row setting-row">
+            <input type="checkbox" :checked="characterRegexScriptsEnabled" @change="setCharacterRegexScriptsEnabled" />
+            <span>角色正则脚本</span>
+          </label>
         </section>
 
         <section class="popup-section">
@@ -921,6 +944,14 @@ async function removeBlock(block: ChatBlock) {
 .choice-row.selected {
   border-color: #2f6fca !important;
   background: #f4f8ff !important;
+}
+
+.setting-row {
+  cursor: pointer;
+}
+
+.setting-row input {
+  flex: 0 0 auto;
 }
 
 .row-actions {

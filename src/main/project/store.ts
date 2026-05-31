@@ -509,7 +509,8 @@ function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRunt
   return {
     characterId: null,
     llmInstanceId,
-    loreBookIds: []
+    loreBookIds: [],
+    characterRegexScriptsEnabled: true
   }
 }
 

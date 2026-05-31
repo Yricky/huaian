@@ -182,6 +182,7 @@ export interface ChatRuntimeConfig {
   characterId: number | null
   llmInstanceId: number | null
   loreBookIds: number[]
+  characterRegexScriptsEnabled: boolean
 }
 
 export interface ChatSession {
@@ -210,6 +211,7 @@ export interface TextContentPart {
 export interface ReasoningContentPart {
   type: 'reasoning'
   text: string
+  sendAsContext?: boolean
 }
 
 export type ToolCallContentPartStatus = 'pending' | 'success' | 'error'
@@ -302,7 +304,6 @@ export interface ChatGenerationPreview {
     messages: ChatGenerationPreviewMessage[]
   }
   contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'status' | 'orderIndex' | 'title' | 'summary'> & {
-    sendReasoning: boolean
     text: string
     reasoning: string
     virtual?: boolean

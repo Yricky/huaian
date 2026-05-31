@@ -9,6 +9,14 @@ import type {
   LoreBook,
   WorldEntry
 } from './types'
+import {
+  REGEX_PLACEMENT,
+  characterName,
+  getRegexedPromptString,
+  getRegexedString,
+  replaceCharacterMacros,
+  type RegexPlacement
+} from './st-regex-scripts'
 
 type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
 
@@ -71,7 +79,6 @@ interface ActivationEntry {
 const DEFAULT_SCAN_DEPTH = 2
 const DEFAULT_DEPTH = 4
 const DEFAULT_USER_NAME = 'User'
-const DEFAULT_ASSISTANT_NAME = 'Assistant'
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
@@ -94,27 +101,31 @@ function asNumber(value: unknown, fallback: number): number {
   return Number.isFinite(number) ? number : fallback
 }
 
+function contextTextForPart(part: ChatContentPart): string {
+  if (part.type === 'text') return part.text
+  if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
+  return [
+    `[Tool call: ${part.toolName}]`,
+    `input: ${JSON.stringify(part.input)}`,
+    part.status === 'success' ? `output: ${JSON.stringify(part.output ?? null)}` : '',
+    part.status === 'error' ? `error: ${part.error ?? ''}` : ''
+  ].filter(Boolean).join('\n')
+}
+
 function blockText(block: RuntimeBlock): string {
-  return block.contentParts
-    .map(part => {
-      if (part.type === 'text') return part.text
-      if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
-      return [
-        `[Tool call: ${part.toolName}]`,
-        `input: ${JSON.stringify(part.input)}`,
-        part.status === 'success' ? `output: ${JSON.stringify(part.output ?? null)}` : '',
-        part.status === 'error' ? `error: ${part.error ?? ''}` : ''
-      ].filter(Boolean).join('\n')
-    })
-    .join('')
+  return block.contentParts.map(contextTextForPart).join('')
 }
 
-function blockReasoningText(block: RuntimeBlock): string {
-  return block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join('')
+function reasoningPartSendsAsContext(part: ChatContentPart): boolean {
+  return part.type === 'reasoning' && part.sendAsContext === true
 }
 
-function shouldSendReasoning(block: RuntimeBlock): boolean {
-  return block.metadata.sendReasoning === true
+function blockHasSentReasoning(block: RuntimeBlock): boolean {
+  return block.contentParts.some(part => (
+    part.type === 'reasoning' &&
+    reasoningPartSendsAsContext(part) &&
+    part.text.trim().length > 0
+  ))
 }
 
 function blockRole(block: RuntimeBlock): 'system' | 'user' | 'assistant' {
@@ -173,16 +184,8 @@ function characterData(character: CharacterEntry | null): JsonRecord {
   return asRecord(character?.stData?.data)
 }
 
-function characterName(character: CharacterEntry | null): string {
-  return asString(characterData(character).name, DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME
-}
-
 function replaceMacros(value: string, character: CharacterEntry | null): string {
-  const char = characterName(character)
-  return value
-    .replace(/\{\{char\}\}/gi, char)
-    .replace(/\{\{user\}\}/gi, DEFAULT_USER_NAME)
-    .replace(/\{\{charIfNotGroup\}\}/gi, char)
+  return replaceCharacterMacros(value, character, { userName: DEFAULT_USER_NAME })
 }
 
 function parseRegexFromString(input: string): RegExp | null {
@@ -330,7 +333,27 @@ function secondaryKeysMatch(scanText: string, entry: WorldEntry, character: Char
   }
 }
 
-function activateWorldEntries(entries: WorldEntry[], scanMessages: string[], character: CharacterEntry | null): ActivationEntry[] {
+function applyPromptRegex(
+  value: string,
+  placement: RegexPlacement,
+  character: CharacterEntry | null,
+  regexEnabled: boolean,
+  depth?: number
+): string {
+  return getRegexedString(value, placement, {
+    character,
+    enabled: regexEnabled,
+    isPrompt: true,
+    depth
+  })
+}
+
+function activateWorldEntries(
+  entries: WorldEntry[],
+  scanMessages: string[],
+  character: CharacterEntry | null,
+  regexEnabled = true
+): ActivationEntry[] {
   const latestScanText = scanMessages.join('\n')
   const activated: ActivationEntry[] = []
 
@@ -364,12 +387,22 @@ function activateWorldEntries(entries: WorldEntry[], scanMessages: string[], cha
       if (roll >= probability) continue
     }
 
+    const position = entryPosition(entry)
+    const depth = entryDepth(entry)
+    const content = applyPromptRegex(
+      replaceMacros(entry.stData.content, character),
+      REGEX_PLACEMENT.WORLD_INFO,
+      character,
+      regexEnabled,
+      position === 4 ? depth : undefined
+    )
+
     activated.push({
       entry,
-      content: replaceMacros(entry.stData.content, character),
-      position: entryPosition(entry),
+      content,
+      position,
       order: entryOrder(entry),
-      depth: entryDepth(entry),
+      depth,
       role: roleFromExtension(extensions.role),
       reason
     })
@@ -401,16 +434,63 @@ function pushMessage(messages: ChatGenerationPreviewMessage[], role: 'system' | 
   if (text) messages.push({ role, content: text })
 }
 
-function realBlockMessage(block: RuntimeBlock, activeToolDefinitionIds: Set<number>): ChatGenerationPreviewMessage | null {
-  if (!shouldSendBlock(block, activeToolDefinitionIds)) return null
-  const text = blockText(block).trim()
-  const reasoning = blockReasoningText(block).trim()
+function regexPlacementForBlock(block: RuntimeBlock): RegexPlacement | null {
   const role = blockRole(block)
+  if (role === 'user') return REGEX_PLACEMENT.USER_INPUT
+  if (role === 'assistant') return REGEX_PLACEMENT.AI_OUTPUT
+  return null
+}
 
-  if (role === 'assistant' && shouldSendReasoning(block) && reasoning.length > 0) {
-    const content: ChatContentPart[] = [{ type: 'reasoning', text: reasoning }]
-    if (text.length > 0) content.push({ type: 'text', text })
-    return { role, content }
+function regexPromptText(
+  value: string,
+  placement: RegexPlacement | null,
+  character: CharacterEntry | null,
+  regexEnabled: boolean,
+  depth: number
+): string {
+  return placement === null
+    ? value
+    : getRegexedPromptString(value, placement, {
+      character,
+      enabled: regexEnabled,
+      depth
+    })
+}
+
+function realBlockMessage(
+  block: RuntimeBlock,
+  activeToolDefinitionIds: Set<number>,
+  character: CharacterEntry | null,
+  regexEnabled: boolean,
+  depth: number
+): ChatGenerationPreviewMessage | null {
+  if (!shouldSendBlock(block, activeToolDefinitionIds)) return null
+  const role = blockRole(block)
+  const placement = regexPlacementForBlock(block)
+  const text = regexPromptText(blockText(block), placement, character, regexEnabled, depth).trim()
+
+  if (role === 'assistant' && blockHasSentReasoning(block)) {
+    const content: ChatContentPart[] = []
+    for (const part of block.contentParts) {
+      if (part.type === 'reasoning' && reasoningPartSendsAsContext(part) && part.text.trim().length > 0) {
+        const reasoningText = getRegexedPromptString(part.text, REGEX_PLACEMENT.REASONING, {
+          character,
+          enabled: regexEnabled,
+          depth
+        })
+        if (reasoningText.trim().length > 0) {
+          content.push({ type: 'reasoning', text: reasoningText })
+        }
+      }
+      const partText = contextTextForPart(part)
+      if (partText.trim().length > 0) {
+        const regexedPartText = regexPromptText(partText, placement, character, regexEnabled, depth)
+        if (regexedPartText.trim().length > 0) {
+          content.push({ type: 'text', text: regexedPartText })
+        }
+      }
+    }
+    return content.length > 0 ? { role, content } : null
   }
 
   return text.length > 0 ? { role, content: text } : null
@@ -529,12 +609,13 @@ function virtualBlock(id: number, chat: PromptBuildInput['chat'], role: ChatBloc
 
 export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuildResult {
   const character = input.characters.find(item => item.id === input.chat.runtimeConfig.characterId) ?? null
+  const regexEnabled = input.chat.runtimeConfig.characterRegexScriptsEnabled !== false
   const activeToolDefinitionIds = activeLoreBookToolDefinitionIds(input.blocks, input.loreBooks)
   const loreBookIds = activeLoreBookIds(input.chat.runtimeConfig, character)
   const loreEntries = entriesForLoreBooks(input.worldEntries, loreBookIds)
   const enabledRealBlocks = input.blocks.filter(block => shouldSendBlock(block, activeToolDefinitionIds))
   const scanMessages = enabledRealBlocks.map(block => realBlockScanLine(block, character)).filter(Boolean).reverse()
-  const activated = activateWorldEntries(loreEntries, scanMessages, character)
+  const activated = activateWorldEntries(loreEntries, scanMessages, character, regexEnabled)
 
   const worldInfoBeforeEntries = orderedActivationEntries(activated, [0])
   const worldInfoAfterEntries = orderedActivationEntries(activated, [1])
@@ -600,8 +681,19 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
     ))
   }
 
+  const regexDepthBlocks = enabledRealBlocks.filter(block => regexPlacementForBlock(block) !== null && blockText(block).trim().length > 0)
+  const regexDepthByBlockId = new Map(regexDepthBlocks.map((block, index) => [block.id, regexDepthBlocks.length - index - 1]))
   const realMessageItems = enabledRealBlocks
-    .map(block => ({ block, message: realBlockMessage(block, activeToolDefinitionIds) }))
+    .map(block => ({
+      block,
+      message: realBlockMessage(
+        block,
+        activeToolDefinitionIds,
+        character,
+        regexEnabled,
+        regexDepthByBlockId.get(block.id) ?? 0
+      )
+    }))
     .filter((item): item is { block: RuntimeBlock; message: ChatGenerationPreviewMessage } => item.message !== null)
   const realMessages = realMessageItems.map(item => item.message)
   const depthInjections = activated.filter(entry => entry.position === 4 && entry.content.trim())
@@ -702,7 +794,7 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
     messages,
     virtualBlocks,
     requestBlockIds: enabledRealBlocks
-      .filter(block => blockText(block).trim().length > 0 || (block.kind === 'assistant' && shouldSendReasoning(block) && blockReasoningText(block).trim().length > 0))
+      .filter(block => blockText(block).trim().length > 0 || (block.kind === 'assistant' && blockHasSentReasoning(block)))
       .map(block => block.id),
     character,
     activeLoreBookIds: loreBookIds

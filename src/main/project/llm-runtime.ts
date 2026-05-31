@@ -93,12 +93,22 @@ function blockText(block: ChatBlock): string {
     .join('')
 }
 
+function reasoningPartSendsAsContext(part: ChatContentPart): boolean {
+  return part.type === 'reasoning' && part.sendAsContext === true
+}
+
 function blockReasoningText(block: ChatBlock): string {
-  return block.contentParts.filter(part => part.type === 'reasoning').map(part => part.text).join('')
+  return block.contentParts
+    .map(part => part.type === 'reasoning' && reasoningPartSendsAsContext(part) ? part.text : '')
+    .join('')
 }
 
 function shouldSendReasoning(block: ChatBlock): boolean {
-  return block.metadata.sendReasoning === true
+  return block.contentParts.some(part => (
+    part.type === 'reasoning' &&
+    reasoningPartSendsAsContext(part) &&
+    part.text.trim().length > 0
+  ))
 }
 
 function usageNumber(value: unknown): number | null {
@@ -572,7 +582,6 @@ function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[]): 
     orderIndex: block.orderIndex,
     title: block.title,
     summary: block.summary,
-    sendReasoning: shouldSendReasoning(block),
     text: blockText(block),
     reasoning: blockReasoningText(block),
     virtual: block.metadata.virtual === true

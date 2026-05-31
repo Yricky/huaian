@@ -74,7 +74,8 @@ export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
   return {
     characterId: nullableInteger(data.characterId),
     llmInstanceId: nullableInteger(data.llmInstanceId),
-    loreBookIds: [...new Set(loreBookIds)]
+    loreBookIds: [...new Set(loreBookIds)],
+    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false
   }
 }
 

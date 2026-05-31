@@ -18,7 +18,8 @@ import {
 } from 'vue-icons-plus/md'
 import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
-import type { ChatBlock, ToolCallContentPart, LoreBook } from '../../../shared/types'
+import { REGEX_PLACEMENT, getRegexedMarkdownString, type RegexPlacement } from '../../../shared/st-regex-scripts'
+import type { ChatBlock, CharacterEntry, LoreBook, ReasoningContentPart, ToolCallContentPart } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
 
@@ -26,7 +27,10 @@ type InjectionViewMode = 'markdown' | 'structured'
 
 const props = defineProps<{
   block: ChatBlock
+  character: CharacterEntry | null
+  characterRegexScriptsEnabled: boolean
   collapsed: boolean
+  displayRegexDepth: number
   frozen: boolean
   loreBooks: LoreBook[]
 }>()
@@ -46,8 +50,8 @@ const detailOpen = ref(false)
 const menuOpen = ref(false)
 const isCollapsed = ref(props.collapsed)
 const injectionViewMode = ref<InjectionViewMode>('structured')
-const reasoningOpen = ref(false)
 const editingPartIndex = ref<number | null>(null)
+const openReasoningParts = ref<Record<number, boolean>>({})
 const openToolCalls = ref<Record<string, boolean>>({})
 const editorRef = ref<HTMLTextAreaElement | null>(null)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
@@ -55,7 +59,6 @@ const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
 
 const text = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
-const sendsReasoning = computed(() => props.block.metadata.sendReasoning === true)
 const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
 const isToolDefinition = computed(() => props.block.kind === 'tool_definition')
@@ -109,7 +112,6 @@ const detailJson = computed(() => ({
   enabled: props.block.enabled,
   status: props.block.status,
   requestBlockIds: props.block.requestBlockIds,
-  sendReasoning: props.block.metadata.sendReasoning === true,
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
   content: text.value,
@@ -124,6 +126,7 @@ watch(() => props.block.id, () => {
   editing.value = false
   editingPartIndex.value = null
   menuOpen.value = false
+  openReasoningParts.value = {}
   isCollapsed.value = props.collapsed
   injectionViewMode.value = 'structured'
   draft.value = text.value
@@ -205,6 +208,29 @@ function recordFromMetadata(value: unknown): Record<string, unknown> {
 
 function stringFromMetadata(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
+}
+
+function displayRegexPlacementForBlock(): RegexPlacement | null {
+  if (props.block.kind === 'user') return REGEX_PLACEMENT.USER_INPUT
+  if (props.block.kind === 'assistant') return REGEX_PLACEMENT.AI_OUTPUT
+  return null
+}
+
+function displayRegexedMarkdown(value: string, placement: RegexPlacement | null): string {
+  if (placement === null) return value
+  return getRegexedMarkdownString(value, placement, {
+    character: props.character,
+    enabled: props.characterRegexScriptsEnabled,
+    depth: props.displayRegexDepth
+  })
+}
+
+function displayTextMarkdown(value: string): string {
+  return displayRegexedMarkdown(value, displayRegexPlacementForBlock())
+}
+
+function displayReasoningMarkdown(value: string): string {
+  return displayRegexedMarkdown(value, REGEX_PLACEMENT.REASONING)
 }
 
 function optionalNumberFromMetadata(value: unknown): number | undefined {
@@ -323,15 +349,39 @@ function toggleEnabled() {
   emit('save', next)
 }
 
-function toggleSendReasoning() {
+function reasoningSendsAsContext(part: ReasoningContentPart): boolean {
+  return part.sendAsContext === true
+}
+
+function isReasoningOpen(partIndex: number): boolean {
+  return openReasoningParts.value[partIndex] === true
+}
+
+function toggleReasoningOpen(partIndex: number) {
+  openReasoningParts.value = {
+    ...openReasoningParts.value,
+    [partIndex]: !isReasoningOpen(partIndex)
+  }
+}
+
+function toggleReasoningContext(partIndex: number) {
   if (!canEdit.value) return
   const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
-  next.metadata = {
-    ...next.metadata,
-    sendReasoning: next.metadata.sendReasoning !== true
-  }
-  menuOpen.value = false
+  const part = next.contentParts[partIndex]
+  if (part?.type !== 'reasoning') return
+  part.sendAsContext = !reasoningSendsAsContext(part)
   emit('save', next)
+}
+
+function reasoningTitle(partIndex: number): string {
+  const reasoningIndex = visibleContentParts.value
+    .filter(item => item.part.type === 'reasoning' && item.index <= partIndex)
+    .length
+  return reasoningIndex > 1 ? `思考 ${reasoningIndex}` : '思考'
+}
+
+function reasoningSummary(part: ReasoningContentPart): string {
+  return reasoningSendsAsContext(part) ? '作为上下文' : '不作为上下文'
 }
 
 function toolCallTitle(part: ToolCallContentPart): string {
@@ -484,8 +534,8 @@ defineExpose({
     </header>
 
     <template v-if="!isCollapsed">
-      <textarea v-if="editing && isEmptySystem" :ref="setEditorElement" v-model="draft" class="block-editor"
-        rows="6" @blur="autoSaveEdit" />
+      <textarea v-if="editing && isEmptySystem" :ref="setEditorElement" v-model="draft" class="block-editor" rows="6"
+        @blur="autoSaveEdit" />
 
       <button v-else-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit"
         @click="() => startEdit()">
@@ -536,8 +586,8 @@ defineExpose({
         <p v-if="selectedToolLoreBook" class="tool-definition-note">世界书编辑工具组已绑定：{{ selectedToolLoreBook.name }}</p>
         <p v-else class="tool-definition-note invalid">未绑定有效世界书时，此工具定义不会发送给 LLM。</p>
         <div class="block-content tool-definition-prompt">
-          <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded"
-            rows="8" @blur="autoSaveEdit" />
+          <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded" rows="8"
+            @blur="autoSaveEdit" />
           <MarkdownView v-else :markdown="text" />
         </div>
       </div>
@@ -545,18 +595,22 @@ defineExpose({
       <div v-else-if="showMarkdown" class="block-content">
         <template v-for="{ part, index } in visibleContentParts" :key="`${part.type}-${index}`">
           <section v-if="part.type === 'reasoning'" class="reasoning-panel content-segment">
-            <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
-              <MdPsychology class="reasoning-icon" aria-hidden="true" />
-              <span>思考</span>
-              <small @click.stop="toggleSendReasoning">{{ sendsReasoning ? '作为上下文' : '不作为上下文' }}</small>
-            </button>
-            <div v-if="reasoningOpen" class="reasoning-body">
-              <MarkdownView :markdown="part.text" />
+            <header class="reasoning-header">
+              <button class="reasoning-toggle" type="button" @click="toggleReasoningOpen(index)">
+                <MdPsychology class="reasoning-icon" aria-hidden="true" />
+                <span>{{ reasoningTitle(index) }}</span>
+              </button>
+              <button class="tool-call-context" type="button" :disabled="!canEdit"
+                @click="toggleReasoningContext(index)">
+                {{ reasoningSummary(part) }}
+              </button>
+            </header>
+            <div v-if="isReasoningOpen(index)" class="reasoning-body">
+              <MarkdownView :markdown="displayReasoningMarkdown(part.text)" />
             </div>
           </section>
 
-          <section v-else-if="part.type === 'tool_call'" class="tool-call-panel content-segment"
-            :class="part.status">
+          <section v-else-if="part.type === 'tool_call'" class="tool-call-panel content-segment" :class="part.status">
             <header class="tool-call-header">
               <button class="tool-call-toggle" type="button" @click="toggleToolCallOpen(part)">
                 <MdCode class="tool-call-icon" aria-hidden="true" />
@@ -568,14 +622,15 @@ defineExpose({
                 {{ part.sendAsContext ? '作为上下文' : '不作为上下文' }}
               </button>
             </header>
-            <pre v-if="isToolCallOpen(part)" class="tool-call-body">{{ JSON.stringify(toolCallJson(part), null, 2) }}</pre>
+            <pre v-if="isToolCallOpen(part)"
+              class="tool-call-body">{{ JSON.stringify(toolCallJson(part), null, 2) }}</pre>
           </section>
 
           <section v-else class="text-segment content-segment" :class="{ editable: canEdit }"
             @dblclick="startEdit(index)">
             <textarea v-if="editing && editingPartIndex === index" :ref="setEditorElement" v-model="draft"
               class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
-            <MarkdownView v-else :markdown="part.text" />
+            <MarkdownView v-else :markdown="displayTextMarkdown(part.text)" />
           </section>
         </template>
 
@@ -795,16 +850,24 @@ defineExpose({
   background: #fbfcfd;
 }
 
-.reasoning-toggle {
-  width: 100%;
+.reasoning-header {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.reasoning-toggle {
+  min-width: 0;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 7px;
   border: 0;
   background: transparent;
   color: #526173;
-  padding: 8px 10px;
+  padding: 3px 0;
   text-align: left;
 }
 
