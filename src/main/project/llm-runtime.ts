@@ -1,7 +1,6 @@
 import type { WebContents } from 'electron'
 import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
 import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
-import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../shared/chat-blocks'
 import { LOREBOOK_EDIT_TOOL_GROUP, LOREBOOK_EDIT_TOOL_NAMES, loreBookToolFieldHints } from '../../shared/lorebook-tooling'
 import { asRecord, asString } from '../../shared/value-utils'
 import {
@@ -19,11 +18,9 @@ import type {
   ChatBlockTokenUsage,
   ChatContentPart,
   ChatGenerationEvent,
-  ChatGenerationPreview,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
-  CharacterEntry,
   JsonRecord,
   LlmGenerationParameters,
   LlmInstance,
@@ -70,9 +67,7 @@ interface ActiveGeneration {
 
 interface PromptTemplateBundle {
   messages: ModelMessage[]
-  virtualBlocks: ChatBlock[]
   requestBlockIds: number[]
-  character: CharacterEntry | null
   templateDiagnostics: PromptTemplateDiagnostic[]
   templateVariables: PromptTemplateVariables
   templateGlobalVariables: JsonRecord
@@ -88,39 +83,6 @@ const LEGACY_LOREBOOK_EDIT_TOOL_NAMES = [
   'test_lorebook_trigger',
   'upsert_lorebook_entry'
 ] as const
-
-function blockText(block: ChatBlock): string {
-  return block.contentParts
-    .map(part => {
-      if (part.type === 'text') return part.text
-      if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
-      return [
-        `[Tool call: ${part.toolName}]`,
-        `input: ${JSON.stringify(part.input)}`,
-        part.status === 'success' ? `output: ${JSON.stringify(part.output ?? null)}` : '',
-        part.status === 'error' ? `error: ${part.error ?? ''}` : ''
-      ].filter(Boolean).join('\n')
-    })
-    .join('')
-}
-
-function reasoningPartSendsAsContext(part: ChatContentPart): boolean {
-  return part.type === 'reasoning' && part.sendAsContext === true
-}
-
-function blockReasoningText(block: ChatBlock): string {
-  return block.contentParts
-    .map(part => part.type === 'reasoning' && reasoningPartSendsAsContext(part) ? part.text : '')
-    .join('')
-}
-
-function shouldSendReasoning(block: ChatBlock): boolean {
-  return block.contentParts.some(part => (
-    part.type === 'reasoning' &&
-    reasoningPartSendsAsContext(part) &&
-    part.text.trim().length > 0
-  ))
-}
 
 function usageNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -168,6 +130,14 @@ function sendEvent(webContents: WebContents, event: ChatGenerationEvent): void {
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function messageHasSendableContent(message: ModelMessage): boolean {
+  if (typeof message.content === 'string') return message.content.trim().length > 0
+  return message.content.some(part => {
+    if (part.type === 'text' || part.type === 'reasoning') return part.text.trim().length > 0
+    return true
+  })
 }
 
 function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): JsonRecord {
@@ -499,10 +469,8 @@ async function buildPromptBundle(
   })
 
   return {
-    messages: generated.messages,
-    virtualBlocks: generated.virtualBlocks,
+    messages: generated.messages.filter(messageHasSendableContent),
     requestBlockIds: prompt.requestBlockIds,
-    character: prompt.character,
     templateDiagnostics: [...preprocessed.diagnostics, ...generated.diagnostics],
     templateVariables: generated.variables,
     templateGlobalVariables: generated.globalVariables,
@@ -510,22 +478,6 @@ async function buildPromptBundle(
     templateMessageVariablesByBlockId: generated.messageVariablesByBlockId,
     specialEntries: preprocessed.specialEntries
   }
-}
-
-function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[], character: CharacterEntry | null): ChatGenerationPreview['contextBlocks'] {
-  return [...virtualBlocks, ...blocks].map(block => ({
-    id: block.id,
-    kind: block.kind,
-    targetRole: chatBlockTargetRole(block),
-    enabled: block.enabled,
-    status: block.status,
-    orderIndex: block.orderIndex,
-    title: chatBlockTitle(block, { character }),
-    summary: chatBlockSummary(block),
-    text: blockText(block),
-    reasoning: blockReasoningText(block),
-    virtual: block.metadata.virtual === true
-  }))
 }
 
 async function persistPromptTemplateVariables(chat: ReturnType<typeof getChat>, bundle: Pick<PromptTemplateBundle, 'templateGlobalVariables' | 'templateLocalVariables'>): Promise<void> {
@@ -545,7 +497,7 @@ async function persistPromptTemplateVariables(chat: ReturnType<typeof getChat>, 
   })
 }
 
-export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreview> {
+export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[]> {
   const chat = getChat(request.chatId)
   if (activeGenerations.has(chat.id)) {
     throw new Error('当前聊天已有正在生成的块。')
@@ -559,18 +511,7 @@ export async function previewChatGeneration(request: ChatGenerationRequest): Pro
     throw new Error('没有可发送的内容块。')
   }
 
-  return {
-    request: {
-      chatId: request.chatId,
-      regenerateBlockId: request.regenerateBlockId ?? null
-    },
-    chat,
-    messages,
-    templateDiagnostics: prompt.templateDiagnostics,
-    templateVariables: prompt.templateVariables,
-    contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks, prompt.character),
-    requestBlockIds: prompt.requestBlockIds
-  }
+  return messages
 }
 
 export async function renderPromptTemplateBlock(request: PromptTemplateBlockRenderRequest): Promise<PromptTemplateBlockRenderResult> {

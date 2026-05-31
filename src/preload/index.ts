@@ -6,7 +6,7 @@ import type {
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatGenerationEvent,
-  ChatGenerationPreview,
+  ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
   ChatSession,
@@ -93,7 +93,7 @@ const electronAPI = {
   deleteChatBlock: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('chat:deleteBlock', id),
   startChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationStartResult> =>
     ipcRenderer.invoke('chat:startGeneration', payload),
-  previewChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationPreview> =>
+  previewChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationPreviewMessage[]> =>
     ipcRenderer.invoke('chat:previewGeneration', payload),
   renderPromptTemplateBlock: (payload: IpcJsonPayload<PromptTemplateBlockRenderRequest>): Promise<PromptTemplateBlockRenderResult> =>
     ipcRenderer.invoke('chat:renderPromptTemplateBlock', payload),

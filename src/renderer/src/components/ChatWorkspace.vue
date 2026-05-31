@@ -18,7 +18,6 @@ import type {
   ChatBlock,
   ChatBlockCreatePayload,
   ChatContentPart,
-  ChatGenerationPreview,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatRuntimeConfig,
@@ -58,7 +57,7 @@ const props = defineProps<{
   frozen: boolean
   llmInstances: LlmInstance[]
   loreBooks: LoreBook[]
-  previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreview | null>
+  previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
   promptTemplateConfig: PromptTemplateProjectConfig | null
   renderPromptTemplateBlock: (payload: PromptTemplateBlockRenderRequest) => Promise<PromptTemplateBlockRenderResult | null>
   saveChat: (chat: ChatSession) => Promise<void>
@@ -79,7 +78,7 @@ const replyPanelOpen = ref(false)
 const replyButtonRef = ref<HTMLButtonElement | null>(null)
 const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
-const contextPreview = ref<ChatGenerationPreview | null>(null)
+const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
 const renderedContentPartsByBlockId = ref<Record<number, ChatContentPart[]>>({})
 const showVirtualEntries = ref(false)
@@ -124,21 +123,7 @@ const displayRegexDepthByBlockId = computed(() => {
   ))
   return new Map(regexBlocks.map((block, index) => [block.id, regexBlocks.length - index - 1]))
 })
-const previewVirtualBlocks = computed(() => contextPreview.value?.contextBlocks.filter(block => block.virtual) ?? [])
-const previewDiagnostics = computed(() => contextPreview.value?.templateDiagnostics ?? [])
-const previewErrorCount = computed(() => previewDiagnostics.value.filter(item => item.level === 'error').length)
-const previewWarningCount = computed(() => previewDiagnostics.value.filter(item => item.level === 'warning').length)
-const previewVariableSummary = computed(() => {
-  const variables = contextPreview.value?.templateVariables
-  if (!variables) return []
-  return [
-    { label: 'global', count: Object.keys(variables.global).length },
-    { label: 'local', count: Object.keys(variables.local).length },
-    { label: 'message', count: Object.keys(variables.message).length },
-    { label: 'initial', count: Object.keys(variables.initial).length },
-    { label: 'cache', count: Object.keys(variables.cache).length }
-  ]
-})
+const previewMessagesJson = computed(() => formatJson(contextPreviewMessages.value ?? []))
 const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
@@ -218,7 +203,7 @@ watch(() => props.chat.id, () => {
   blockRowRefs.clear()
   menuOpen.value = false
   replyPanelOpen.value = false
-  contextPreview.value = null
+  contextPreviewMessages.value = null
   renderedContentPartsByBlockId.value = {}
   showVirtualEntries.value = false
   shouldFollow.value = true
@@ -443,28 +428,6 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? 'undefined'
 }
 
-function contentPartText(part: ChatContentPart): string {
-  if (part.type === 'text' || part.type === 'reasoning') return part.text
-  return [
-    `[Tool call: ${part.toolName}]`,
-    `input: ${formatJson(part.input)}`,
-    part.status === 'success' ? `output: ${formatJson(part.output ?? null)}` : '',
-    part.status === 'error' ? `error: ${part.error ?? ''}` : ''
-  ].filter(Boolean).join('\n')
-}
-
-function messageText(message: ChatGenerationPreviewMessage): string {
-  return typeof message.content === 'string'
-    ? message.content
-    : message.content.map(contentPartText).filter(Boolean).join('\n')
-}
-
-function roleLabel(role: ChatGenerationPreviewMessage['role']): string {
-  if (role === 'assistant') return '助手'
-  if (role === 'user') return '用户'
-  return '系统'
-}
-
 function characterName(character: CharacterEntry): string {
   const data = recordFromJson(character.stData.data)
   return stringFromJson(data.name, `角色 #${character.id}`).trim() || `角色 #${character.id}`
@@ -591,8 +554,8 @@ async function showGenerationPreview() {
   if (props.frozen) return
   menuOpen.value = false
   await saveEditingBlocks()
-  const preview = await props.previewChatGeneration({ chatId: props.chat.id })
-  if (preview) contextPreview.value = preview
+  const messages = await props.previewChatGeneration({ chatId: props.chat.id })
+  if (messages) contextPreviewMessages.value = messages
 }
 
 async function generateReply() {
@@ -736,83 +699,23 @@ async function removeBlock(block: ChatBlock) {
     </Teleport>
 
     <Teleport to="body">
-      <div v-if="contextPreview" class="preview-dialog" role="dialog" aria-modal="true"
-        @click.self="contextPreview = null">
+      <div v-if="contextPreviewMessages" class="preview-dialog" role="dialog" aria-modal="true"
+        @click.self="contextPreviewMessages = null">
         <section class="preview-panel">
           <header class="preview-header">
             <div>
               <h2>将要发送的上下文</h2>
-              <p>{{ contextPreview.messages.length }} 条最终 messages · {{ contextPreview.contextBlocks.length }} 个上下文块</p>
+              <p>{{ contextPreviewMessages.length }} 条最终 messages</p>
             </div>
             <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭"
-              @click="contextPreview = null">
+              @click="contextPreviewMessages = null">
               <MdClose class="toolbar-icon" aria-hidden="true" />
             </button>
           </header>
 
           <div class="preview-body">
-            <section class="preview-strip">
-              <div class="preview-stat">
-                <span>错误</span>
-                <strong>{{ previewErrorCount }}</strong>
-              </div>
-              <div class="preview-stat">
-                <span>警告</span>
-                <strong>{{ previewWarningCount }}</strong>
-              </div>
-              <div class="preview-stat">
-                <span>注入块</span>
-                <strong>{{ previewVirtualBlocks.length }}</strong>
-              </div>
-              <div v-for="item in previewVariableSummary" :key="item.label" class="preview-stat">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.count }}</strong>
-              </div>
-            </section>
-
-            <section v-if="previewDiagnostics.length" class="preview-section">
-              <h3>模板诊断</h3>
-              <div class="diagnostic-list">
-                <article v-for="(item, index) in previewDiagnostics" :key="index" class="diagnostic-row"
-                  :class="`diagnostic-${item.level}`">
-                  <strong>{{ item.level }}</strong>
-                  <span>{{ item.phase }}</span>
-                  <p>{{ item.message }}</p>
-                  <small v-if="item.source || item.entryId || item.blockId">
-                    {{ [item.source, item.entryId ? `entry #${item.entryId}` : '', item.blockId ? `block #${item.blockId}` : ''].filter(Boolean).join(' · ') }}
-                  </small>
-                </article>
-              </div>
-            </section>
-
-            <section v-if="previewVirtualBlocks.length" class="preview-section">
-              <h3>触发条目与注入来源</h3>
-              <div class="context-block-list">
-                <article v-for="block in previewVirtualBlocks" :key="`${block.id}:${block.orderIndex}:${block.title}`"
-                  class="context-block-row">
-                  <strong>{{ block.title }}</strong>
-                  <span>{{ block.targetRole }} · {{ block.summary }}</span>
-                  <pre v-if="block.text">{{ block.text }}</pre>
-                </article>
-              </div>
-            </section>
-
             <section class="preview-section">
-              <h3>最终 Messages</h3>
-              <div class="message-preview-list">
-                <article v-for="(message, index) in contextPreview.messages" :key="index" class="message-preview-row">
-                  <header>
-                    <strong>{{ roleLabel(message.role) }}</strong>
-                    <span>{{ messageText(message).length }} 字符</span>
-                  </header>
-                  <pre>{{ messageText(message) }}</pre>
-                </article>
-              </div>
-            </section>
-
-            <section class="preview-section">
-              <h3>变量快照</h3>
-              <pre class="json-preview">{{ formatJson(contextPreview.templateVariables) }}</pre>
+              <pre class="json-preview">{{ previewMessagesJson }}</pre>
             </section>
           </div>
         </section>
@@ -1008,108 +911,15 @@ async function removeBlock(block: ChatBlock) {
   min-width: 0;
   overflow: auto;
   display: grid;
-  gap: 14px;
   background: #fbfcfd;
   padding: 14px;
-}
-
-.preview-strip {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 8px;
-}
-
-.preview-stat {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  border: 1px solid #e1e7ef;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 8px 10px;
-}
-
-.preview-stat span {
-  color: #657184;
-  font-size: 11px;
-}
-
-.preview-stat strong {
-  color: #253044;
-  font-size: 17px;
 }
 
 .preview-section {
   min-width: 0;
   display: grid;
-  gap: 8px;
 }
 
-.preview-section h3 {
-  margin: 0;
-  color: #314052;
-  font-size: 13px;
-}
-
-.diagnostic-list,
-.context-block-list,
-.message-preview-list {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.diagnostic-row,
-.context-block-row,
-.message-preview-row {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  border: 1px solid #e1e7ef;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 9px 10px;
-}
-
-.diagnostic-row {
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-}
-
-.diagnostic-row p,
-.diagnostic-row small {
-  grid-column: 1 / -1;
-  margin: 0;
-}
-
-.diagnostic-row strong,
-.diagnostic-row span,
-.diagnostic-row small,
-.context-block-row span,
-.message-preview-row span {
-  color: #657184;
-  font-size: 11px;
-}
-
-.diagnostic-error {
-  border-color: #f0b7b7;
-  background: #fff8f8;
-}
-
-.diagnostic-warning {
-  border-color: #efd18e;
-  background: #fffaf0;
-}
-
-.context-block-row strong,
-.message-preview-row strong {
-  color: #253044;
-  font-size: 12px;
-}
-
-.context-block-row pre,
-.message-preview-row pre,
 .json-preview {
   min-width: 0;
   overflow: auto;
@@ -1122,14 +932,6 @@ async function removeBlock(block: ChatBlock) {
   font: 12px/1.55 "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.message-preview-row header {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .workspace-menu,

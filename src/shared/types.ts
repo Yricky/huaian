@@ -355,23 +355,6 @@ export interface ChatGenerationPreviewMessage {
   content: string | ChatContentPart[]
 }
 
-export interface ChatGenerationPreview {
-  request: ChatGenerationRequest
-  chat: ChatSession
-  messages: ChatGenerationPreviewMessage[]
-  templateDiagnostics: PromptTemplateDiagnostic[]
-  templateVariables: PromptTemplateVariables
-  contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'status' | 'orderIndex'> & {
-    targetRole: ChatBlockTargetRole
-    title: string
-    summary: string
-    text: string
-    reasoning: string
-    virtual?: boolean
-  }>
-  requestBlockIds: number[]
-}
-
 export interface LoreBookDraftChange {
   id: number
   kind: 'created' | 'updated'

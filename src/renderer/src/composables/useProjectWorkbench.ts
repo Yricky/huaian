@@ -4,7 +4,7 @@ import type {
   ChatCreatePayload,
   ChatBlockCreatePayload,
   ChatGenerationEvent,
-  ChatGenerationPreview,
+  ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatSession,
   CharacterEntry,
@@ -922,7 +922,7 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreview | null> {
+  async function previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[] | null> {
     try {
       return await window.electronAPI.previewChatGeneration(toIpcJson(payload))
     } catch (error) {
