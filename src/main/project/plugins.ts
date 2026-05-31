@@ -127,13 +127,14 @@ function builtinPluginZipPath(pluginId: string): string {
 
 async function installBuiltinPlugin(pluginId: string): Promise<void> {
   const root = pluginRoot(pluginId)
-  if (await directoryExists(root)) {
-    await mkdir(pluginDataRoot(pluginId), { recursive: true })
-    return
-  }
-
+  const rootExists = await directoryExists(root)
   const zipPath = builtinPluginZipPath(pluginId)
+
   if (!await pathExists(zipPath)) {
+    if (rootExists) {
+      await mkdir(pluginDataRoot(pluginId), { recursive: true })
+      return
+    }
     throw new Error(`内置插件资源缺失：${zipPath}。请先运行 pnpm build:plugins。`)
   }
 
@@ -142,8 +143,19 @@ async function installBuiltinPlugin(pluginId: string): Promise<void> {
   await rm(tempRoot, { recursive: true, force: true })
   try {
     await extractZipFile(zipPath, tempRoot)
-    const manifest = await readPluginManifest(tempRoot)
-    if (manifest?.id !== pluginId) throw new Error(`内置插件包 id 不匹配：${pluginId}`)
+    const bundledManifest = await readPluginManifest(tempRoot)
+    if (bundledManifest?.id !== pluginId) throw new Error(`内置插件包 id 不匹配：${pluginId}`)
+
+    const installedManifest = rootExists ? await readPluginManifest(root) : null
+    const installedVersion = Number(installedManifest?.versionCode ?? 0)
+    const bundledVersion = Number(bundledManifest.versionCode ?? 1)
+    if (rootExists && installedVersion >= bundledVersion) {
+      await rm(tempRoot, { recursive: true, force: true })
+      await mkdir(pluginDataRoot(pluginId), { recursive: true })
+      return
+    }
+
+    await rm(root, { recursive: true, force: true })
     await rename(tempRoot, root)
     await mkdir(pluginDataRoot(pluginId), { recursive: true })
   } catch (error) {
@@ -240,10 +252,29 @@ export async function readPluginDataFile(pluginId: string, path: string): Promis
   }
 }
 
+export async function readPluginDataFileBase64(pluginId: string, path: string): Promise<string> {
+  try {
+    return (await readFile(safeChildPath(pluginDataRoot(pluginId), path))).toString('base64')
+  } catch (error) {
+    if (asRecord(error).code === 'ENOENT') return ''
+    throw error
+  }
+}
+
 export async function writePluginDataFile(pluginId: string, path: string, content: string): Promise<void> {
   const filePath = safeChildPath(pluginDataRoot(pluginId), path)
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(filePath, content, 'utf-8')
+}
+
+export async function writePluginDataFileBase64(pluginId: string, path: string, content: string): Promise<void> {
+  const filePath = safeChildPath(pluginDataRoot(pluginId), path)
+  await mkdir(dirname(filePath), { recursive: true })
+  await writeFile(filePath, Buffer.from(content, 'base64'))
+}
+
+export async function deletePluginDataFile(pluginId: string, path: string): Promise<void> {
+  await rm(safeChildPath(pluginDataRoot(pluginId), path), { force: true })
 }
 
 export async function readPluginDataJson(pluginId: string, path: string, fallback: JsonRecord = {}): Promise<JsonRecord> {
@@ -263,15 +294,17 @@ export async function listPluginDataFiles(pluginId: string, path = ''): Promise<
   const directoryPath = safeChildPath(root, path)
   await mkdir(directoryPath, { recursive: true })
   const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => [])
-  return entries
-    .map(entry => {
+  const files = await Promise.all(entries.map(async entry => {
       const relativePath = [path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''), entry.name].filter(Boolean).join('/')
+      const entryStats = await stat(safeChildPath(root, relativePath)).catch(() => null)
       return {
         name: entry.name,
         path: relativePath,
-        isDirectory: entry.isDirectory()
+        isDirectory: entry.isDirectory(),
+        size: entryStats?.size
       }
-    })
+    }))
+  return files
     .sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name))
 }
 

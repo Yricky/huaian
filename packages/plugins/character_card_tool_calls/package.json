@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../../scripts/build-builtin-plugins.mjs character_card_tool_calls"
+    "build": "vite build --mode initGlobal && vite build --mode initChat && vite build --mode handler"
   },
   "dependencies": {
     "@st-forge/plugin-api": "workspace:*"

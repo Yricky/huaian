@@ -5,6 +5,7 @@ import {
   MdCheck,
   MdClose,
   MdMoreVert,
+  MdOpenInNew,
   MdPostAdd,
   MdSmartToy,
   MdVisibility
@@ -23,6 +24,7 @@ import type {
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
+import PluginFrame from './PluginFrame.vue'
 
 type ChatListItem =
   | { type: 'block'; block: ChatBlock; sourceBlock: ChatBlock | null }
@@ -65,6 +67,7 @@ const replyPanelOpen = ref(false)
 const replyButtonRef = ref<HTMLButtonElement | null>(null)
 const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
+const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
 const displayBlocks = ref<ChatBlock[]>([])
@@ -131,6 +134,7 @@ watch(() => props.chat.id, () => {
   blockRowRefs.clear()
   menuOpen.value = false
   replyPanelOpen.value = false
+  chatHtmlPlugin.value = null
   contextPreviewMessages.value = null
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
@@ -368,6 +372,24 @@ async function toggleChatPlugin(pluginId: string) {
   await saveRuntimeConfig(runtimeConfigWith({ enabledPluginIds: [...current] }))
 }
 
+function pluginChatHtmlPath(plugin: PluginDescriptor): string {
+  return plugin.manifest.entry?.chatHtml ?? ''
+}
+
+function openPluginChatHtml(plugin: PluginDescriptor) {
+  if (!pluginChatHtmlPath(plugin) || !activePluginIds.value.has(plugin.manifest.id)) return
+  menuOpen.value = false
+  chatHtmlPlugin.value = plugin
+}
+
+function closePluginChatHtml() {
+  chatHtmlPlugin.value = null
+}
+
+function handlePluginChatUpdated() {
+  pluginDataRevision.value += 1
+}
+
 async function selectReplyLlmInstance(llmInstanceId: number | null) {
   await saveRuntimeConfig(runtimeConfigWith({ llmInstanceId }))
 }
@@ -529,20 +551,34 @@ async function removeBlock(block: ChatBlock) {
           <div class="popup-section-title">
             <MdBook class="menu-icon" aria-hidden="true" />插件
           </div>
-          <button
+          <div
             v-for="plugin in plugins"
             :key="plugin.manifest.id"
             class="setting-row"
-            type="button"
-            :aria-pressed="activePluginIds.has(plugin.manifest.id)"
             :class="{ selected: activePluginIds.has(plugin.manifest.id) }"
-            @click="toggleChatPlugin(plugin.manifest.id)"
           >
-            <span class="setting-row-text">{{ plugin.manifest.name || plugin.manifest.id }}</span>
-            <span class="setting-check" aria-hidden="true">
-              <MdCheck v-if="activePluginIds.has(plugin.manifest.id)" class="setting-check-icon" />
-            </span>
-          </button>
+            <button
+              class="setting-row-main"
+              type="button"
+              :aria-pressed="activePluginIds.has(plugin.manifest.id)"
+              @click="toggleChatPlugin(plugin.manifest.id)"
+            >
+              <span class="setting-row-text">{{ plugin.manifest.name || plugin.manifest.id }}</span>
+              <span class="setting-check" aria-hidden="true">
+                <MdCheck v-if="activePluginIds.has(plugin.manifest.id)" class="setting-check-icon" />
+              </span>
+            </button>
+            <button
+              v-if="activePluginIds.has(plugin.manifest.id) && pluginChatHtmlPath(plugin)"
+              class="setting-row-action"
+              type="button"
+              aria-label="打开插件页面"
+              data-tooltip="打开插件页面"
+              @click.stop="openPluginChatHtml(plugin)"
+            >
+              <MdOpenInNew class="setting-row-action-icon" aria-hidden="true" />
+            </button>
+          </div>
         </section>
 
         <section class="popup-section">
@@ -568,6 +604,30 @@ async function removeBlock(block: ChatBlock) {
             @click="selectReplyLlmInstance(instance.id)">
             <span>{{ instance.name }}</span>
           </button>
+        </section>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="chatHtmlPlugin" class="plugin-chat-dialog" role="dialog" aria-modal="true" @click.self="closePluginChatHtml">
+        <section class="plugin-chat-panel">
+          <header class="plugin-chat-header">
+            <div>
+              <h2>{{ chatHtmlPlugin.manifest.name || chatHtmlPlugin.manifest.id }}</h2>
+              <p>{{ chatHtmlPlugin.manifest.description }}</p>
+            </div>
+            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="closePluginChatHtml">
+              <MdClose class="toolbar-icon" aria-hidden="true" />
+            </button>
+          </header>
+          <div class="plugin-chat-body">
+            <PluginFrame
+              :chat="chat"
+              :html-path="pluginChatHtmlPath(chatHtmlPlugin)"
+              :plugin-id="chatHtmlPlugin.manifest.id"
+              @update:chat="handlePluginChatUpdated"
+            />
+          </div>
         </section>
       </div>
     </Teleport>
@@ -794,6 +854,32 @@ async function removeBlock(block: ChatBlock) {
   justify-content: space-between;
 }
 
+.setting-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.setting-row-main {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.setting-row-action {
+  width: 32px;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+}
+
+.setting-row-action-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .setting-row.selected,
 .choice-row.selected {
   background: #edf5ff;
@@ -821,6 +907,54 @@ async function removeBlock(block: ChatBlock) {
   width: 17px;
   height: 17px;
   flex-shrink: 0;
+}
+
+.plugin-chat-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  background: rgba(25, 31, 39, 0.34);
+  padding: 24px;
+}
+
+.plugin-chat-panel {
+  width: min(720px, 94vw);
+  height: min(680px, 86vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(26, 33, 42, 0.26);
+}
+
+.plugin-chat-header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #edf0f4;
+  padding: 12px 14px;
+}
+
+.plugin-chat-header h2 {
+  margin: 0;
+  color: #253041;
+  font-size: 15px;
+}
+
+.plugin-chat-header p {
+  margin: 3px 0 0;
+  color: #66758a;
+  font-size: 12px;
+}
+
+.plugin-chat-body {
+  min-width: 0;
+  min-height: 0;
 }
 
 .preview-dialog {

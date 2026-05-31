@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../../scripts/build-builtin-plugins.mjs silly_tavern_compat"
+    "build": "vite build --mode initGlobal && vite build --mode initChat && vite build --mode chatBlockProcessor && vite build --mode settingsHtml && vite build --mode chatHtml"
   },
   "dependencies": {
-    "@st-forge/plugin-api": "workspace:*"
+    "@st-forge/plugin-api": "workspace:*",
+    "vue": "^3.5.27"
   },
   "stForgePlugin": {
     "source": "plugin",

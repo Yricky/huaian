@@ -17,10 +17,13 @@ import { hasActiveGeneration, previewChatGeneration, resolvePluginToolCall, star
 import { fetchProviderModels } from './project/llm-provider'
 import { hasProject } from './project/state'
 import {
+  deletePluginDataFile,
   listPluginDataFiles,
   listProjectPlugins,
+  readPluginDataFileBase64,
   readPluginDataFile,
   readPluginFile,
+  writePluginDataFileBase64,
   writePluginDataFile
 } from './project/plugins'
 import {
@@ -144,9 +147,14 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('plugin:readFile', (_, pluginId: string, path: string) => readPluginFile(pluginId, path))
   ipcMain.handle('plugin:listDataFiles', (_, pluginId: string, path = '') => listPluginDataFiles(pluginId, path))
   ipcMain.handle('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
+  ipcMain.handle('plugin:readDataFileBase64', (_, pluginId: string, path: string) => readPluginDataFileBase64(pluginId, path))
   ipcMain.handle('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
     writePluginDataFile(pluginId, path, content)
   ))
+  ipcMain.handle('plugin:writeDataFileBase64', (_, pluginId: string, path: string, content: string) => (
+    writePluginDataFileBase64(pluginId, path, content)
+  ))
+  ipcMain.handle('plugin:deleteDataFile', (_, pluginId: string, path: string) => deletePluginDataFile(pluginId, path))
   ipcMain.handle('plugin:toolCallResponse', (_, payload: IpcJsonPayload<PluginToolCallResponse>) => (
     resolvePluginToolCall(parseIpcPayload(payload))
   ))

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { MdClose, MdExtension, MdPowerSettingsNew } from 'vue-icons-plus/md'
+import { MdClose, MdExtension, MdPowerSettingsNew, MdSettings } from 'vue-icons-plus/md'
 import type { PluginDescriptor } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import PluginFrame from './PluginFrame.vue'
@@ -9,6 +9,7 @@ const { plugins, project, saveProjectConfig, showToast } = useProjectWorkbench()
 const selectedPlugin = ref<PluginDescriptor | null>(null)
 
 const enabledPluginIds = computed(() => new Set(project.value?.config.plugins.enabledPluginIds ?? []))
+const pluginById = computed(() => new Map(plugins.value.map(plugin => [plugin.manifest.id, plugin])))
 
 function pluginName(plugin: PluginDescriptor): string {
   return plugin.manifest.name || plugin.manifest.id
@@ -26,6 +27,53 @@ function isEnabled(plugin: PluginDescriptor): boolean {
   return enabledPluginIds.value.has(plugin.manifest.id)
 }
 
+function missingDependencyIds(plugin: PluginDescriptor): string[] {
+  if (!isEnabled(plugin)) return []
+
+  const missing = new Set<string>()
+  const visited = new Set<string>()
+  const visiting = new Set<string>()
+
+  const visit = (pluginId: string) => {
+    if (visited.has(pluginId) || visiting.has(pluginId)) return
+    visiting.add(pluginId)
+
+    const descriptor = pluginById.value.get(pluginId)
+    for (const dependencyId of descriptor?.manifest.dependencies ?? []) {
+      const dependency = pluginById.value.get(dependencyId)
+      if (!dependency || !enabledPluginIds.value.has(dependencyId)) {
+        missing.add(dependencyId)
+        continue
+      }
+      visit(dependencyId)
+    }
+
+    visiting.delete(pluginId)
+    visited.add(pluginId)
+  }
+
+  visit(plugin.manifest.id)
+  return [...missing].sort()
+}
+
+function hasMissingDependencies(plugin: PluginDescriptor): boolean {
+  return missingDependencyIds(plugin).length > 0
+}
+
+function dependencyTooltip(plugin: PluginDescriptor): string | undefined {
+  const ids = missingDependencyIds(plugin)
+  return ids.length ? ids.join(', ') : undefined
+}
+
+function pluginStatusLabel(plugin: PluginDescriptor): string {
+  if (!isEnabled(plugin)) return '已禁用'
+  return hasMissingDependencies(plugin) ? '依赖缺失' : '已启用'
+}
+
+function canOpenSettings(plugin: PluginDescriptor): boolean {
+  return isEnabled(plugin) && Boolean(plugin.manifest.entry?.settingsHtml)
+}
+
 async function togglePlugin(plugin: PluginDescriptor) {
   const current = new Set(project.value?.config.plugins.enabledPluginIds ?? [])
   if (current.has(plugin.manifest.id)) current.delete(plugin.manifest.id)
@@ -34,7 +82,8 @@ async function togglePlugin(plugin: PluginDescriptor) {
   if (ok) showToast(`${pluginName(plugin)} ${current.has(plugin.manifest.id) ? '已启用' : '已禁用'}`, 'success')
 }
 
-function openPlugin(plugin: PluginDescriptor) {
+function openPluginSettings(plugin: PluginDescriptor) {
+  if (!canOpenSettings(plugin)) return
   selectedPlugin.value = plugin
 }
 
@@ -45,76 +94,82 @@ function closePlugin() {
 
 <template>
   <section class="plugins-page">
-    <header class="plugins-header">
-      <div>
-        <h2>插件</h2>
-        <p>{{ plugins.length }} 个项目插件</p>
-      </div>
-    </header>
+    <section v-if="selectedPlugin" class="plugin-settings-page">
+      <header class="plugin-settings-header">
+        <div>
+          <h2>{{ pluginName(selectedPlugin) }}</h2>
+          <p>{{ selectedPlugin.manifest.id }} · {{ pluginVersion(selectedPlugin) }}</p>
+        </div>
+        <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="closePlugin">
+          <MdClose class="toolbar-icon" aria-hidden="true" />
+        </button>
+      </header>
 
-    <div class="plugin-grid">
-      <article
-        v-for="plugin in plugins"
-        :key="plugin.manifest.id"
-        class="plugin-card"
-        role="button"
-        tabindex="0"
-        @click="openPlugin(plugin)"
-        @keydown.enter.prevent="openPlugin(plugin)"
-        @keydown.space.prevent="openPlugin(plugin)"
-      >
-        <span class="plugin-icon-shell">
-          <MdExtension class="plugin-icon" aria-hidden="true" />
-        </span>
-        <span class="plugin-card-copy">
-          <strong>{{ pluginName(plugin) }}</strong>
-          <span class="plugin-id">{{ plugin.manifest.id }}</span>
-          <span class="plugin-description">{{ pluginDescription(plugin) }}</span>
-        </span>
-        <span class="plugin-card-footer">
-          <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
-          <span class="plugin-status" :class="{ enabled: isEnabled(plugin) }">
-            {{ isEnabled(plugin) ? '已启用' : '已禁用' }}
+      <div class="plugin-settings-body">
+        <PluginFrame
+          v-if="selectedPlugin.manifest.entry?.settingsHtml"
+          :plugin-id="selectedPlugin.manifest.id"
+          :html-path="selectedPlugin.manifest.entry.settingsHtml"
+        />
+      </div>
+    </section>
+
+    <template v-else>
+      <header class="plugins-header">
+        <div>
+          <h2>插件</h2>
+          <p>{{ plugins.length }} 个项目插件</p>
+        </div>
+      </header>
+
+      <div class="plugin-grid">
+        <article
+          v-for="plugin in plugins"
+          :key="plugin.manifest.id"
+          class="plugin-card"
+        >
+          <span class="plugin-icon-shell">
+            <MdExtension class="plugin-icon" aria-hidden="true" />
           </span>
-          <button
-            class="plugin-toggle"
-            type="button"
-            :aria-label="`${isEnabled(plugin) ? '禁用' : '启用'} ${pluginName(plugin)}`"
-            :data-tooltip="isEnabled(plugin) ? '禁用' : '启用'"
-            @click.stop="togglePlugin(plugin)"
-          >
-            <MdPowerSettingsNew class="plugin-toggle-icon" aria-hidden="true" />
-          </button>
-        </span>
-      </article>
-
-      <p v-if="!plugins.length" class="empty-note">当前项目还没有插件。</p>
-    </div>
-
-    <Teleport to="body">
-      <div v-if="selectedPlugin" class="plugin-modal" role="dialog" aria-modal="true" @click.self="closePlugin">
-        <section class="plugin-panel">
-          <header class="plugin-panel-header">
-            <div>
-              <h2>{{ pluginName(selectedPlugin) }}</h2>
-              <p>{{ selectedPlugin.manifest.id }} · {{ pluginVersion(selectedPlugin) }}</p>
-            </div>
-            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" @click="closePlugin">
-              <MdClose class="toolbar-icon" aria-hidden="true" />
+          <span class="plugin-card-copy">
+            <strong>{{ pluginName(plugin) }}</strong>
+            <span class="plugin-id">{{ plugin.manifest.id }}</span>
+            <span class="plugin-description">{{ pluginDescription(plugin) }}</span>
+          </span>
+          <span class="plugin-card-footer">
+            <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
+            <span
+              class="plugin-status"
+              :class="{ enabled: isEnabled(plugin) && !hasMissingDependencies(plugin), missing: hasMissingDependencies(plugin) }"
+              :data-tooltip="dependencyTooltip(plugin)"
+            >
+              {{ pluginStatusLabel(plugin) }}
+            </span>
+            <button
+              v-if="canOpenSettings(plugin)"
+              class="plugin-settings-button"
+              type="button"
+              :aria-label="`打开 ${pluginName(plugin)} 设置`"
+              data-tooltip="设置"
+              @click="openPluginSettings(plugin)"
+            >
+              <MdSettings class="plugin-settings-icon" aria-hidden="true" />
             </button>
-          </header>
+            <button
+              class="plugin-toggle"
+              type="button"
+              :aria-label="`${isEnabled(plugin) ? '禁用' : '启用'} ${pluginName(plugin)}`"
+              :data-tooltip="isEnabled(plugin) ? '禁用' : '启用'"
+              @click="togglePlugin(plugin)"
+            >
+              <MdPowerSettingsNew class="plugin-toggle-icon" aria-hidden="true" />
+            </button>
+          </span>
+        </article>
 
-          <div class="plugin-panel-body">
-            <PluginFrame
-              v-if="selectedPlugin.manifest.entry?.settingsHtml"
-              :plugin-id="selectedPlugin.manifest.id"
-              :html-path="selectedPlugin.manifest.entry.settingsHtml"
-            />
-            <p v-else class="empty-note">这个插件没有提供设置页面。</p>
-          </div>
-        </section>
+        <p v-if="!plugins.length" class="empty-note">当前项目还没有插件。</p>
       </div>
-    </Teleport>
+    </template>
   </section>
 </template>
 
@@ -139,14 +194,14 @@ function closePlugin() {
 }
 
 .plugins-header h2,
-.plugin-panel-header h2 {
+.plugin-settings-header h2 {
   margin: 0;
   color: #243041;
   font-size: 16px;
 }
 
 .plugins-header p,
-.plugin-panel-header p {
+.plugin-settings-header p {
   margin: 3px 0 0;
   color: #6d7989;
   font-size: 12px;
@@ -171,7 +226,6 @@ function closePlugin() {
   background: #ffffff;
   color: #243041;
   padding: 12px;
-  text-align: left;
 }
 
 .plugin-card:hover {
@@ -254,7 +308,42 @@ function closePlugin() {
   color: #237248;
 }
 
-.plugin-toggle {
+.plugin-status.missing {
+  position: relative;
+  background: #fde7e7;
+  color: #b42323;
+}
+
+.plugin-status.missing::after {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  max-width: min(320px, 70vw);
+  pointer-events: none;
+  content: attr(data-tooltip);
+  opacity: 0;
+  transform: translateY(2px);
+  border-radius: 4px;
+  background: #30343a;
+  padding: 6px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.plugin-status.missing:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.plugin-toggle,
+.plugin-settings-button {
+  position: relative;
   width: 30px;
   height: 30px;
   display: grid;
@@ -263,14 +352,48 @@ function closePlugin() {
   border-radius: 6px;
   background: transparent;
   color: #506176;
+}
+
+.plugin-toggle {
   margin-left: auto;
 }
 
-.plugin-toggle:hover {
+.plugin-toggle:hover,
+.plugin-settings-button:hover {
   background: #e9eef5;
 }
 
-.plugin-toggle-icon {
+.plugin-toggle::after,
+.plugin-settings-button::after {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 20;
+  pointer-events: none;
+  content: attr(data-tooltip);
+  opacity: 0;
+  transform: translateY(-2px);
+  border-radius: 4px;
+  background: #30343a;
+  padding: 5px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.plugin-toggle:hover::after,
+.plugin-toggle:focus-visible::after,
+.plugin-settings-button:hover::after,
+.plugin-settings-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.plugin-toggle-icon,
+.plugin-settings-icon {
   width: 18px;
   height: 18px;
 }
@@ -281,29 +404,18 @@ function closePlugin() {
   font-size: 12px;
 }
 
-.plugin-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 180;
-  display: grid;
-  place-items: center;
-  background: rgba(25, 31, 39, 0.34);
-  padding: 24px;
-}
-
-.plugin-panel {
-  width: min(980px, 94vw);
-  height: min(760px, 88vh);
+.plugin-settings-page {
+  grid-row: 1 / -1;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 18px 50px rgba(26, 33, 42, 0.26);
 }
 
-.plugin-panel-header {
+.plugin-settings-header {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -313,7 +425,7 @@ function closePlugin() {
   padding: 10px 12px;
 }
 
-.plugin-panel-body {
+.plugin-settings-body {
   min-width: 0;
   min-height: 0;
   display: grid;

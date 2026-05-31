@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../../../scripts/build-builtin-plugins.mjs st_prompt_template_compat"
+    "build": "vite build --mode initGlobal && vite build --mode initChat && vite build --mode chatBlockProcessor"
   },
   "dependencies": {
     "@st-forge/plugin-api": "workspace:*",

@@ -104,6 +104,9 @@ importers:
       '@st-forge/plugin-api':
         specifier: workspace:*
         version: link:../../plugin-api
+      vue:
+        specifier: ^3.5.27
+        version: 3.5.27(typescript@6.0.3)
 
   packages/plugins/st_prompt_template_compat:
     dependencies:

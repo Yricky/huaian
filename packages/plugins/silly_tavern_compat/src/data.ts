@@ -9,8 +9,26 @@ export type SillyTavernRuntimeConfig = ChatRuntimeConfig & {
   promptTemplateVariables: JsonRecord
 }
 
+export function characterCardData(card: JsonRecord): JsonRecord {
+  const v2Data = asRecord(card.data)
+  return Object.keys(v2Data).length ? v2Data : card
+}
+
+export function characterBookFromCard(card: JsonRecord): JsonRecord | null {
+  const v2Book = asRecord(asRecord(card.data).character_book)
+  if (Array.isArray(v2Book.entries)) return v2Book
+  const v1Book = asRecord(card.character_book)
+  if (Array.isArray(v1Book.entries)) return v1Book
+  return null
+}
+
+function worldBookEntries(book: JsonRecord): unknown[] {
+  if (Array.isArray(book.entries)) return book.entries
+  return Object.values(asRecord(book.entries))
+}
+
 export function normalizeCharacter(record: PluginFileRecord, id: number): CharacterEntry {
-  const data = asRecord(record.data.data)
+  const data = { ...characterCardData(record.data) }
   data.name = asString(data.name ?? record.data.name, record.fileName.replace(/\.json$/i, ''))
   data.extensions = {
     ...asRecord(data.extensions),
@@ -86,28 +104,56 @@ export async function loadSillyTavernCompatData(storage: PluginStorageApi, chat:
     loadJsonRecords(storage, 'characters'),
     loadJsonRecords(storage, 'worldbooks')
   ])
+  const config = asRecord(asRecord(chat.runtimeConfig.pluginData).silly_tavern_compat)
+  const characterFile = asString(config.characterFile)
+  const worldBookFiles = Array.isArray(config.worldBookFiles) ? config.worldBookFiles.map(String) : []
   const characters = characterRecords.map((record, index) => normalizeCharacter(record, index + 1))
-  const loreBooks: LoreBook[] = worldBookRecords.map((record, index) => ({
-    id: index + 1,
+  const selectedCharacterIndex = characterRecords.findIndex(record => record.fileName === characterFile)
+  const characterId = selectedCharacterIndex >= 0 ? selectedCharacterIndex + 1 : characters[0]?.id ?? null
+  const selectedCharacterRecord = characterId === null ? null : characterRecords[characterId - 1] ?? null
+  const embeddedBook = selectedCharacterRecord ? characterBookFromCard(selectedCharacterRecord.data) : null
+  const embeddedBookId = embeddedBook ? 1 : null
+  const externalBookIdOffset = embeddedBook ? 2 : 1
+  if (embeddedBookId !== null && characterId !== null && characters[characterId - 1]) {
+    const selectedCharacter = characters[characterId - 1]
+    characters[characterId - 1] = {
+      ...selectedCharacter,
+      forgeData: {
+        ...selectedCharacter.forgeData,
+        loreBookId: embeddedBookId,
+        characterBookName: asString(embeddedBook.name, `${asString(characterCardData(selectedCharacterRecord?.data ?? {}).name, '角色卡')} 内置世界书`)
+      }
+    }
+  }
+
+  const embeddedLoreBooks: LoreBook[] = embeddedBook && embeddedBookId !== null ? [{
+    id: embeddedBookId,
+    name: asString(embeddedBook.name, characters[characterId === null ? -1 : characterId - 1]?.forgeData.characterBookName || '角色卡内置世界书'),
+    createdAt: '',
+    updatedAt: ''
+  }] : []
+  const externalLoreBooks: LoreBook[] = worldBookRecords.map((record, index) => ({
+    id: index + externalBookIdOffset,
     name: asString(record.data.name, record.fileName.replace(/\.json$/i, '')),
     createdAt: '',
     updatedAt: ''
   }))
-  const worldEntries = worldBookRecords.flatMap((record, bookIndex) => {
-    const loreBookId = bookIndex + 1
-    const entries = Array.isArray(record.data.entries)
-      ? record.data.entries
-      : Object.values(asRecord(record.data.entries))
-    return entries.map((entry, index) => normalizeWorldEntry(entry, index + 1 + bookIndex * 10000, loreBookId))
+  const loreBooks = [...embeddedLoreBooks, ...externalLoreBooks]
+  const embeddedWorldEntries = embeddedBook && embeddedBookId !== null
+    ? worldBookEntries(embeddedBook).map((entry, index) => normalizeWorldEntry(entry, index + 1 + embeddedBookId * 10000, embeddedBookId))
+    : []
+  const externalWorldEntries = worldBookRecords.flatMap((record, bookIndex) => {
+    const loreBookId = bookIndex + externalBookIdOffset
+    const entries = worldBookEntries(record.data)
+    return entries.map((entry, index) => normalizeWorldEntry(entry, index + 1 + loreBookId * 10000, loreBookId))
   })
-  const config = asRecord(asRecord(chat.runtimeConfig.pluginData).silly_tavern_compat)
-  const characterFile = asString(config.characterFile)
-  const worldBookFiles = Array.isArray(config.worldBookFiles) ? config.worldBookFiles.map(String) : []
-  const selectedCharacterIndex = characterRecords.findIndex(record => record.fileName === characterFile)
-  const characterId = selectedCharacterIndex >= 0 ? selectedCharacterIndex + 1 : characters[0]?.id ?? null
-  const selectedWorldBookIds = worldBookFiles.length
-    ? worldBookFiles.map(fileName => worldBookRecords.findIndex(record => record.fileName === fileName) + 1).filter(id => id > 0)
-    : loreBooks.map(book => book.id)
+  const worldEntries = [...embeddedWorldEntries, ...externalWorldEntries]
+  const selectedWorldBookIds = worldBookFiles
+    .map(fileName => {
+      const index = worldBookRecords.findIndex(record => record.fileName === fileName)
+      return index >= 0 ? index + externalBookIdOffset : 0
+    })
+    .filter(id => id > 0)
   const runtimeConfig: SillyTavernRuntimeConfig = {
     ...chat.runtimeConfig,
     characterId: characters.some(character => character.id === characterId) ? characterId : characters[0]?.id ?? null,

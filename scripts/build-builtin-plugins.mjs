@@ -1,11 +1,10 @@
+import { spawn } from 'node:child_process'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { build } from 'vite'
 
 const rootDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
 const pluginsRoot = join(rootDir, 'packages/plugins')
-const pluginApiRoot = join(rootDir, 'packages/plugin-api/src')
 const appBuiltinDir = join(rootDir, 'out/main/builtin-plugins')
 const onlyIds = new Set(process.argv.slice(2).filter(Boolean))
 const crcTable = makeCrcTable()
@@ -62,21 +61,6 @@ async function collectFiles(root, directory = root) {
     })
   }
   return files.sort((a, b) => a.zipPath.localeCompare(b.zipPath))
-}
-
-async function copyDirectory(source, target) {
-  const entries = await readdir(source, { withFileTypes: true }).catch(() => [])
-  await mkdir(target, { recursive: true })
-  for (const entry of entries) {
-    const sourcePath = join(source, entry.name)
-    const targetPath = join(target, entry.name)
-    if (entry.isDirectory()) {
-      await copyDirectory(sourcePath, targetPath)
-      continue
-    }
-    if (!entry.isFile()) continue
-    await writeFile(targetPath, await readFile(sourcePath))
-  }
 }
 
 async function createZip(sourceDir) {
@@ -149,10 +133,11 @@ async function readPluginPackage(packageDir) {
   const outDir = resolve(packageDir, packageJson.stForgePlugin?.out ?? 'out')
   const manifest = await readPluginManifest(staticDir)
   if (!manifest.id) throw new Error(`插件包缺少 id：${packageDir}`)
+  if (!packageJson.name) throw new Error(`插件包缺少 package name：${packageDir}`)
   return {
-    entries: packageJson.stForgePlugin?.entries ?? {},
     id: String(manifest.id),
     outDir,
+    packageName: String(packageJson.name),
     packageDir,
     staticDir
   }
@@ -169,54 +154,25 @@ async function readPluginManifest(pluginDir) {
   throw new Error(`插件包缺少 plugin.json 或 manifest.json：${pluginDir}`)
 }
 
-async function writeZipForPlugin(plugin) {
-  await rm(plugin.outDir, { recursive: true, force: true })
-  await mkdir(plugin.outDir, { recursive: true })
-
-  for (const [name, entryPath] of Object.entries(plugin.entries)) {
-    const entry = resolve(plugin.packageDir, String(entryPath))
-    await build({
-      build: {
-        emptyOutDir: false,
-        lib: {
-          entry,
-          fileName: () => `${name}.js`,
-          formats: ['es']
-        },
-        minify: 'esbuild',
-        outDir: plugin.outDir,
-        rolldownOptions: {
-          output: {
-            codeSplitting: false
-          }
-        },
-        rollupOptions: {
-          output: {
-            format: 'es'
-          }
-        },
-        target: 'es2020'
-      },
-      configFile: false,
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production')
-      },
-      logLevel: 'warn',
-      publicDir: false,
-      resolve: {
-        alias: [
-          { find: 'ejs', replacement: join(plugin.packageDir, 'node_modules/ejs/ejs.min.js') },
-          { find: '@st-forge/plugin-api/chat-blocks', replacement: join(pluginApiRoot, 'chat-blocks.ts') },
-          { find: '@st-forge/plugin-api/types', replacement: join(pluginApiRoot, 'types.ts') },
-          { find: '@st-forge/plugin-api/value-utils', replacement: join(pluginApiRoot, 'value-utils.ts') },
-          { find: '@st-forge/plugin-api', replacement: join(pluginApiRoot, 'index.ts') }
-        ]
-      },
-      root: plugin.packageDir
+async function runPnpm(args) {
+  await new Promise((resolveRun, rejectRun) => {
+    const child = spawn('pnpm', args, {
+      cwd: rootDir,
+      shell: process.platform === 'win32',
+      stdio: 'inherit'
     })
-  }
+    child.on('error', rejectRun)
+    child.on('exit', code => {
+      if (code === 0) resolveRun()
+      else rejectRun(new Error(`pnpm ${args.join(' ')} failed with exit code ${code}`))
+    })
+  })
+}
 
-  await copyDirectory(plugin.staticDir, plugin.outDir)
+async function writeZipForPlugin(plugin) {
+  await runPnpm(['--filter', plugin.packageName, 'build'])
+  const builtManifest = await readPluginManifest(plugin.outDir)
+  if (builtManifest.id !== plugin.id) throw new Error(`插件构建产物 id 不匹配：${plugin.id}`)
   const zip = await createZip(plugin.outDir)
   const packageDist = join(plugin.packageDir, 'dist')
   await Promise.all([

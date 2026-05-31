@@ -70,8 +70,14 @@ const electronAPI = {
     ipcRenderer.invoke('plugin:listDataFiles', pluginId, path),
   readPluginDataFile: (pluginId: string, path: string): Promise<string> =>
     ipcRenderer.invoke('plugin:readDataFile', pluginId, path),
+  readPluginDataFileBase64: (pluginId: string, path: string): Promise<string> =>
+    ipcRenderer.invoke('plugin:readDataFileBase64', pluginId, path),
   writePluginDataFile: (pluginId: string, path: string, content: string): Promise<void> =>
     ipcRenderer.invoke('plugin:writeDataFile', pluginId, path, content),
+  writePluginDataFileBase64: (pluginId: string, path: string, content: string): Promise<void> =>
+    ipcRenderer.invoke('plugin:writeDataFileBase64', pluginId, path, content),
+  deletePluginDataFile: (pluginId: string, path: string): Promise<void> =>
+    ipcRenderer.invoke('plugin:deleteDataFile', pluginId, path),
   pluginAssetUrl: (pluginId: string, path: string): string => {
     const cleanPath = path.replace(/\\/g, '/').replace(/^\/+/, '')
     const encoded = [pluginId, ...cleanPath.split('/').filter(Boolean)]
