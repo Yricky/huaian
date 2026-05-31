@@ -18,7 +18,8 @@ import type {
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
-import { fetchProviderModels, hasActiveGeneration, previewChatGeneration, renderPromptTemplateBlock, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import { hasActiveGeneration, previewChatGeneration, renderPromptTemplateBlock, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import { fetchProviderModels } from './project/llm-provider'
 import { exportCharacter, exportLoreBook } from './project/exporters'
 import { importCharactersFromDialog, importLoreBooksFromDialog } from './project/importers'
 import { applyLoreBookDraft, discardLoreBookDraft, listLoreBookDrafts } from './project/lorebook-drafts'
