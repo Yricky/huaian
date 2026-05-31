@@ -23,6 +23,7 @@ import type {
   LoreBook,
   WorldEntry
 } from '@/shared/types'
+import { asRecord } from '@/shared/value-utils'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -135,10 +136,6 @@ export function createProjectWorkbench() {
 
   function snapshot(value: unknown): string {
     return JSON.stringify(value)
-  }
-
-  function asRecord(value: unknown): Record<string, any> {
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {}
   }
 
   function splitCommaList(value: string): string[] {
@@ -892,11 +889,8 @@ export function createProjectWorkbench() {
       replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcJson({
         id: block.id,
         enabled: block.enabled,
-        title: block.title,
-        summary: block.summary,
         contentParts: block.contentParts,
-        metadata: block.metadata,
-        targetRole: block.targetRole
+        metadata: block.metadata
       })))
       await refreshProjectSnapshot()
     } catch (error) {

@@ -17,6 +17,7 @@ import {
   MdVisibilityOff
 } from 'vue-icons-plus/md'
 import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
+import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
 import { REGEX_PLACEMENT, getRegexedMarkdownString, type RegexPlacement } from '../../../shared/st-regex-scripts'
 import type { ChatBlock, CharacterEntry, LoreBook, ReasoningContentPart, ToolCallContentPart } from '../../../shared/types'
@@ -63,10 +64,11 @@ const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
 const isToolDefinition = computed(() => props.block.kind === 'tool_definition')
 const numberFormatter = new Intl.NumberFormat()
+const targetRole = computed(() => chatBlockTargetRole(props.block))
 const roleLabel = computed(() => {
   if (props.block.kind === 'system') return 'system'
   if (props.block.kind === 'assistant') return 'assistant'
-  if (props.block.kind === 'injection') return `injection → ${props.block.targetRole}`
+  if (props.block.kind === 'injection') return `injection → ${targetRole.value}`
   if (props.block.kind === 'tool_definition') return 'tool definition'
   return 'user'
 })
@@ -80,9 +82,9 @@ const statusLabel = computed(() => {
 const sentAtLabel = computed(() => formatDateTime(props.block.createdAt))
 const tokenCount = computed(() => tokenCountFromUsage(props.block.metadata.usage))
 const tokenLabel = computed(() => tokenCount.value === null ? 'Token -' : `${numberFormatter.format(tokenCount.value)} tokens`)
-const headerTitle = computed(() => props.block.title.trim() || roleLabel.value)
+const headerTitle = computed(() => chatBlockTitle(props.block, { character: props.character }) || roleLabel.value)
 const blockSubMeta = computed(() => [
-  props.block.summary,
+  chatBlockSummary(props.block),
   isVirtual.value ? '虚拟注入' : statusLabel.value,
   sentAtLabel.value,
   isVirtual.value ? '' : tokenLabel.value
@@ -107,7 +109,7 @@ const currentInjectionViewMode = computed<InjectionViewMode>(() => (
 const detailJson = computed(() => ({
   id: props.block.id,
   kind: props.block.kind,
-  targetRole: props.block.targetRole,
+  targetRole: targetRole.value,
   enabled: props.block.enabled,
   status: props.block.status,
   requestBlockIds: props.block.requestBlockIds,
@@ -729,7 +731,6 @@ defineExpose({
   color: #273245;
   font-size: 12px;
   line-height: 1.2;
-  text-transform: uppercase;
 }
 
 .block-footer button {

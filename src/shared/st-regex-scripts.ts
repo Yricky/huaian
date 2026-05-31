@@ -1,4 +1,5 @@
 import type { CharacterEntry, JsonRecord } from './types'
+import { asBoolean, asNumberOrNull, asRecord, asString } from './value-utils'
 
 export const REGEX_PLACEMENT = {
   MD_DISPLAY: 0,
@@ -57,28 +58,7 @@ const ALL_ACTIVE_PLACEMENTS = [
   REGEX_PLACEMENT.REASONING
 ]
 
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function asBoolean(value: unknown, fallback = false): boolean {
-  if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return fallback
-}
-
-function asNumberOrNull(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
-}
-
-function characterData(character: CharacterEntry | null): JsonRecord {
+export function characterData(character: CharacterEntry | null): JsonRecord {
   return asRecord(character?.stData?.data)
 }
 

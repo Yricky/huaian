@@ -1,7 +1,9 @@
 import type { WebContents } from 'electron'
 import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
 import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
+import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../shared/chat-blocks'
 import { LOREBOOK_EDIT_TOOL_GROUP, LOREBOOK_EDIT_TOOL_NAMES, loreBookToolFieldHints } from '../../shared/lorebook-tooling'
+import { asRecord, asString } from '../../shared/value-utils'
 import type {
   ChatBlock,
   ChatBlockTokenUsage,
@@ -11,6 +13,7 @@ import type {
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
+  CharacterEntry,
   JsonRecord,
   LlmGenerationParameters,
   LlmInstance,
@@ -54,14 +57,6 @@ const LEGACY_LOREBOOK_EDIT_TOOL_NAMES = [
   'test_lorebook_trigger',
   'upsert_lorebook_entry'
 ] as const
-
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
 
 function headersFromConfig(config: JsonRecord): Record<string, string> {
   const headers = asRecord(config.headers)
@@ -363,8 +358,8 @@ function activeLoreBookToolDefinition(blocks: ChatBlock[]): ActiveLoreBookToolDe
     if (!loreBook) continue
     const enabledTools = Array.isArray(definition.enabledTools)
       ? definition.enabledTools.filter((name): name is typeof LOREBOOK_EDIT_TOOL_NAMES[number] => (
-          typeof name === 'string' && (LOREBOOK_EDIT_TOOL_NAMES as readonly string[]).includes(name)
-        ))
+        typeof name === 'string' && (LOREBOOK_EDIT_TOOL_NAMES as readonly string[]).includes(name)
+      ))
       : [...LOREBOOK_EDIT_TOOL_NAMES]
     const hasLegacyFullSet = LEGACY_LOREBOOK_EDIT_TOOL_NAMES.every(name => enabledTools.includes(name))
     const toolNames = hasLegacyFullSet
@@ -572,16 +567,16 @@ function buildPrompt(chat: ReturnType<typeof getChat>, blocks: ChatBlock[]) {
   })
 }
 
-function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[]): ChatGenerationPreview['contextBlocks'] {
+function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[], character: CharacterEntry | null): ChatGenerationPreview['contextBlocks'] {
   return [...virtualBlocks, ...blocks].map(block => ({
     id: block.id,
     kind: block.kind,
-    targetRole: block.targetRole,
+    targetRole: chatBlockTargetRole(block),
     enabled: block.enabled,
     status: block.status,
     orderIndex: block.orderIndex,
-    title: block.title,
-    summary: block.summary,
+    title: chatBlockTitle(block, { character }),
+    summary: chatBlockSummary(block),
     text: blockText(block),
     reasoning: blockReasoningText(block),
     virtual: block.metadata.virtual === true
@@ -590,6 +585,9 @@ function previewContextBlocks(blocks: ChatBlock[], virtualBlocks: ChatBlock[]): 
 
 export function previewChatGeneration(request: ChatGenerationRequest): ChatGenerationPreview {
   const chat = getChat(request.chatId)
+  if (activeGenerations.has(chat.id)) {
+    throw new Error('当前聊天已有正在生成的块。')
+  }
   const instanceId = chat.runtimeConfig.llmInstanceId
   if (!instanceId) {
     throw new Error('请先为当前聊天选择 LLM 实例。')
@@ -633,15 +631,15 @@ export function previewChatGeneration(request: ChatGenerationRequest): ChatGener
       },
       tools: loreBookTools
         ? {
-            activeTools: loreBookTools.toolNames,
-            loreBookId: loreBookTools.loreBookId,
-            loreBookName: loreBookTools.loreBookName,
-            sourceBlockId: loreBookTools.block.id
-          }
+          activeTools: loreBookTools.toolNames,
+          loreBookId: loreBookTools.loreBookId,
+          loreBookName: loreBookTools.loreBookName,
+          sourceBlockId: loreBookTools.block.id
+        }
         : {},
       messages
     },
-    contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks),
+    contextBlocks: previewContextBlocks(contextBlocks, prompt.virtualBlocks, prompt.character),
     requestBlockIds: prompt.requestBlockIds
   }
 }
@@ -914,11 +912,11 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     const metadata = new Map<string, JsonRecord>()
     const ids = Array.isArray(json.data)
       ? json.data.map((item: unknown) => {
-          const record = asRecord(item)
-          const id = asString(record.id)
-          if (id) metadata.set(id, record)
-          return id
-        })
+        const record = asRecord(item)
+        const id = asString(record.id)
+        if (id) metadata.set(id, record)
+        return id
+      })
       : []
     models = cacheItems(ids, metadata)
   } else if (provider.type === 'ollama') {
@@ -927,11 +925,11 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     const metadata = new Map<string, JsonRecord>()
     const ids = Array.isArray(json.models)
       ? json.models.map((item: unknown) => {
-          const record = asRecord(item)
-          const id = asString(record.name)
-          if (id) metadata.set(id, record)
-          return id
-        })
+        const record = asRecord(item)
+        const id = asString(record.name)
+        if (id) metadata.set(id, record)
+        return id
+      })
       : []
     models = cacheItems(ids, metadata)
   } else if (provider.type === 'anthropic') {
@@ -954,9 +952,9 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     const json = await fetchJson(url.toString(), { headers })
     const ids = Array.isArray(json.models)
       ? json.models.map((item: unknown) => {
-          const name = asString(asRecord(item).name)
-          return name.replace(/^models\//, '')
-        })
+        const name = asString(asRecord(item).name)
+        return name.replace(/^models\//, '')
+      })
       : []
     models = cacheItems(ids)
   }

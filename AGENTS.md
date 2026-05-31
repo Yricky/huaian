@@ -1,3 +1,3 @@
 ## ST-Forge
 
-SillyTavern的源码位于extern目录内
+SillyTavern和部分插件的源码位于extern目录内

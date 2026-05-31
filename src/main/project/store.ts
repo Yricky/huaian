@@ -4,7 +4,6 @@ import type {
   ChatBlock,
   ChatCreatePayload,
   ChatBlockCreatePayload,
-  ChatBlockTargetRole,
   ChatBlockUpdatePayload,
   ChatContentPart,
   ChatRuntimeConfig,
@@ -31,6 +30,7 @@ import type {
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../../shared/types'
+import { chatBlockMetadataForStorage } from '../../shared/chat-blocks'
 import { readConfig, saveConfig } from './app-config'
 import { app } from 'electron'
 import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
@@ -747,12 +747,6 @@ function renumberChatBlocks(chatId: number): void {
   rows.forEach((row, index) => update.run(index + 1, now, row.id))
 }
 
-function chatBlockDefaultTargetRole(kind: ChatBlockCreatePayload['kind']): ChatBlockTargetRole {
-  if (kind === 'user') return 'user'
-  if (kind === 'assistant') return 'assistant'
-  return 'system'
-}
-
 function chatBlockInsertionOrder(payload: ChatBlockCreatePayload): number {
   const project = ensureProject()
   if (payload.insertRelativeBlockId && payload.insertPlacement) {
@@ -780,24 +774,22 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   getChat(payload.chatId)
   const now = nowIso()
   const orderIndex = chatBlockInsertionOrder(payload)
+  const metadata = chatBlockMetadataForStorage(payload.kind, payload.metadata)
   const result = project.db.prepare(`
     INSERT INTO chat_blocks (
-      chat_id, kind, target_role, enabled, status, order_index, title, summary,
+      chat_id, kind, enabled, status, order_index,
       content_parts_json, metadata_json, llm_instance_snapshot_json, request_block_ids_json,
       error_text, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payload.chatId,
     payload.kind,
-    payload.targetRole ?? chatBlockDefaultTargetRole(payload.kind),
     payload.enabled === false ? 0 : 1,
     'idle',
     orderIndex,
-    payload.title ?? '',
-    payload.summary ?? '',
     json(payload.contentParts),
-    json(asRecord(payload.metadata)),
+    json(metadata),
     null,
     json([]),
     '',
@@ -813,17 +805,17 @@ export function updateChatBlock(payload: ChatBlockUpdatePayload): ChatBlock {
   const project = ensureProject()
   const block = getChatBlock(payload.id)
   const now = nowIso()
+  const metadata = payload.metadata === undefined
+    ? block.metadata
+    : chatBlockMetadataForStorage(block.kind, payload.metadata)
   project.db.prepare(`
     UPDATE chat_blocks
-    SET enabled = ?, target_role = ?, title = ?, summary = ?, content_parts_json = ?, metadata_json = ?, status = ?, error_text = ?, updated_at = ?
+    SET enabled = ?, content_parts_json = ?, metadata_json = ?, status = ?, error_text = ?, updated_at = ?
     WHERE id = ?
   `).run(
     payload.enabled === undefined ? (block.enabled ? 1 : 0) : (payload.enabled ? 1 : 0),
-    payload.targetRole ?? block.targetRole,
-    payload.title ?? block.title,
-    payload.summary ?? block.summary,
     json(payload.contentParts ?? block.contentParts),
-    json(asRecord(payload.metadata ?? block.metadata)),
+    json(metadata),
     block.status === 'generating' ? block.status : 'idle',
     block.status === 'generating' ? block.errorText : '',
     now,
@@ -848,20 +840,17 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
   const now = nowIso()
   const result = project.db.prepare(`
     INSERT INTO chat_blocks (
-      chat_id, kind, target_role, enabled, status, order_index, title, summary,
+      chat_id, kind, enabled, status, order_index,
       content_parts_json, metadata_json, llm_instance_snapshot_json, request_block_ids_json,
       error_text, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     chatId,
-    'assistant',
     'assistant',
     0,
     'generating',
     nextChatBlockOrder(chatId),
-    '助手回复',
-    '',
     json([{ type: 'text', text: '' }]),
     json({ generationStartedAt: now }),
     json(llmInstance),

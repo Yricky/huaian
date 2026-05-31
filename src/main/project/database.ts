@@ -3,7 +3,6 @@ import type {
   ChatBlock,
   ChatBlockKind,
   ChatBlockStatus,
-  ChatBlockTargetRole,
   ChatContentPart,
   ChatSession,
   CharacterEntry,
@@ -17,6 +16,7 @@ import type {
   LoreBook,
   WorldEntry
 } from '../../shared/types'
+import { asString } from '../../shared/value-utils'
 import {
   asRecord,
   normalizeChatRuntimeConfig,
@@ -90,12 +90,9 @@ export function initDatabase(dbPath: string): any {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
       kind TEXT NOT NULL,
-      target_role TEXT NOT NULL,
       enabled INTEGER NOT NULL,
       status TEXT NOT NULL,
       order_index INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      summary TEXT NOT NULL,
       content_parts_json TEXT NOT NULL,
       metadata_json TEXT NOT NULL,
       llm_instance_snapshot_json TEXT,
@@ -127,10 +124,6 @@ function parseJsonColumn(value: string): unknown {
 function parseJsonArray<T>(value: string): T[] {
   const parsed = parseJsonColumn(value)
   return Array.isArray(parsed) ? parsed as T[] : []
-}
-
-function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
 }
 
 function asBoolean(value: unknown): boolean {
@@ -229,10 +222,6 @@ function normalizeBlockKind(value: unknown): ChatBlockKind {
   ) ? value : 'user'
 }
 
-function normalizeTargetRole(value: unknown): ChatBlockTargetRole {
-  return value === 'system' || value === 'user' || value === 'assistant' ? value : 'system'
-}
-
 function normalizeBlockStatus(value: unknown): ChatBlockStatus {
   return value === 'generating' || value === 'stopped' || value === 'error' ? value : 'idle'
 }
@@ -314,12 +303,9 @@ export function rowToChatBlock(row: any): ChatBlock {
     id: row.id,
     chatId: row.chat_id,
     kind: normalizeBlockKind(row.kind),
-    targetRole: normalizeTargetRole(row.target_role),
     enabled: asBoolean(row.enabled),
     status: normalizeBlockStatus(row.status),
     orderIndex: row.order_index,
-    title: row.title,
-    summary: row.summary,
     contentParts: normalizeContentParts(parseJsonColumn(row.content_parts_json)),
     metadata: asRecord(parseJsonColumn(row.metadata_json)),
     llmInstanceSnapshot: llmSnapshot,

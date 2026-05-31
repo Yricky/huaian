@@ -119,11 +119,9 @@ const displayRegexDepthByBlockId = computed(() => {
 const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
-  targetRole: block.targetRole,
   enabled: block.enabled,
   status: block.status,
-  title: block.title,
-  summary: block.summary,
+  metadata: { ...block.metadata, uiCollapsed: undefined },
   contentParts: block.contentParts,
   requestBlockIds: block.requestBlockIds,
   errorText: block.errorText
@@ -443,10 +441,7 @@ async function addUserBlockForEditing() {
   const block = await props.createChatBlock({
     chatId: props.chat.id,
     kind: 'user',
-    targetRole: 'user',
     enabled: true,
-    title: '',
-    summary: '',
     contentParts: [{ type: 'text', text: '' }],
     metadata: {}
   })
@@ -464,10 +459,7 @@ async function insertToolDefinitionBlock(relativeBlock: ChatBlock, placement: 'b
   await props.createChatBlock({
     chatId: props.chat.id,
     kind: 'tool_definition',
-    targetRole: 'system',
     enabled: true,
-    title: '世界书编辑工具',
-    summary: '工具定义',
     contentParts: [{ type: 'text', text: defaultLoreBookEditPrompt(null) }],
     metadata: {
       toolDefinition: {

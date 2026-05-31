@@ -6,6 +6,9 @@ import type {
   JsonRecord,
   ProjectConfig
 } from '../../shared/types'
+import { asBoolean, asRecord, asString } from '../../shared/value-utils'
+
+export { asRecord }
 
 export function defaultProjectConfig(): ProjectConfig {
   return {
@@ -14,16 +17,12 @@ export function defaultProjectConfig(): ProjectConfig {
   }
 }
 
-export function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
 export function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
 
 export function toString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
+  return asString(value, fallback)
 }
 
 export function toStringArray(value: unknown): string[] {
@@ -42,10 +41,7 @@ export function toNumber(value: unknown, fallback: number): number {
 }
 
 export function toBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return fallback
+  return asBoolean(value, fallback)
 }
 
 export function normalizeCharacterForgeData(value: unknown): CharacterForgeData {

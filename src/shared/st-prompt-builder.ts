@@ -9,8 +9,11 @@ import type {
   LoreBook,
   WorldEntry
 } from './types'
+import { chatBlockTargetRole } from './chat-blocks'
+import { asBoolean, asNumber, asRecord, asString } from './value-utils'
 import {
   REGEX_PLACEMENT,
+  characterData,
   characterName,
   getRegexedPromptString,
   getRegexedString,
@@ -18,7 +21,7 @@ import {
   type RegexPlacement
 } from './st-regex-scripts'
 
-type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
+type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
 
 export interface InjectionDetail {
   title: string
@@ -33,6 +36,7 @@ export interface InjectionDetail {
 export interface InjectionPreviewBlock extends ChatBlock {
   metadata: JsonRecord & {
     virtual: true
+    targetRole: ChatBlockTargetRole
     source: 'character' | 'worldInfo'
     activatedEntryIds?: number[]
     loreBookIds?: number[]
@@ -80,27 +84,6 @@ const DEFAULT_SCAN_DEPTH = 2
 const DEFAULT_DEPTH = 4
 const DEFAULT_USER_NAME = 'User'
 
-function asRecord(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function asBoolean(value: unknown, fallback = false): boolean {
-  if (typeof value === 'boolean') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  return fallback
-}
-
-function asNumber(value: unknown, fallback: number): number {
-  if (value === null || value === undefined || value === '') return fallback
-  const number = Number(value)
-  return Number.isFinite(number) ? number : fallback
-}
-
 function contextTextForPart(part: ChatContentPart): string {
   if (part.type === 'text') return part.text
   if (part.type !== 'tool_call' || part.sendAsContext !== true) return ''
@@ -130,7 +113,7 @@ function blockHasSentReasoning(block: RuntimeBlock): boolean {
 
 function blockRole(block: RuntimeBlock): 'system' | 'user' | 'assistant' {
   if (block.kind === 'tool_definition') return 'system'
-  return block.kind === 'injection' ? block.targetRole : block.kind as 'system' | 'user' | 'assistant'
+  return chatBlockTargetRole(block)
 }
 
 function numberFromMetadata(value: unknown): number | null {
@@ -178,10 +161,6 @@ function roleFromExtension(value: unknown): ChatBlockTargetRole {
   if (value === 'user' || value === 1 || value === '1') return 'user'
   if (value === 'assistant' || value === 2 || value === '2') return 'assistant'
   return 'system'
-}
-
-function characterData(character: CharacterEntry | null): JsonRecord {
-  return asRecord(character?.stData?.data)
 }
 
 function replaceMacros(value: string, character: CharacterEntry | null): string {
@@ -586,19 +565,25 @@ function nonNullDetails(details: Array<InjectionDetail | null>): InjectionDetail
   return details.filter((detail): detail is InjectionDetail => detail !== null)
 }
 
-function virtualBlock(id: number, chat: PromptBuildInput['chat'], role: ChatBlockTargetRole, title: string, summary: string, content: string, metadata: InjectionPreviewBlock['metadata']): InjectionPreviewBlock {
+function virtualBlock(
+  id: number,
+  chat: PromptBuildInput['chat'],
+  role: ChatBlockTargetRole,
+  content: string,
+  metadata: Omit<InjectionPreviewBlock['metadata'], 'targetRole'>
+): InjectionPreviewBlock {
   return {
     id,
     chatId: chat.id,
     kind: 'injection',
-    targetRole: role,
     enabled: true,
     status: 'idle',
     orderIndex: id,
-    title,
-    summary,
     contentParts: [{ type: 'text', text: content }],
-    metadata,
+    metadata: {
+      ...metadata,
+      targetRole: role
+    },
     llmInstanceSnapshot: null,
     requestBlockIds: [],
     errorText: '',
@@ -664,11 +649,6 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
       virtualId--,
       input.chat,
       'system',
-      '注入内容',
-      [
-        character ? `角色卡：${characterName(character)}` : '',
-        topActivated.length ? `世界书：${topActivated.length} 条` : ''
-      ].filter(Boolean).join(' · ') || '角色/世界书注入',
       topInjection,
       {
         virtual: true,
@@ -746,8 +726,6 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
         virtualId--,
         input.chat,
         injection.role,
-        '注入内容',
-        injection.entry.id < 0 ? '角色深度提示词' : `Depth ${injection.depth} · ${injection.role}`,
         injection.content,
         {
           virtual: true,
@@ -773,8 +751,6 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
       virtualId--,
       input.chat,
       'system',
-      '注入内容',
-      'Post-history instructions',
       postHistory,
       {
         virtual: true,

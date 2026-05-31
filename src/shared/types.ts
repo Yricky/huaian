@@ -252,12 +252,9 @@ export interface ChatBlock {
   id: number
   chatId: number
   kind: ChatBlockKind
-  targetRole: ChatBlockTargetRole
   enabled: boolean
   status: ChatBlockStatus
   orderIndex: number
-  title: string
-  summary: string
   contentParts: ChatContentPart[]
   metadata: JsonRecord
   llmInstanceSnapshot: LlmInstance | null
@@ -270,10 +267,7 @@ export interface ChatBlock {
 export interface ChatBlockCreatePayload {
   chatId: number
   kind: ChatBlockKind
-  targetRole?: ChatBlockTargetRole
   enabled?: boolean
-  title?: string
-  summary?: string
   contentParts: ChatContentPart[]
   metadata?: JsonRecord
   insertRelativeBlockId?: number | null
@@ -283,11 +277,8 @@ export interface ChatBlockCreatePayload {
 export interface ChatBlockUpdatePayload {
   id: number
   enabled?: boolean
-  title?: string
-  summary?: string
   contentParts?: ChatContentPart[]
   metadata?: JsonRecord
-  targetRole?: ChatBlockTargetRole
 }
 
 export interface ChatGenerationRequest {
@@ -319,7 +310,10 @@ export interface ChatGenerationPreview {
     }
     messages: ChatGenerationPreviewMessage[]
   }
-  contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'targetRole' | 'enabled' | 'status' | 'orderIndex' | 'title' | 'summary'> & {
+  contextBlocks: Array<Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'status' | 'orderIndex'> & {
+    targetRole: ChatBlockTargetRole
+    title: string
+    summary: string
     text: string
     reasoning: string
     virtual?: boolean
