@@ -415,13 +415,14 @@ export function testWorldEntryActivations(
   }))
 }
 
-function pushMessage(messages: ChatGenerationPreviewMessage[], role: 'system' | 'user' | 'assistant', content: string | ChatContentPart[]) {
+function pushMessage(messages: ChatGenerationPreviewMessage[], role: 'system' | 'user' | 'assistant', content: string | ChatContentPart[], blockId?: number) {
+  const metadata = blockId === undefined ? {} : { blockId }
   if (Array.isArray(content)) {
-    if (content.length > 0) messages.push({ role, content })
+    if (content.length > 0) messages.push({ role, content, ...metadata })
     return
   }
   const text = content.trim()
-  if (text) messages.push({ role, content: text })
+  if (text) messages.push({ role, content: text, ...metadata })
 }
 
 function regexPlacementForBlock(block: RuntimeBlock): RegexPlacement | null {
@@ -480,10 +481,10 @@ function realBlockMessage(
         }
       }
     }
-    return content.length > 0 ? { role, content } : null
+    return content.length > 0 ? { role, content, blockId: block.id } : null
   }
 
-  return text.length > 0 ? { role, content: text } : null
+  return text.length > 0 ? { role, content: text, blockId: block.id } : null
 }
 
 function realBlockScanLine(block: RuntimeBlock, character: CharacterEntry | null): string {
@@ -655,9 +656,10 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   ])
   const topInjection = [mainPrompt, definitionParts.join('\n\n')].filter(Boolean).join('\n\n')
   if (topInjection.trim()) {
-    pushMessage(messages, 'system', topInjection)
+    const blockId = virtualId--
+    pushMessage(messages, 'system', topInjection, blockId)
     virtualBlocks.push(virtualBlock(
-      virtualId--,
+      blockId,
       input.chat,
       'system',
       topInjection,
@@ -728,13 +730,14 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   for (let index = 0; index <= realMessages.length; index++) {
     const injections = depthByIndex.get(index) ?? []
     for (const injection of injections.sort((a, b) => b.order - a.order || a.entry.id - b.entry.id)) {
-      pushMessage(messages, injection.role, injection.content)
+      const blockId = virtualId--
+      pushMessage(messages, injection.role, injection.content, blockId)
       const beforeBlockId = realMessageItems[index]?.block.id
       const afterBlockId = beforeBlockId === undefined
         ? realMessageItems[realMessageItems.length - 1]?.block.id
         : undefined
       virtualBlocks.push(virtualBlock(
-        virtualId--,
+        blockId,
         input.chat,
         injection.role,
         injection.content,
@@ -757,9 +760,10 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   }
 
   if (postHistory.trim()) {
-    pushMessage(messages, 'system', postHistory)
+    const blockId = virtualId--
+    pushMessage(messages, 'system', postHistory, blockId)
     virtualBlocks.push(virtualBlock(
-      virtualId--,
+      blockId,
       input.chat,
       'system',
       postHistory,

@@ -58,6 +58,7 @@ import {
 } from './llm-provider'
 
 type ModelMessage = ChatGenerationPreviewMessage
+type StreamTextMessage = Omit<ModelMessage, 'blockId'>
 
 interface ActiveGeneration {
   abortController: AbortController
@@ -138,6 +139,13 @@ function messageHasSendableContent(message: ModelMessage): boolean {
     if (part.type === 'text' || part.type === 'reasoning') return part.text.trim().length > 0
     return true
   })
+}
+
+function streamTextMessage(message: ModelMessage): StreamTextMessage {
+  return {
+    role: message.role,
+    content: message.content
+  }
 }
 
 function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): JsonRecord {
@@ -602,7 +610,7 @@ async function runGeneration(
     const result = streamText({
       ...settings,
       model,
-      messages
+      messages: messages.map(streamTextMessage)
     } as any)
 
     for await (const part of result.fullStream) {

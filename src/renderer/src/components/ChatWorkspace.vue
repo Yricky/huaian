@@ -604,6 +604,7 @@ async function removeBlock(block: ChatBlock) {
           :rendered-content-parts="renderedContentPartsByBlockId[chatItem.block.id]"
           :character="selectedCharacter" :character-regex-scripts-enabled="characterRegexScriptsEnabled"
           :display-regex-depth="displayRegexDepthByBlockId.get(chatItem.block.id) ?? 0"
+          :preview-chat-generation="previewChatGeneration"
           @collapse-change="setBlockCollapsed(chatItem.block, $event)" @save="saveChatBlock" @delete="removeBlock"
           @regenerate="regenerate" @stop="stopChatGeneration" @insert-tool-definition="insertToolDefinitionBlock" />
         <div v-else class="chat-action-strip">

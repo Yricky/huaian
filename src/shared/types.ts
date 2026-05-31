@@ -353,6 +353,7 @@ export interface ChatGenerationRequest {
 export interface ChatGenerationPreviewMessage {
   role: 'system' | 'user' | 'assistant'
   content: string | ChatContentPart[]
+  blockId?: number
 }
 
 export interface LoreBookDraftChange {

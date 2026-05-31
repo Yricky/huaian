@@ -5,7 +5,6 @@ import {
   MdClose,
   MdCode,
   MdDeleteOutline,
-  MdFormatListBulleted,
   MdLibraryAdd,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
@@ -20,11 +19,18 @@ import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../sh
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
 import type { InjectionDetail } from '../../../shared/st-prompt-builder'
 import { REGEX_PLACEMENT, getRegexedMarkdownString, type RegexPlacement } from '../../../shared/st-regex-scripts'
-import type { ChatBlock, ChatContentPart, CharacterEntry, LoreBook, ReasoningContentPart, ToolCallContentPart } from '../../../shared/types'
+import type {
+  ChatBlock,
+  ChatContentPart,
+  ChatGenerationPreviewMessage,
+  ChatGenerationRequest,
+  CharacterEntry,
+  LoreBook,
+  ReasoningContentPart,
+  ToolCallContentPart
+} from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
-
-type InjectionViewMode = 'markdown' | 'structured'
 
 const props = defineProps<{
   block: ChatBlock
@@ -34,6 +40,7 @@ const props = defineProps<{
   displayRegexDepth: number
   frozen: boolean
   loreBooks: LoreBook[]
+  previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
   renderedContentParts?: ChatContentPart[]
 }>()
 
@@ -49,9 +56,10 @@ const emit = defineEmits<{
 const editing = ref(false)
 const draft = ref('')
 const detailOpen = ref(false)
+const llmViewOpen = ref(false)
+const llmViewMessages = ref<Array<Omit<ChatGenerationPreviewMessage, 'blockId'>>>([])
 const menuOpen = ref(false)
 const isCollapsed = ref(props.collapsed)
-const injectionViewMode = ref<InjectionViewMode>('structured')
 const editingPartIndex = ref<number | null>(null)
 const openReasoningParts = ref<Record<number, boolean>>({})
 const openToolCalls = ref<Record<string, boolean>>({})
@@ -106,9 +114,6 @@ const injectionDetails = computed(() => {
   return raw.map(injectionDetailFromMetadata).filter((detail): detail is InjectionDetail => detail !== null)
 })
 const hasInjectionDetails = computed(() => injectionDetails.value.length > 0)
-const currentInjectionViewMode = computed<InjectionViewMode>(() => (
-  injectionViewMode.value === 'structured' && hasInjectionDetails.value ? 'structured' : 'markdown'
-))
 const detailJson = computed(() => ({
   id: props.block.id,
   kind: props.block.kind,
@@ -134,7 +139,6 @@ watch(() => props.block.id, () => {
   menuOpen.value = false
   openReasoningParts.value = {}
   isCollapsed.value = props.collapsed
-  injectionViewMode.value = 'structured'
   draft.value = text.value
 })
 
@@ -498,13 +502,22 @@ function openDetails() {
   detailOpen.value = true
 }
 
+async function openLlmView() {
+  menuOpen.value = false
+  const messages = await props.previewChatGeneration({ chatId: props.block.chatId })
+  if (!messages) return
+  llmViewMessages.value = messages
+    .filter(message => message.blockId === props.block.id)
+    .map(message => ({
+      role: message.role,
+      content: message.content
+    }))
+  llmViewOpen.value = true
+}
+
 function toggleCollapsed() {
   if (editing.value) return
   setCollapsed(!isCollapsed.value)
-}
-
-function switchInjectionViewMode(mode: InjectionViewMode) {
-  injectionViewMode.value = mode
 }
 
 function setCollapsed(value: boolean) {
@@ -544,23 +557,7 @@ defineExpose({
         <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded" rows="6"
           @blur="autoSaveEdit" />
 
-        <div v-else class="injection-mode-tabs" aria-label="注入内容展示方式">
-          <button type="button" :class="{ selected: currentInjectionViewMode === 'markdown' }"
-            @click="switchInjectionViewMode('markdown')">
-            <MdCode class="tab-icon" aria-hidden="true" />Markdown
-          </button>
-          <button type="button" :disabled="!hasInjectionDetails"
-            :class="{ selected: currentInjectionViewMode === 'structured' }"
-            @click="switchInjectionViewMode('structured')">
-            <MdFormatListBulleted class="tab-icon" aria-hidden="true" />结构
-          </button>
-        </div>
-
-        <div v-if="!editing && currentInjectionViewMode === 'markdown'" class="block-content injection-markdown">
-          <MarkdownView :markdown="text" />
-        </div>
-
-        <div v-else-if="!editing" class="injection-detail-list">
+        <div v-else class="injection-detail-list">
           <section v-for="(detail, index) in injectionDetails" :key="`${detail.source}-${detail.entryId ?? index}`"
             class="injection-detail-item">
             <header>
@@ -569,6 +566,13 @@ defineExpose({
             </header>
             <p>{{ detail.reason }}</p>
             <pre>{{ detail.content }}</pre>
+          </section>
+          <section v-if="!hasInjectionDetails" class="injection-detail-item">
+            <header>
+              <strong>注入内容</strong>
+              <span>未记录结构来源</span>
+            </header>
+            <pre>{{ text }}</pre>
           </section>
         </div>
       </div>
@@ -671,12 +675,17 @@ defineExpose({
         <button type="button" @click="openDetails">
           <MdVisibility class="menu-icon" aria-hidden="true" />详情
         </button>
+        <button type="button" @click="openLlmView">
+          <MdCode class="menu-icon" aria-hidden="true" />LLM 视角
+        </button>
         <button v-if="!isVirtual" class="danger-menu-item" type="button" :disabled="!canEdit" @click="remove">
           <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除
         </button>
       </div>
     </Teleport>
   </article>
+
+  <JsonDialog v-if="llmViewOpen" title="LLM 视角" :value="llmViewMessages" @close="llmViewOpen = false" />
 </template>
 
 <style scoped>
@@ -1046,55 +1055,6 @@ defineExpose({
   border-radius: 8px;
   background: #ffffff;
   padding: 10px;
-}
-
-.injection-mode-tabs {
-  width: fit-content;
-  min-width: 0;
-  display: inline-flex;
-  overflow: hidden;
-  border: 1px solid #d8dee7;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.injection-mode-tabs button {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-right: 1px solid #e1e7ef;
-  background: transparent;
-  color: #526173;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.injection-mode-tabs button:last-child {
-  border-right: 0;
-}
-
-.injection-mode-tabs button:hover:not(:disabled),
-.injection-mode-tabs button.selected {
-  background: #f4f8ff;
-  color: #174f99;
-}
-
-.injection-mode-tabs button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.tab-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.injection-markdown {
-  margin-inline: 0;
 }
 
 .injection-detail-list {

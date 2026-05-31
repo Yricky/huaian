@@ -913,11 +913,10 @@ class PromptTemplateRun {
     }
 
     if (this.input.settings.injectLoaderEnabled) {
-      const injected = await this.applyInjectEntries(nextMessages, specialEntries, env)
+      const injected = await this.applyInjectEntries(nextMessages, specialEntries, env, virtualId)
       nextMessages = injected.messages
-      for (const block of injected.virtualBlocks) {
-        virtualBlocks.push({ ...block, id: virtualId-- })
-      }
+      virtualBlocks.push(...injected.virtualBlocks)
+      virtualId = injected.nextVirtualId
     }
 
     return {
@@ -1190,13 +1189,18 @@ class PromptTemplateRun {
     return result
   }
 
-  private async applyInjectEntries(messages: ChatGenerationPreviewMessage[], entries: RuntimeWorldEntry[], env: JsonRecord): Promise<{ messages: ChatGenerationPreviewMessage[]; virtualBlocks: InjectionPreviewBlock[] }> {
+  private async applyInjectEntries(
+    messages: ChatGenerationPreviewMessage[],
+    entries: RuntimeWorldEntry[],
+    env: JsonRecord,
+    initialVirtualId: number
+  ): Promise<{ messages: ChatGenerationPreviewMessage[]; virtualBlocks: InjectionPreviewBlock[]; nextVirtualId: number }> {
     const instructions: InjectInstruction[] = []
     for (const entry of entries.filter(item => specialEntryKind(item) === 'inject' && this.specialEntryEnabled(item) && this.entryProbabilityPasses(item, textContent(messages.map(m => textContent(m.content)).join('\n'))))) {
       const instruction = await this.parseInjectInstruction(entry, env)
       if (instruction) instructions.push(instruction)
     }
-    if (!instructions.length) return { messages, virtualBlocks: [] }
+    if (!instructions.length) return { messages, virtualBlocks: [], nextVirtualId: initialVirtualId }
 
     const roleCounts = new Map<TemplateRole, number>()
     const indexed = messages.map((message, index) => {
@@ -1251,15 +1255,17 @@ class PromptTemplateRun {
 
     const result: ChatGenerationPreviewMessage[] = []
     const virtualBlocks: InjectionPreviewBlock[] = []
+    let virtualId = initialVirtualId
     for (let index = 0; index <= messages.length; index += 1) {
       for (const instruction of injectionsByPosition.get(index) ?? []) {
-        result.push({ role: instruction.role, content: instruction.content })
-        virtualBlocks.push(this.virtualBlock(-1, instruction.role, instruction.content, 'inject', `@INJECT ${instruction.type}`, [instruction.entry]))
+        const blockId = virtualId--
+        result.push({ role: instruction.role, content: instruction.content, blockId })
+        virtualBlocks.push(this.virtualBlock(blockId, instruction.role, instruction.content, 'inject', `@INJECT ${instruction.type}`, [instruction.entry]))
       }
       if (messages[index]) result.push(messages[index])
     }
 
-    return { messages: result, virtualBlocks }
+    return { messages: result, virtualBlocks, nextVirtualId: virtualId }
   }
 
   private async parseInjectInstruction(entry: RuntimeWorldEntry, env: JsonRecord): Promise<InjectInstruction | null> {
