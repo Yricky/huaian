@@ -68,6 +68,12 @@ interface ActivationEntry {
 const DEFAULT_SCAN_DEPTH = 2
 const DEFAULT_DEPTH = 4
 const DEFAULT_USER_NAME = 'User'
+const WORLD_INFO_POSITION_BEFORE = 0
+const WORLD_INFO_POSITION_AFTER = 1
+const WORLD_INFO_POSITION_AT_DEPTH = 4
+const WORLD_INFO_POSITION_EM_TOP = 5
+const WORLD_INFO_POSITION_EM_BOTTOM = 6
+const DEFAULT_GENERATION_TRIGGER = 'normal'
 
 function contextTextForPart(part: ChatContentPart): string {
   if (part.type === 'text') return part.text
@@ -191,15 +197,6 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function deterministicRollPercent(seed: string): number {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i++) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return (hash >>> 0) % 10000 / 100
-}
-
 function entryExtensions(entry: WorldEntry): JsonRecord {
   return asRecord(entry.stData.extensions)
 }
@@ -234,6 +231,11 @@ function entryTitle(entry: WorldEntry): string {
   return comment || `Entry #${entry.id}`
 }
 
+function stScanText(chunks: string[]): string {
+  const filtered = chunks.filter(Boolean)
+  return filtered.length ? `\x01${filtered.join('\n\x01')}` : ''
+}
+
 function activationScanText(
   scanMessages: string[],
   character: CharacterEntry | null,
@@ -252,7 +254,7 @@ function activationScanText(
   const depthPrompt = asRecord(asRecord(data.extensions).depth_prompt)
   if (asBoolean(extensions.match_character_depth_prompt)) chunks.push(asString(depthPrompt.prompt))
 
-  return chunks.filter(Boolean).join('\n')
+  return stScanText(chunks)
 }
 
 function matchingKeys(scanText: string, keys: string[], character: CharacterEntry | null, caseSensitive: boolean, matchWholeWords: boolean): string[] {
@@ -318,23 +320,28 @@ function activateWorldEntries(
   character: CharacterEntry | null,
   regexEnabled = true
 ): ActivationEntry[] {
-  const latestScanText = scanMessages.join('\n')
   const activated: ActivationEntry[] = []
 
   for (const entry of [...entries].sort((a, b) => entryOrder(b) - entryOrder(a) || a.id - b.id)) {
     if (!entry.stData.enabled) continue
 
     const extensions = entryExtensions(entry)
+    const triggers = Array.isArray(extensions.triggers) ? extensions.triggers.map(String) : []
+    if (triggers.length > 0 && !triggers.includes(DEFAULT_GENERATION_TRIGGER)) continue
+    if (extensions.delay_until_recursion) continue
+
     const caseSensitive = entry.stData.case_sensitive ?? asBoolean(extensions.case_sensitive, false)
     const matchWholeWords = asBoolean(extensions.match_whole_words, false)
     const scanDepth = asNumber(extensions.scan_depth, DEFAULT_SCAN_DEPTH)
     const scanText = activationScanText(scanMessages, character, entry)
-    const primaryKeys = entryKeys(entry).map(key => replaceMacros(key, character).trim()).filter(Boolean)
-    const primaryMatches = matchingKeys(scanText, primaryKeys, character, caseSensitive, matchWholeWords)
-    const primaryMatched = Boolean(entry.stData.constant) || primaryMatches.length > 0
+    const isConstant = Boolean(entry.stData.constant)
+    const primaryKeys = isConstant ? [] : entryKeys(entry).map(key => replaceMacros(key, character).trim()).filter(Boolean)
+    const primaryMatches = isConstant ? [] : matchingKeys(scanText, primaryKeys, character, caseSensitive, matchWholeWords)
 
-    if (!primaryMatched) continue
-    const secondaryMatch = secondaryKeysMatch(scanText, entry, character, caseSensitive, matchWholeWords)
+    if (!isConstant && primaryMatches.length === 0) continue
+    const secondaryMatch = isConstant
+      ? { matched: true, reason: '' }
+      : secondaryKeysMatch(scanText, entry, character, caseSensitive, matchWholeWords)
     if (!secondaryMatch.matched) continue
 
     const useProbability = asBoolean(extensions.useProbability, true)
@@ -347,8 +354,8 @@ function activateWorldEntries(
     ].filter(Boolean).join('；')
 
     if (useProbability && probability < 100) {
-      const roll = deterministicRollPercent(`${entry.id}:${entry.updatedAt}:${latestScanText}`)
-      if (roll >= probability) continue
+      const roll = Math.random() * 100
+      if (roll > probability) continue
     }
 
     const position = entryPosition(entry)
@@ -358,7 +365,7 @@ function activateWorldEntries(
       REGEX_PLACEMENT.WORLD_INFO,
       character,
       regexEnabled,
-      position === 4 ? depth : undefined
+      position === WORLD_INFO_POSITION_AT_DEPTH ? depth : undefined
     )
 
     activated.push({
@@ -587,14 +594,17 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   const scanMessages = enabledRealBlocks.map(block => realBlockScanLine(block, character)).filter(Boolean).reverse()
   const activated = activateWorldEntries(loreEntries, scanMessages, character, regexEnabled)
 
-  const worldInfoBeforeEntries = orderedActivationEntries(activated, [0])
-  const worldInfoAfterEntries = orderedActivationEntries(activated, [1])
-  const exampleEntries = orderedActivationEntries(activated, [5, 6])
-  const worldInfoBefore = groupedContent(activated, [0])
-  const worldInfoAfter = groupedContent(activated, [1])
-  const worldExamples = exampleEntries.map(entry => entry.content.trim()).filter(Boolean).join('\n')
+  const worldInfoBeforeEntries = orderedActivationEntries(activated, [WORLD_INFO_POSITION_BEFORE])
+  const worldInfoAfterEntries = orderedActivationEntries(activated, [WORLD_INFO_POSITION_AFTER])
+  const exampleBeforeEntries = orderedActivationEntries(activated, [WORLD_INFO_POSITION_EM_TOP])
+  const exampleAfterEntries = orderedActivationEntries(activated, [WORLD_INFO_POSITION_EM_BOTTOM])
+  const exampleEntries = [...exampleBeforeEntries, ...exampleAfterEntries]
+  const worldInfoBefore = groupedContent(activated, [WORLD_INFO_POSITION_BEFORE])
+  const worldInfoAfter = groupedContent(activated, [WORLD_INFO_POSITION_AFTER])
+  const worldExamplesBefore = exampleBeforeEntries.map(entry => entry.content.trim()).filter(Boolean).join('\n')
+  const worldExamplesAfter = exampleAfterEntries.map(entry => entry.content.trim()).filter(Boolean).join('\n')
   const characterExamples = replaceMacros(asString(characterData(character).mes_example), character)
-  const examples = worldExamples || characterExamples
+  const examples = [worldExamplesBefore, characterExamples, worldExamplesAfter].map(item => item.trim()).filter(Boolean).join('\n')
   const topActivated = [...worldInfoBeforeEntries, ...worldInfoAfterEntries, ...exampleEntries]
   const postHistory = replaceMacros(asString(characterData(character).post_history_instructions), character)
   const depthPrompt = asRecord(asRecord(characterData(character).extensions).depth_prompt)
@@ -623,9 +633,9 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
     characterInjectionDetail(character, '角色性格', '角色卡 personality', asString(data.personality)),
     characterInjectionDetail(character, '场景', '角色卡 scenario', asString(data.scenario)),
     ...worldInfoAfterEntries.map(entry => worldEntryInjectionDetail(entry, input.loreBooks, '位置：角色定义后')),
-    ...(exampleEntries.length > 0
-      ? exampleEntries.map(entry => worldEntryInjectionDetail(entry, input.loreBooks, '位置：示例对话'))
-      : [characterInjectionDetail(character, '示例对话', '角色卡 mes_example', examples ? `Example dialogue:\n${examples}` : '')])
+    ...exampleBeforeEntries.map(entry => worldEntryInjectionDetail(entry, input.loreBooks, '位置：示例对话前')),
+    characterInjectionDetail(character, '示例对话', '角色卡 mes_example', characterExamples ? `Example dialogue:\n${characterExamples}` : ''),
+    ...exampleAfterEntries.map(entry => worldEntryInjectionDetail(entry, input.loreBooks, '位置：示例对话后'))
   ])
   const topInjection = [mainPrompt, definitionParts.join('\n\n')].filter(Boolean).join('\n\n')
   if (topInjection.trim()) {
@@ -662,7 +672,7 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
     }))
     .filter((item): item is { block: RuntimeBlock; message: ChatGenerationPreviewMessage } => item.message !== null)
   const realMessages = realMessageItems.map(item => item.message)
-  const depthInjections = activated.filter(entry => entry.position === 4 && entry.content.trim())
+  const depthInjections = activated.filter(entry => entry.position === WORLD_INFO_POSITION_AT_DEPTH && entry.content.trim())
   const depthByIndex = new Map<number, ActivationEntry[]>()
 
   const allDepthInjections = [...depthInjections]
@@ -702,7 +712,7 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
 
   for (let index = 0; index <= realMessages.length; index++) {
     const injections = depthByIndex.get(index) ?? []
-    for (const injection of injections.sort((a, b) => b.order - a.order || a.entry.id - b.entry.id)) {
+    for (const injection of injections.sort((a, b) => a.order - b.order || b.entry.id - a.entry.id)) {
       const blockId = virtualId--
       pushMessage(messages, injection.role, injection.content, blockId)
       const beforeBlockId = realMessageItems[index]?.block.id

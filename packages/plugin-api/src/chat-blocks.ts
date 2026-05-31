@@ -46,7 +46,11 @@ export function textFromContentParts(parts: ChatContentPart[]): string {
 
 export function messageHasContent(message: ChatGenerationPreviewMessage): boolean {
   if (typeof message.content === 'string') return message.content.trim().length > 0
-  return message.content.some(part => part.type === 'tool_call' || part.text.trim().length > 0)
+  if (!Array.isArray(message.content)) return false
+  return message.content.some(part => (
+    part?.type === 'tool_call' ||
+    ((part?.type === 'text' || part?.type === 'reasoning') && typeof part.text === 'string' && part.text.trim().length > 0)
+  ))
 }
 
 export function baseMessagesFromBlocks(blocks: RuntimeBlock[]): ChatGenerationPreviewMessage[] {
