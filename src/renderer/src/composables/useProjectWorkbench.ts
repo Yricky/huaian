@@ -1,6 +1,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type InjectionKey } from 'vue'
 import type {
   ChatBlock,
+  ChatCreatePayload,
   ChatBlockCreatePayload,
   ChatGenerationEvent,
   ChatGenerationPreview,
@@ -14,6 +15,7 @@ import type {
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
+  ProjectConfigUpdatePayload,
   ProjectImportResult,
   ProjectSnapshot,
   RecentProject,
@@ -377,20 +379,19 @@ export function createProjectWorkbench() {
     return worldEntries.value.filter(entry => entry.loreBookId === book.id).length
   }
 
-  function pathToFileUrl(path: string): string {
-    const normalized = path.replace(/\\/g, '/')
+  function pathToAssetUrl(path: string, cacheKey = ''): string {
+    const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '')
     const encoded = normalized
       .split('/')
-      .map((part, index) => index === 0 && /^[A-Za-z]:$/.test(part) ? part : encodeURIComponent(part))
+      .map(part => encodeURIComponent(part))
       .join('/')
-    return normalized.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`
+    const query = cacheKey ? `?v=${encodeURIComponent(cacheKey)}` : ''
+    return `st-forge-asset:///${encoded}${query}`
   }
 
   function characterAssetUrl(entry: CharacterEntry): string {
     if (!project.value || !entry.assetPath) return ''
-    const projectPath = project.value.path.replace(/\\/g, '/').replace(/\/+$/, '')
-    const assetPath = entry.assetPath.replace(/\\/g, '/').replace(/^\/+/, '')
-    return pathToFileUrl(`${projectPath}/${assetPath}`)
+    return pathToAssetUrl(entry.assetPath, entry.updatedAt)
   }
 
   function selectCharacter(entry: CharacterEntry) {
@@ -817,15 +818,27 @@ export function createProjectWorkbench() {
     selectedChat.value = clone(chat)
   }
 
-  async function createChat() {
+  async function saveProjectConfig(payload: ProjectConfigUpdatePayload): Promise<boolean> {
+    if (!project.value) return false
     try {
-      await window.electronAPI.createChat()
-      await refreshProjectSnapshot()
-      selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
-      activeView.value = 'chat'
-      showToast('聊天已创建', 'success')
+      project.value.config = await window.electronAPI.updateProjectConfig(toIpcJson(payload))
+      return true
     } catch (error) {
       showToast(errorText(error), 'error')
+      return false
+    }
+  }
+
+  async function createChat(payload?: ChatCreatePayload): Promise<ChatSession | null> {
+    try {
+      const chat = await window.electronAPI.createChat(payload ? toIpcJson(payload) : undefined)
+      replaceChat(chat)
+      activeView.value = 'chat'
+      showToast('聊天已创建', 'success')
+      return chat
+    } catch (error) {
+      showToast(errorText(error), 'error')
+      return null
     }
   }
 
@@ -841,15 +854,25 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function deleteSelectedChat() {
-    if (!selectedChat.value || !window.confirm('删除当前聊天？其中的所有块会一并删除。')) return
+  async function deleteChat(chat: ChatSession) {
+    if (generatingChatIds.value.includes(chat.id) || !window.confirm('删除当前聊天？其中的所有块会一并删除。')) return
     try {
-      project.value = await window.electronAPI.deleteChat(selectedChat.value.id)
-      selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
+      const wasSelected = selectedChat.value?.id === chat.id
+      project.value = await window.electronAPI.deleteChat(chat.id)
+      if (wasSelected) {
+        selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
+      } else {
+        refreshSelectedChat()
+      }
       showToast('聊天已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
+  }
+
+  async function deleteSelectedChat() {
+    if (!selectedChat.value) return
+    await deleteChat(selectedChat.value)
   }
 
   async function createChatBlock(payload: ChatBlockCreatePayload) {
@@ -1114,6 +1137,7 @@ export function createProjectWorkbench() {
     createLlmProvider,
     createLoreBook,
     createWorldEntry,
+    deleteChat,
     deleteChatBlock,
     deleteSelectedChat,
     deleteSelectedCharacter,
@@ -1154,6 +1178,7 @@ export function createProjectWorkbench() {
     saveCharacterAdvanced,
     saveChat,
     saveChatBlock,
+    saveProjectConfig,
     saveLoreBook,
     saveLlmInstance,
     saveLlmProvider,

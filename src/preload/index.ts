@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   ChatBlock,
+  ChatCreatePayload,
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatGenerationEvent,
@@ -23,6 +24,8 @@ import type {
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
   ProjectImportResult,
+  ProjectConfig,
+  ProjectConfigUpdatePayload,
   ProjectSnapshot,
   RecentProject,
   LoreBook,
@@ -35,6 +38,8 @@ import type {
 const electronAPI = {
   getProject: (): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:get'),
   listRecentProjects: (): Promise<RecentProject[]> => ipcRenderer.invoke('project:listRecent'),
+  updateProjectConfig: (payload: IpcJsonPayload<ProjectConfigUpdatePayload>): Promise<ProjectConfig> =>
+    ipcRenderer.invoke('project:updateConfig', payload),
   openProject: (): Promise<ProjectSnapshot | null> => ipcRenderer.invoke('project:open'),
   openProjectPath: (path: string): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:openPath', path),
   createCharacter: (): Promise<CharacterEntry> => ipcRenderer.invoke('project:createCharacter'),
@@ -75,7 +80,7 @@ const electronAPI = {
   updateLlmInstance: (payload: IpcJsonPayload<LlmInstanceUpdatePayload>): Promise<LlmInstance> =>
     ipcRenderer.invoke('llm:updateInstance', payload),
   deleteLlmInstance: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('llm:deleteInstance', id),
-  createChat: (): Promise<ChatSession> => ipcRenderer.invoke('chat:create'),
+  createChat: (payload?: IpcJsonPayload<ChatCreatePayload>): Promise<ChatSession> => ipcRenderer.invoke('chat:create', payload),
   updateChat: (payload: IpcJsonPayload<ChatUpdatePayload>): Promise<ChatSession> =>
     ipcRenderer.invoke('chat:update', payload),
   deleteChat: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('chat:delete', id),

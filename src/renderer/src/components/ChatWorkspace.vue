@@ -3,12 +3,11 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   MdAutoStories,
   MdBook,
+  MdCheck,
   MdClose,
-  MdDeleteOutline,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
   MdMoreVert,
-  MdPerson,
   MdPostAdd,
   MdSmartToy,
   MdVisibility
@@ -51,7 +50,6 @@ const props = defineProps<{
   chat: ChatSession
   characters: CharacterEntry[]
   createChatBlock: (payload: ChatBlockCreatePayload) => Promise<ChatBlock | null>
-  deleteChat: () => Promise<void>
   deleteChatBlock: (block: ChatBlock) => Promise<void>
   frozen: boolean
   llmInstances: LlmInstance[]
@@ -77,9 +75,9 @@ const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const contextPreview = ref<ChatGenerationPreview | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
+const showVirtualEntries = ref(false)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
 
-const hasSystemBlock = computed(() => props.blocks.some(block => block.kind === 'system'))
 const canGenerateReply = computed(() => Boolean(
   props.chat.runtimeConfig.llmInstanceId && !props.frozen
 ))
@@ -136,24 +134,26 @@ const chatListItems = computed<ChatListItem[]>(() => {
   const before = new Map<number, ChatBlock[]>()
   const after = new Map<number, ChatBlock[]>()
 
-  for (const block of promptPreview.value.virtualBlocks) {
-    const metadata = block.metadata
-    const beforeBlockId = numberFromMetadata(metadata.displayBeforeBlockId)
-    const afterBlockId = numberFromMetadata(metadata.displayAfterBlockId)
-    if (beforeBlockId !== null) {
-      const list = before.get(beforeBlockId) ?? []
-      list.push(block)
-      before.set(beforeBlockId, list)
-      continue
+  if (showVirtualEntries.value) {
+    for (const block of promptPreview.value.virtualBlocks) {
+      const metadata = block.metadata
+      const beforeBlockId = numberFromMetadata(metadata.displayBeforeBlockId)
+      const afterBlockId = numberFromMetadata(metadata.displayAfterBlockId)
+      if (beforeBlockId !== null) {
+        const list = before.get(beforeBlockId) ?? []
+        list.push(block)
+        before.set(beforeBlockId, list)
+        continue
+      }
+      if (afterBlockId !== null) {
+        const list = after.get(afterBlockId) ?? []
+        list.push(block)
+        after.set(afterBlockId, list)
+        continue
+      }
+      if (metadata.displaySlot === 'end') endBlocks.push(block)
+      else startBlocks.push(block)
     }
-    if (afterBlockId !== null) {
-      const list = after.get(afterBlockId) ?? []
-      list.push(block)
-      after.set(afterBlockId, list)
-      continue
-    }
-    if (metadata.displaySlot === 'end') endBlocks.push(block)
-    else startBlocks.push(block)
   }
 
   const items: ChatListItem[] = startBlocks.map((block): ChatListItem => ({ type: 'block', block }))
@@ -173,6 +173,7 @@ watch(() => props.chat.id, () => {
   menuOpen.value = false
   replyPanelOpen.value = false
   contextPreview.value = null
+  showVirtualEntries.value = false
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
 }, { immediate: true })
@@ -224,14 +225,14 @@ function chatListItemKey(item: ChatListItem) {
 function blockStateKey(block: ChatBlock): string {
   return block.metadata.virtual === true
     ? [
-        'virtual',
-        props.chat.id,
-        block.id,
-        stringFromJson(block.metadata.displaySlot),
-        numberFromMetadata(block.metadata.displayBeforeBlockId) ?? '',
-        numberFromMetadata(block.metadata.displayAfterBlockId) ?? '',
-        Array.isArray(block.metadata.activatedEntryIds) ? block.metadata.activatedEntryIds.join(',') : ''
-      ].join(':')
+      'virtual',
+      props.chat.id,
+      block.id,
+      stringFromJson(block.metadata.displaySlot),
+      numberFromMetadata(block.metadata.displayBeforeBlockId) ?? '',
+      numberFromMetadata(block.metadata.displayAfterBlockId) ?? '',
+      Array.isArray(block.metadata.activatedEntryIds) ? block.metadata.activatedEntryIds.join(',') : ''
+    ].join(':')
     : `block:${block.id}`
 }
 
@@ -399,22 +400,12 @@ async function saveRuntimeConfig(config: ChatRuntimeConfig) {
   })
 }
 
-async function selectReplyCharacter(characterId: number | null) {
-  await saveRuntimeConfig(runtimeConfigWith({ characterId }))
-}
-
 async function selectReplyLlmInstance(llmInstanceId: number | null) {
   await saveRuntimeConfig(runtimeConfigWith({ llmInstanceId }))
 }
 
 async function setChatLoreBookIds(loreBookIds: number[]) {
   await saveRuntimeConfig(runtimeConfigWith({ loreBookIds: [...new Set(loreBookIds)] }))
-}
-
-async function setCharacterRegexScriptsEnabled(event: Event) {
-  await saveRuntimeConfig(runtimeConfigWith({
-    characterRegexScriptsEnabled: (event.target as HTMLInputElement).checked
-  }))
 }
 
 async function addLoreBook(event: Event) {
@@ -443,21 +434,6 @@ async function saveTitle() {
   await props.saveChat({
     ...props.chat,
     title: titleDraft.value.trim() || '新聊天'
-  })
-}
-
-async function addSystemBlock() {
-  if (props.frozen) return
-  beforeListMutation()
-  await props.createChatBlock({
-    chatId: props.chat.id,
-    kind: 'system',
-    targetRole: 'system',
-    enabled: true,
-    title: '系统提示词',
-    summary: '',
-    contentParts: [{ type: 'text', text: '' }],
-    metadata: {}
   })
 }
 
@@ -534,12 +510,6 @@ async function showGenerationPreview() {
   if (preview) contextPreview.value = preview
 }
 
-async function deleteCurrentChat() {
-  if (props.frozen) return
-  menuOpen.value = false
-  await props.deleteChat()
-}
-
 async function generateReply() {
   if (!canGenerateReply.value) return
   replyPanelOpen.value = false
@@ -571,8 +541,6 @@ async function removeBlock(block: ChatBlock) {
       </div>
 
       <div class="button-row">
-        <button v-if="!hasSystemBlock" class="outline-button" type="button" :disabled="frozen"
-          @click="addSystemBlock">添加系统提示词</button>
         <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
           :disabled="frozen" @click.stop="toggleMenu">
           <MdMoreVert class="toolbar-icon" aria-hidden="true" />
@@ -597,7 +565,8 @@ async function removeBlock(block: ChatBlock) {
           <div class="md3-pill-combo">
             <button ref="replyButtonRef" class="md3-pill-combo-trigger config-trigger" type="button" :disabled="frozen"
               @click.stop="toggleReplyPanel">
-              <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel }}</span>
+              <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel
+                }}</span>
             </button>
             <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
               @click="generateReply">
@@ -642,11 +611,20 @@ async function removeBlock(block: ChatBlock) {
         </section>
 
         <section class="popup-section">
+          <button
+            class="setting-row"
+            type="button"
+            :aria-pressed="showVirtualEntries"
+            :class="{ selected: showVirtualEntries }"
+            @click="showVirtualEntries = !showVirtualEntries"
+          >
+            <span class="setting-row-text">展示虚拟入口</span>
+            <span class="setting-check" aria-hidden="true">
+              <MdCheck v-if="showVirtualEntries" class="setting-check-icon" />
+            </span>
+          </button>
           <button type="button" @click="showGenerationPreview">
             <MdVisibility class="menu-icon" aria-hidden="true" />查看将要发送的上下文
-          </button>
-          <button class="danger-menu-item" type="button" @click="deleteCurrentChat">
-            <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除聊天
           </button>
         </section>
       </div>
@@ -654,25 +632,6 @@ async function removeBlock(block: ChatBlock) {
 
     <Teleport to="body">
       <div v-if="replyPanelOpen" ref="replyPanelRef" class="reply-panel" :style="replyPanelStyle" @click.stop>
-        <section class="popup-section">
-          <div class="popup-section-title">
-            <MdPerson class="menu-icon" aria-hidden="true" />角色卡
-          </div>
-          <button class="choice-row" type="button" :class="{ selected: chat.runtimeConfig.characterId === null }"
-            @click="selectReplyCharacter(null)">
-            <span>无角色</span>
-          </button>
-          <button v-for="character in characters" :key="character.id" class="choice-row" type="button"
-            :class="{ selected: chat.runtimeConfig.characterId === character.id }"
-            @click="selectReplyCharacter(character.id)">
-            <span>{{ characterName(character) }}</span>
-          </button>
-          <label class="choice-row setting-row">
-            <input type="checkbox" :checked="characterRegexScriptsEnabled" @change="setCharacterRegexScriptsEnabled" />
-            <span>角色正则脚本</span>
-          </label>
-        </section>
-
         <section class="popup-section">
           <div class="popup-section-title">
             <MdBook class="menu-icon" aria-hidden="true" />LLM 实例
@@ -690,12 +649,7 @@ async function removeBlock(block: ChatBlock) {
       </div>
     </Teleport>
 
-    <JsonDialog
-      v-if="contextPreview"
-      title="将要发送的上下文"
-      :value="contextPreview"
-      @close="contextPreview = null"
-    />
+    <JsonDialog v-if="contextPreview" title="将要发送的上下文" :value="contextPreview" @close="contextPreview = null" />
   </main>
 </template>
 
@@ -886,7 +840,7 @@ async function removeBlock(block: ChatBlock) {
   gap: 6px;
 }
 
-.popup-section + .popup-section {
+.popup-section+.popup-section {
   border-top: 1px solid #edf0f4;
   padding-top: 8px;
 }
@@ -947,11 +901,49 @@ async function removeBlock(block: ChatBlock) {
 }
 
 .setting-row {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #e1e7ef;
+  border-radius: 7px;
+  background: #fbfcfd;
+  color: #303a49;
   cursor: pointer;
+  font-size: 12px;
+  padding: 7px 8px;
 }
 
-.setting-row input {
+.setting-row:hover {
+  background: #f1f5fa;
+}
+
+.setting-row.selected {
+  border-color: #2f6fca;
+  background: #f4f8ff;
+}
+
+.setting-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setting-check {
+  width: 18px;
+  height: 18px;
+  display: grid;
   flex: 0 0 auto;
+  place-items: center;
+  color: #2f6fca;
+}
+
+.setting-check-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .row-actions {
@@ -976,10 +968,6 @@ async function removeBlock(block: ChatBlock) {
   font-size: 12px;
   padding: 9px;
   text-align: center;
-}
-
-.danger-menu-item {
-  color: #9d2c2c !important;
 }
 
 .menu-icon {

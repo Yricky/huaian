@@ -87,9 +87,8 @@ const blockSubMeta = computed(() => [
   sentAtLabel.value,
   isVirtual.value ? '' : tokenLabel.value
 ].filter(Boolean).join(' · '))
-const isEmptySystem = computed(() => props.block.kind === 'system' && text.value.trim().length === 0)
 const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value)
-const showMarkdown = computed(() => !isCollapsed.value && !isEmptySystem.value && props.block.kind !== 'injection')
+const showMarkdown = computed(() => !isCollapsed.value && props.block.kind !== 'injection')
 const toolDefinition = computed(() => recordFromMetadata(props.block.metadata.toolDefinition))
 const toolDefinitionLoreBookId = computed(() => numberFromMetadata(toolDefinition.value.loreBookId))
 const selectedToolLoreBook = computed(() => {
@@ -534,15 +533,7 @@ defineExpose({
     </header>
 
     <template v-if="!isCollapsed">
-      <textarea v-if="editing && isEmptySystem" :ref="setEditorElement" v-model="draft" class="block-editor" rows="6"
-        @blur="autoSaveEdit" />
-
-      <button v-else-if="isEmptySystem" class="system-hint" type="button" :disabled="!canEdit"
-        @click="() => startEdit()">
-        点击可输入系统提示词
-      </button>
-
-      <div v-else-if="isInjection" class="injection-body">
+      <div v-if="isInjection" class="injection-body">
         <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded" rows="6"
           @blur="autoSaveEdit" />
 
@@ -1002,20 +993,10 @@ defineExpose({
   word-break: break-word;
 }
 
-.system-hint,
 .injection-body,
 .tool-definition-body {
   width: auto;
   margin-inline: var(--chat-block-content-inset);
-}
-
-.system-hint {
-  border: 1px dashed #cdd6e2;
-  border-radius: 8px;
-  background: transparent;
-  color: #6b7583;
-  padding: 14px;
-  text-align: left;
 }
 
 .injection-body {

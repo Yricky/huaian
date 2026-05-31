@@ -1,13 +1,16 @@
 import { app } from 'electron'
+import { registerAssetProtocol, registerAssetProtocolSchemes } from './asset-protocol'
 import { registerIpcHandlers } from './ipc'
 import { readConfig } from './project/app-config'
 import { closeCurrentProject } from './project/state'
 import { isValidProject, openDefaultProject, openProjectAt } from './project/store'
 import { createWindow } from './window'
 
+registerAssetProtocolSchemes()
 registerIpcHandlers()
 
 app.whenReady().then(async () => {
+  registerAssetProtocol()
   app.setAboutPanelOptions({ authors: ['Yricky'] })
   const config = await readConfig()
   const candidateProjectPaths = [

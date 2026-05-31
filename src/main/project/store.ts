@@ -2,6 +2,7 @@ import { access, mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type {
   ChatBlock,
+  ChatCreatePayload,
   ChatBlockCreatePayload,
   ChatBlockTargetRole,
   ChatBlockUpdatePayload,
@@ -21,6 +22,7 @@ import type {
   LlmProviderSnapshot,
   ProviderModelCacheItem,
   ProjectConfig,
+  ProjectConfigUpdatePayload,
   ProjectSnapshot,
   RecentProject,
   LoreBook,
@@ -50,8 +52,8 @@ import {
   normalizeChatRuntimeConfig,
   normalizeCharacterCard,
   normalizeCharacterForgeData,
-  normalizeWorldEntryData,
-  toNumber
+  normalizeProjectConfig,
+  normalizeWorldEntryData
 } from './normalizers'
 import { ensureProject, getCurrentProject, setCurrentProject, type ProjectContext } from './state'
 
@@ -68,10 +70,7 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function readProjectConfig(configPath: string): Promise<ProjectConfig> {
   try {
-    const raw = JSON.parse(await readFile(configPath, 'utf-8'))
-    const config = defaultProjectConfig()
-    config.schemaVersion = toNumber(raw.schemaVersion, 1)
-    return config
+    return normalizeProjectConfig(JSON.parse(await readFile(configPath, 'utf-8')))
   } catch {
     return defaultProjectConfig()
   }
@@ -80,6 +79,16 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig> {
 export async function writeProjectConfig(project = getCurrentProject()): Promise<void> {
   if (!project) return
   await writeFile(project.configPath, JSON.stringify(project.config, null, 2), 'utf-8')
+}
+
+export async function updateProjectConfig(payload: ProjectConfigUpdatePayload): Promise<ProjectConfig> {
+  const project = ensureProject()
+  project.config = normalizeProjectConfig({
+    ...project.config,
+    ...payload
+  })
+  await writeProjectConfig(project)
+  return project.config
 }
 
 async function isEmptyDirectory(projectPath: string): Promise<boolean> {
@@ -684,41 +693,20 @@ function touchChat(chatId: number): void {
   project.db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(nowIso(), chatId)
 }
 
-export function createChat(): ChatSession {
+export function createChat(payload: ChatCreatePayload = {}): ChatSession {
   const project = ensureProject()
   const now = nowIso()
   const recentInstance = listLlmInstances()[0] ?? null
+  const runtimeConfig = normalizeChatRuntimeConfig({
+    ...defaultChatRuntimeConfig(recentInstance?.id ?? null),
+    ...asRecord(payload.runtimeConfig)
+  })
   const transaction = project.db.transaction(() => {
     const result = project.db.prepare(`
       INSERT INTO chat_sessions (title, runtime_config_json, created_at, updated_at)
       VALUES (?, ?, ?, ?)
-    `).run('新聊天', json(defaultChatRuntimeConfig(recentInstance?.id ?? null)), now, now)
-    const chatId = Number(result.lastInsertRowid)
-    project.db.prepare(`
-      INSERT INTO chat_blocks (
-        chat_id, kind, target_role, enabled, status, order_index, title, summary,
-        content_parts_json, metadata_json, llm_instance_snapshot_json, request_block_ids_json,
-        error_text, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      chatId,
-      'system',
-      'system',
-      1,
-      'idle',
-      1,
-      '系统提示词',
-      '',
-      json([{ type: 'text', text: '' }]),
-      json({}),
-      null,
-      json([]),
-      '',
-      now,
-      now
-    )
-    return chatId
+    `).run(normalizeName(payload.title ?? '新聊天', '新聊天'), json(runtimeConfig), now, now)
+    return Number(result.lastInsertRowid)
   })
   return getChat(transaction())
 }

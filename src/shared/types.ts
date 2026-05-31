@@ -73,8 +73,19 @@ export interface WorldEntryOrderPayload {
   worldEntryIds: number[]
 }
 
+export interface ChatCreationDefaults {
+  characterId: number | null
+  loreBookIds: number[]
+  characterRegexScriptsEnabled: boolean
+}
+
 export interface ProjectConfig {
   schemaVersion: number
+  chatCreateDefaults: ChatCreationDefaults
+}
+
+export interface ProjectConfigUpdatePayload {
+  chatCreateDefaults?: ChatCreationDefaults
 }
 
 export interface ProjectSnapshot {
@@ -191,6 +202,11 @@ export interface ChatSession {
   runtimeConfig: ChatRuntimeConfig
   createdAt: string
   updatedAt: string
+}
+
+export interface ChatCreatePayload {
+  title?: string
+  runtimeConfig?: Partial<ChatRuntimeConfig>
 }
 
 export interface ChatUpdatePayload {

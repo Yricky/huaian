@@ -1,5 +1,6 @@
 import { app, dialog, ipcMain } from 'electron'
 import type {
+  ChatCreatePayload,
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatGenerationRequest,
@@ -12,6 +13,7 @@ import type {
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
   LoreBookUpdatePayload,
+  ProjectConfigUpdatePayload,
   WorldEntryOrderPayload,
   WorldEntryUpdatePayload
 } from '../shared/types'
@@ -47,6 +49,7 @@ import {
   updateChat,
   updateChatBlock,
   updateCharacter,
+  updateProjectConfig,
   updateLlmInstance,
   updateLlmProvider,
   updateLoreBook,
@@ -66,6 +69,9 @@ function ensureCanSwitchProject(): void {
 export function registerIpcHandlers(): void {
   ipcMain.handle('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
   ipcMain.handle('project:listRecent', () => listRecentProjects())
+  ipcMain.handle('project:updateConfig', (_, payload: IpcJsonPayload<ProjectConfigUpdatePayload>) => (
+    updateProjectConfig(parseIpcPayload(payload))
+  ))
   ipcMain.handle('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
@@ -132,7 +138,9 @@ export function registerIpcHandlers(): void {
   ))
   ipcMain.handle('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
 
-  ipcMain.handle('chat:create', () => createChat())
+  ipcMain.handle('chat:create', (_, payload?: IpcJsonPayload<ChatCreatePayload>) => (
+    createChat(payload ? parseIpcPayload(payload) : {})
+  ))
   ipcMain.handle('chat:update', (_, payload: IpcJsonPayload<ChatUpdatePayload>) => (
     updateChat(parseIpcPayload(payload))
   ))

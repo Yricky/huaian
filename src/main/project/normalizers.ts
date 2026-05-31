@@ -1,5 +1,6 @@
 import type {
   CharacterBookEntryData,
+  ChatCreationDefaults,
   CharacterForgeData,
   ChatRuntimeConfig,
   JsonRecord,
@@ -8,7 +9,8 @@ import type {
 
 export function defaultProjectConfig(): ProjectConfig {
   return {
-    schemaVersion: 1
+    schemaVersion: 1,
+    chatCreateDefaults: defaultChatCreationDefaults()
   }
 }
 
@@ -63,6 +65,35 @@ function nullableInteger(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   const number = Number(value)
   return Number.isInteger(number) ? number : null
+}
+
+export function defaultChatCreationDefaults(): ChatCreationDefaults {
+  return {
+    characterId: null,
+    loreBookIds: [],
+    characterRegexScriptsEnabled: true
+  }
+}
+
+export function normalizeChatCreationDefaults(value: unknown): ChatCreationDefaults {
+  const data = asRecord(value)
+  const loreBookIds = Array.isArray(data.loreBookIds)
+    ? data.loreBookIds.map(item => Number(item)).filter(Number.isInteger)
+    : []
+
+  return {
+    characterId: nullableInteger(data.characterId),
+    loreBookIds: [...new Set(loreBookIds)],
+    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false
+  }
+}
+
+export function normalizeProjectConfig(value: unknown): ProjectConfig {
+  const data = asRecord(value)
+  return {
+    schemaVersion: toNumber(data.schemaVersion, 1),
+    chatCreateDefaults: normalizeChatCreationDefaults(data.chatCreateDefaults)
+  }
 }
 
 export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
