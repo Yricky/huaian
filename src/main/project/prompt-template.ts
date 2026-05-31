@@ -1357,7 +1357,6 @@ class PromptTemplateRun {
         promptTemplate: { source }
       },
       llmInstanceSnapshot: null,
-      requestBlockIds: [],
       errorText: '',
       createdAt: this.input.chat.updatedAt,
       updatedAt: this.input.chat.updatedAt

@@ -322,7 +322,6 @@ export interface ChatBlock {
   contentParts: ChatContentPart[]
   metadata: JsonRecord
   llmInstanceSnapshot: LlmInstance | null
-  requestBlockIds: number[]
   errorText: string
   createdAt: string
   updatedAt: string

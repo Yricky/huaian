@@ -131,7 +131,6 @@ const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.s
   status: block.status,
   metadata: { ...block.metadata, uiCollapsed: undefined },
   contentParts: block.contentParts,
-  requestBlockIds: block.requestBlockIds,
   errorText: block.errorText
 })).join('\u001f'))
 const renderProjectionSignature = computed(() => props.blocks

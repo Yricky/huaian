@@ -69,7 +69,6 @@ export interface PromptBuildInput {
 export interface PromptBuildResult {
   messages: ChatGenerationPreviewMessage[]
   virtualBlocks: InjectionPreviewBlock[]
-  requestBlockIds: number[]
   character: CharacterEntry | null
   activeLoreBookIds: number[]
 }
@@ -597,7 +596,6 @@ function virtualBlock(
       targetRole: role
     },
     llmInstanceSnapshot: null,
-    requestBlockIds: [],
     errorText: '',
     createdAt: chat.updatedAt,
     updatedAt: chat.updatedAt
@@ -784,9 +782,6 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
   return {
     messages,
     virtualBlocks,
-    requestBlockIds: enabledRealBlocks
-      .filter(block => blockText(block).trim().length > 0 || (block.kind === 'assistant' && blockHasSentReasoning(block)))
-      .map(block => block.id),
     character,
     activeLoreBookIds: loreBookIds
   }

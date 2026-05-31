@@ -96,7 +96,6 @@ export function initDatabase(dbPath: string): any {
       content_parts_json TEXT NOT NULL,
       metadata_json TEXT NOT NULL,
       llm_instance_snapshot_json TEXT,
-      request_block_ids_json TEXT NOT NULL,
       error_text TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -309,7 +308,6 @@ export function rowToChatBlock(row: any): ChatBlock {
     contentParts: normalizeContentParts(parseJsonColumn(row.content_parts_json)),
     metadata: asRecord(parseJsonColumn(row.metadata_json)),
     llmInstanceSnapshot: llmSnapshot,
-    requestBlockIds: parseJsonArray<number>(row.request_block_ids_json).filter(Number.isFinite),
     errorText: row.error_text,
     createdAt: row.created_at,
     updatedAt: row.updated_at

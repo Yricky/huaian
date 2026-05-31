@@ -68,7 +68,6 @@ interface ActiveGeneration {
 
 interface PromptTemplateBundle {
   messages: ModelMessage[]
-  requestBlockIds: number[]
   templateDiagnostics: PromptTemplateDiagnostic[]
   templateVariables: PromptTemplateVariables
   templateGlobalVariables: JsonRecord
@@ -478,7 +477,6 @@ async function buildPromptBundle(
 
   return {
     messages: generated.messages.filter(messageHasSendableContent),
-    requestBlockIds: prompt.requestBlockIds,
     templateDiagnostics: [...preprocessed.diagnostics, ...generated.diagnostics],
     templateVariables: generated.variables,
     templateGlobalVariables: generated.globalVariables,
@@ -809,8 +807,8 @@ export async function startChatGeneration(
   }
 
   const generationBlock = request.regenerateBlockId
-    ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance, prompt.requestBlockIds)
-    : createAssistantGenerationBlock(chat.id, instance, prompt.requestBlockIds)
+    ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance)
+    : createAssistantGenerationBlock(chat.id, instance)
   const promptTemplateMetadata = {
     ...generationBlock.metadata,
     promptTemplate: {

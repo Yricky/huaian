@@ -779,10 +779,10 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   const result = project.db.prepare(`
     INSERT INTO chat_blocks (
       chat_id, kind, enabled, status, order_index,
-      content_parts_json, metadata_json, llm_instance_snapshot_json, request_block_ids_json,
+      content_parts_json, metadata_json, llm_instance_snapshot_json,
       error_text, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payload.chatId,
     payload.kind,
@@ -792,7 +792,6 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
     json(payload.contentParts),
     json(metadata),
     null,
-    json([]),
     '',
     now,
     now
@@ -835,17 +834,17 @@ export async function deleteChatBlock(id: number): Promise<ProjectSnapshot> {
   return getProjectSnapshot()
 }
 
-export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmInstance, requestBlockIds: number[]): ChatBlock {
+export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmInstance): ChatBlock {
   const project = ensureProject()
   getChat(chatId)
   const now = nowIso()
   const result = project.db.prepare(`
     INSERT INTO chat_blocks (
       chat_id, kind, enabled, status, order_index,
-      content_parts_json, metadata_json, llm_instance_snapshot_json, request_block_ids_json,
+      content_parts_json, metadata_json, llm_instance_snapshot_json,
       error_text, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     chatId,
     'assistant',
@@ -855,7 +854,6 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
     json([{ type: 'text', text: '' }]),
     json({ generationStartedAt: now }),
     json(llmInstance),
-    json(requestBlockIds),
     '',
     now,
     now
@@ -864,7 +862,7 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
   return getChatBlock(Number(result.lastInsertRowid))
 }
 
-export function prepareAssistantBlockForRegeneration(id: number, llmInstance: LlmInstance, requestBlockIds: number[]): ChatBlock {
+export function prepareAssistantBlockForRegeneration(id: number, llmInstance: LlmInstance): ChatBlock {
   const project = ensureProject()
   const block = getChatBlock(id)
   if (block.kind !== 'assistant') throw new Error('只能重新生成助手块。')
@@ -877,9 +875,9 @@ export function prepareAssistantBlockForRegeneration(id: number, llmInstance: Ll
   project.db.prepare(`
     UPDATE chat_blocks
     SET enabled = 0, status = 'generating', content_parts_json = ?, llm_instance_snapshot_json = ?,
-        request_block_ids_json = ?, metadata_json = ?, error_text = '', updated_at = ?
+        metadata_json = ?, error_text = '', updated_at = ?
     WHERE id = ?
-  `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(requestBlockIds), json(metadata), now, id)
+  `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(metadata), now, id)
   touchChat(block.chatId)
   return getChatBlock(id)
 }

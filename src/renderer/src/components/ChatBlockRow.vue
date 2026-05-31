@@ -120,7 +120,6 @@ const detailJson = computed(() => ({
   targetRole: targetRole.value,
   enabled: props.block.enabled,
   status: props.block.status,
-  requestBlockIds: props.block.requestBlockIds,
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
   content: text.value,
