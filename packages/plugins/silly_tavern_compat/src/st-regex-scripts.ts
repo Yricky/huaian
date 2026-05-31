@@ -1,5 +1,5 @@
-import type { CharacterEntry, JsonRecord } from './types'
-import { asBoolean, asNumberOrNull, asRecord, asString } from './value-utils'
+import { asBoolean, asNumberOrNull, asRecord, asString, type JsonRecord } from '@st-forge/plugin-api'
+import type { CharacterEntry } from './types'
 
 export const REGEX_PLACEMENT = {
   MD_DISPLAY: 0,

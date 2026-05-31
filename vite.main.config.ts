@@ -8,7 +8,7 @@ const nodeExternals = [...builtinModules, ...builtinModules.map(moduleName => `n
 
 export default defineConfig(({ mode }) => ({
   build: {
-    emptyOutDir: true,
+    emptyOutDir: false,
     minify: mode === 'production' ? 'esbuild' : false,
     outDir: resolve(rootDir, 'out/main'),
     rollupOptions: {

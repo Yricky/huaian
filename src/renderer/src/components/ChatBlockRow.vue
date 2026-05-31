@@ -31,7 +31,7 @@ import PluginFrame from './PluginFrame.vue'
 
 interface InjectionDetail {
   title: string
-  source: 'character' | 'worldInfo'
+  source: string
   sourceName: string
   reason: string
   content: string
@@ -249,7 +249,7 @@ function injectionDetailFromMetadata(value: unknown): InjectionDetail | null {
   if (!content) return null
   return {
     title: stringFromMetadata(record.title, '注入内容'),
-    source: record.source === 'worldInfo' ? 'worldInfo' : 'character',
+    source: stringFromMetadata(record.source, 'plugin'),
     sourceName: stringFromMetadata(record.sourceName, '未知来源'),
     reason: stringFromMetadata(record.reason, '未记录原因'),
     content,

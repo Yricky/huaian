@@ -5,24 +5,18 @@ import type {
   ChatBlockStatus,
   ChatContentPart,
   ChatSession,
-  CharacterEntry,
   JsonRecord,
   LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
   LlmProviderSnapshot,
   LlmProviderType,
-  ProviderModelCacheItem,
-  LoreBook,
-  WorldEntry
+  ProviderModelCacheItem
 } from '../../shared/types'
 import { asString } from '../../shared/value-utils'
 import {
   asRecord,
-  normalizeChatRuntimeConfig,
-  normalizeCharacterCard,
-  normalizeCharacterForgeData,
-  normalizeWorldEntryData
+  normalizeChatRuntimeConfig
 } from './normalizers'
 
 export function initDatabase(dbPath: string): any {
@@ -30,31 +24,6 @@ export function initDatabase(dbPath: string): any {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   db.exec(`
-    CREATE TABLE IF NOT EXISTS character_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      asset_path TEXT,
-      st_data TEXT NOT NULL,
-      forge_data TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS world_books (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS world_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      world_book_id INTEGER NOT NULL REFERENCES world_books(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      st_data TEXT NOT NULL,
-      forge_data TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS llm_providers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -101,7 +70,6 @@ export function initDatabase(dbPath: string): any {
       updated_at TEXT NOT NULL
     );
   `)
-  ensureColumn(db, 'character_entries', 'asset_path', 'TEXT')
   ensureColumn(db, 'chat_sessions', 'runtime_config_json', 'TEXT NOT NULL DEFAULT \'{}\'')
   return db
 }
@@ -223,37 +191,6 @@ function normalizeBlockKind(value: unknown): ChatBlockKind {
 
 function normalizeBlockStatus(value: unknown): ChatBlockStatus {
   return value === 'generating' || value === 'stopped' || value === 'error' ? value : 'idle'
-}
-
-export function rowToCharacter(row: any): CharacterEntry {
-  return {
-    id: row.id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    assetPath: row.asset_path ?? null,
-    stData: normalizeCharacterCard(parseJsonColumn(row.st_data), row.created_at),
-    forgeData: normalizeCharacterForgeData(parseJsonColumn(row.forge_data))
-  }
-}
-
-export function rowToLoreBook(row: any): LoreBook {
-  return {
-    id: row.id,
-    name: row.name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }
-}
-
-export function rowToWorldEntry(row: any): WorldEntry {
-  return {
-    id: row.id,
-    loreBookId: row.world_book_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    stData: normalizeWorldEntryData(parseJsonColumn(row.st_data)),
-    forgeData: asRecord(parseJsonColumn(row.forge_data))
-  }
 }
 
 export function rowToLlmProvider(row: any): LlmProvider {

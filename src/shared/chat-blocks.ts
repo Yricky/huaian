@@ -1,7 +1,11 @@
-import type { ChatBlock, ChatBlockKind, ChatBlockTargetRole, JsonRecord } from './types'
+import {
+  chatBlockMetadataForStorage,
+  chatBlockTargetRole,
+  normalizeChatBlockTargetRole
+} from '@st-forge/plugin-api/chat-blocks'
+import type { ChatBlock, JsonRecord } from './types'
 import { asRecord, asString } from './value-utils'
 
-type ChatBlockLike = Pick<ChatBlock, 'kind' | 'metadata'>
 type ChatBlockDisplayLike = Pick<ChatBlock, 'kind' | 'metadata' | 'status'>
 
 export interface ChatBlockDisplayOptions {
@@ -20,25 +24,7 @@ function metadataRecords(value: unknown): JsonRecord[] {
     : []
 }
 
-export function normalizeChatBlockTargetRole(value: unknown): ChatBlockTargetRole {
-  return value === 'user' || value === 'assistant' || value === 'system' ? value : 'system'
-}
-
-export function chatBlockTargetRole(block: ChatBlockLike): ChatBlockTargetRole {
-  if (block.kind === 'user' || block.kind === 'assistant' || block.kind === 'system') return block.kind
-  if (block.kind === 'tool_definition') return 'system'
-  return normalizeChatBlockTargetRole(block.metadata.targetRole)
-}
-
-export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unknown): JsonRecord {
-  const next = { ...asRecord(metadata) }
-  if (kind === 'injection') {
-    next.targetRole = normalizeChatBlockTargetRole(next.targetRole)
-  } else {
-    delete next.targetRole
-  }
-  return next
-}
+export { chatBlockMetadataForStorage, chatBlockTargetRole, normalizeChatBlockTargetRole }
 
 export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDisplayOptions = {}): string {
   if (block.kind === 'injection') return '注入内容'
@@ -49,7 +35,7 @@ export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDi
   return chatBlockTargetRole(block)
 }
 
-export function chatBlockSummary(block: ChatBlockLike): string {
+export function chatBlockSummary(block: Pick<ChatBlock, 'kind' | 'metadata'>): string {
   if (block.kind === 'tool_definition') {
     const definition = asRecord(block.metadata.toolDefinition)
     return [asString(definition.pluginId), asString(definition.toolCallName)].filter(Boolean).join(' · ') || '工具定义'
@@ -67,8 +53,8 @@ export function chatBlockSummary(block: ChatBlockLike): string {
 
   const sourceNames = [...new Set(details.map(detail => asString(detail.sourceName)).filter(Boolean))]
   const activatedCount = asNumberArray(block.metadata.activatedEntryIds).length
-  if (sourceNames.length > 0 && activatedCount > 0) return `${sourceNames[0]} · 世界书：${activatedCount} 条`
+  if (sourceNames.length > 0 && activatedCount > 0) return `${sourceNames[0]} · 注入：${activatedCount} 条`
   if (sourceNames.length > 0) return sourceNames[0]!
-  if (activatedCount > 0) return `世界书：${activatedCount} 条 · ${role}`
+  if (activatedCount > 0) return `注入：${activatedCount} 条 · ${role}`
   return role
 }

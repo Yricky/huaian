@@ -1,0 +1,20 @@
+{
+  "name": "@st-forge/plugin-silly-tavern-compat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../../scripts/build-builtin-plugins.mjs silly_tavern_compat"
+  },
+  "dependencies": {
+    "@st-forge/plugin-api": "workspace:*"
+  },
+  "stForgePlugin": {
+    "source": "plugin",
+    "entries": {
+      "initGlobal": "src/initGlobal.ts",
+      "initChat": "src/initChat.ts",
+      "chatBlockProcessor": "src/chatBlockProcessor.ts"
+    }
+  }
+}

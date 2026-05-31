@@ -1,0 +1,97 @@
+{
+  "id": "character_card_tool_calls",
+  "name": "世界书编辑工具",
+  "description": "把当前已实现的世界书临时编辑工具以聊天工具插件形式暴露给 LLM。",
+  "versionCode": 1,
+  "dependencies": ["silly_tavern_compat"],
+  "entry": {
+    "initGlobal": "initGlobal.js",
+    "initChat": "initChat.js",
+    "toolCalls": [
+      {
+        "name": "lorebook_edit",
+        "label": "世界书编辑工具组",
+        "handler": "handler.js",
+        "settingsHtml": "toolSettings.html",
+        "prompt": "你可以使用世界书编辑工具组来查看、测试、更新或新建当前绑定世界书的条目草稿。\n重要规则：这些工具只会编辑插件数据目录中的世界书 JSON，不会直接修改聊天内容。\n更新条目前先列出条目，避免重复创建；不确定触发效果时先测试触发。",
+        "tools": [
+          {
+            "name": "list_lorebook_entries",
+            "description": "获取绑定世界书中的所有条目，只返回 [id, title] 二元组。",
+            "inputSchema": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "get_lorebook_entries_json",
+            "description": "按 id 列表读取绑定世界书中的完整条目 JSON。",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "ids": {
+                  "type": "array",
+                  "items": { "type": "number" },
+                  "description": "要读取完整 JSON 的世界书条目 id 列表。"
+                }
+              },
+              "required": ["ids"],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "test_lorebook_trigger",
+            "description": "用一条例句测试绑定世界书会触发哪些条目。",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "example": {
+                  "type": "string",
+                  "description": "用于测试世界书触发的例句。"
+                }
+              },
+              "required": ["example"],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "upsert_lorebook_entry",
+            "description": "更新或新建绑定世界书中的条目。",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "number", "description": "要更新的世界书条目 id；不传时新建。" },
+                "title": { "type": "string", "description": "世界书条目的显示标题或备忘。" },
+                "order": { "type": "number", "description": "条目注入排序。" },
+                "position": {
+                  "type": "number",
+                  "enum": [0, 1, 4, 5, 6],
+                  "description": "0=角色定义前，1=角色定义后，4=At Depth，5/6=示例对话。"
+                },
+                "role": {
+                  "anyOf": [
+                    { "type": "number", "enum": [0, 1, 2] },
+                    { "type": "string", "enum": ["system", "user", "assistant"] }
+                  ],
+                  "description": "At Depth 使用的角色。0/system，1/user，2/assistant。"
+                },
+                "depth": { "type": "number", "description": "At Depth 插入深度。" },
+                "probability": { "type": "number", "minimum": 0, "maximum": 100, "description": "触发概率。" },
+                "enabled": { "type": "boolean", "description": "是否启用。" },
+                "constant": { "type": "boolean", "description": "是否常驻。" },
+                "selective": { "type": "boolean", "description": "是否启用次关键词。" },
+                "selectiveLogic": { "type": "number", "enum": [0, 1, 2, 3], "description": "0=AND ANY，3=AND ALL，1=NOT ALL，2=NOT ANY。" },
+                "keys": { "type": "array", "items": { "type": "string" }, "description": "主关键词。" },
+                "secondaryKeys": { "type": "array", "items": { "type": "string" }, "description": "次关键词。" },
+                "content": { "type": "string", "description": "条目触发后插入提示词中的正文。" }
+              },
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ],
+    "settingsHtml": "settings.html"
+  }
+}

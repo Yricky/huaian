@@ -23,15 +23,15 @@ importers:
       '@faker-js/faker':
         specifier: ^10.4.0
         version: 10.4.0
+      '@st-forge/plugin-api':
+        specifier: workspace:*
+        version: link:packages/plugin-api
       ai:
         specifier: ^6.0.193
         version: 6.0.193(zod@4.4.3)
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0
-      ejs:
-        specifier: ^6.0.1
-        version: 6.0.1
       jsonrepair:
         specifier: ^3.14.0
         version: 3.14.0
@@ -90,6 +90,29 @@ importers:
       vue-tsc:
         specifier: ^3.2.4
         version: 3.2.4(typescript@6.0.3)
+
+  packages/plugin-api: {}
+
+  packages/plugins/character_card_tool_calls:
+    dependencies:
+      '@st-forge/plugin-api':
+        specifier: workspace:*
+        version: link:../../plugin-api
+
+  packages/plugins/silly_tavern_compat:
+    dependencies:
+      '@st-forge/plugin-api':
+        specifier: workspace:*
+        version: link:../../plugin-api
+
+  packages/plugins/st_prompt_template_compat:
+    dependencies:
+      '@st-forge/plugin-api':
+        specifier: workspace:*
+        version: link:../../plugin-api
+      ejs:
+        specifier: ^6.0.1
+        version: 6.0.1
 
   packages/streaming-markdown:
     dependencies:

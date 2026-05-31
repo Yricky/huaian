@@ -3,13 +3,18 @@ import type {
   ChatBlockTargetRole,
   ChatContentPart,
   ChatGenerationPreviewMessage,
+  JsonRecord
+} from '@st-forge/plugin-api'
+import { chatBlockTargetRole } from '@st-forge/plugin-api'
+import { asBoolean, asNumber, asRecord, asString } from '@st-forge/plugin-api'
+import type {
   CharacterEntry,
-  JsonRecord,
+  InjectionDetail,
+  InjectionPreviewBlock,
+  InjectionPreviewMetadataInput,
   LoreBook,
   WorldEntry
 } from './types'
-import { chatBlockTargetRole } from './chat-blocks'
-import { asBoolean, asNumber, asRecord, asString } from './value-utils'
 import {
   REGEX_PLACEMENT,
   characterData,
@@ -26,41 +31,6 @@ interface SillyTavernPromptRuntimeConfig {
   characterId?: number | null
   loreBookIds?: number[]
   characterRegexScriptsEnabled?: boolean
-}
-
-export interface InjectionDetail {
-  title: string
-  source: 'character' | 'worldInfo'
-  sourceName: string
-  reason: string
-  content: string
-  entryId?: number
-  loreBookId?: number
-}
-
-export interface InjectionPreviewBlock extends ChatBlock {
-  metadata: JsonRecord & {
-    virtual: true
-    targetRole: ChatBlockTargetRole
-    source: 'character' | 'worldInfo'
-    activatedEntryIds?: number[]
-    loreBookIds?: number[]
-    injectionDetails?: InjectionDetail[]
-    displaySlot?: 'start' | 'end'
-    displayBeforeBlockId?: number
-    displayAfterBlockId?: number
-  }
-}
-
-type InjectionPreviewMetadataInput = JsonRecord & {
-  virtual: true
-  source: 'character' | 'worldInfo'
-  activatedEntryIds?: number[]
-  loreBookIds?: number[]
-  injectionDetails?: InjectionDetail[]
-  displaySlot?: 'start' | 'end'
-  displayBeforeBlockId?: number
-  displayAfterBlockId?: number
 }
 
 export interface PromptBuildInput {

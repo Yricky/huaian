@@ -1,68 +1,13 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import type { JsonRecord, PluginDescriptor, PluginFileEntry, PluginManifest } from '../../shared/types'
 import { asRecord, asString } from '../../shared/value-utils'
-import { BUILTIN_PLUGINS } from './builtin-plugins'
 import { ensureProject, getCurrentProject } from './state'
+import { extractZipFile } from './zip'
 
 const PLUGIN_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-const sampleCharacter = {
-  spec: 'chara_card_v2',
-  spec_version: '2.0',
-  data: {
-    name: 'Mira',
-    description: 'Mira is a careful and curious archivist.',
-    personality: 'Patient, observant, dryly funny.',
-    scenario: 'Mira is helping test the plugin-based chat runtime.',
-    first_mes: 'Hello. I have the files open and the tea cooling beside them.',
-    mes_example: '',
-    system_prompt: 'Write {{char}}\'s next reply in a fictional chat between {{char}} and {{user}}.',
-    post_history_instructions: '',
-    alternate_greetings: [],
-    tags: ['sample'],
-    extensions: {
-      depth_prompt: {
-        prompt: '',
-        depth: 4,
-        role: 'system'
-      }
-    }
-  }
-}
-
-const sampleWorldBook = {
-  name: 'Sample WorldBook',
-  entries: [
-    {
-      id: 1,
-      keys: ['archive'],
-      secondary_keys: [],
-      comment: 'Archive',
-      content: 'Mira keeps a meticulous archive of conversations and discoveries.',
-      constant: false,
-      selective: false,
-      insertion_order: 100,
-      enabled: true,
-      position: 'before_char',
-      extensions: {
-        position: 0,
-        depth: 4,
-        role: 0,
-        probability: 100,
-        useProbability: true,
-        selectiveLogic: 0
-      }
-    }
-  ]
-}
-
-const samplePromptTemplateConfig = {
-  enabled: true,
-  renderMessages: true,
-  globalVariables: {}
-}
+const BUILTIN_PLUGIN_IDS = ['silly_tavern_compat', 'character_card_tool_calls', 'st_prompt_template_compat']
 
 function isInDirectory(filePath: string, directoryPath: string): boolean {
   const directoryRelativePath = relative(directoryPath, filePath)
@@ -137,23 +82,74 @@ function safeChildPath(root: string, childPath = ''): string {
   return filePath
 }
 
-async function writeIfMissing(filePath: string, content: string): Promise<void> {
+async function pathExists(filePath: string): Promise<boolean> {
   try {
     await stat(filePath)
+    return true
   } catch {
-    await mkdir(dirname(filePath), { recursive: true })
-    await writeFile(filePath, content, 'utf-8')
+    return false
   }
 }
 
-async function ensureBuiltinPluginData(): Promise<void> {
-  const sillyTavernRoot = pluginDataRoot('silly_tavern_compat')
-  const promptTemplateRoot = pluginDataRoot('st_prompt_template_compat')
-  await Promise.all([
-    writeIfMissing(join(sillyTavernRoot, 'characters', 'mira.json'), `${JSON.stringify(sampleCharacter, null, 2)}\n`),
-    writeIfMissing(join(sillyTavernRoot, 'worldbooks', 'sample_worldbook.json'), `${JSON.stringify(sampleWorldBook, null, 2)}\n`),
-    writeIfMissing(join(promptTemplateRoot, 'config.json'), `${JSON.stringify(samplePromptTemplateConfig, null, 2)}\n`)
-  ])
+async function directoryExists(filePath: string): Promise<boolean> {
+  try {
+    return (await stat(filePath)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+async function readPluginManifest(root: string): Promise<PluginManifest | null> {
+  for (const fileName of ['plugin.json', 'manifest.json']) {
+    try {
+      return normalizePluginManifest(JSON.parse(await readFile(join(root, fileName), 'utf-8')))
+    } catch {
+      // Try the next supported manifest file name.
+    }
+  }
+  return null
+}
+
+function readPluginManifestSync(root: string): PluginManifest | null {
+  for (const fileName of ['plugin.json', 'manifest.json']) {
+    try {
+      return normalizePluginManifest(JSON.parse(readFileSync(join(root, fileName), 'utf-8')))
+    } catch {
+      // Try the next supported manifest file name.
+    }
+  }
+  return null
+}
+
+function builtinPluginZipPath(pluginId: string): string {
+  return join(__dirname, 'builtin-plugins', `${pluginId}.zip`)
+}
+
+async function installBuiltinPlugin(pluginId: string): Promise<void> {
+  const root = pluginRoot(pluginId)
+  if (await directoryExists(root)) {
+    await mkdir(pluginDataRoot(pluginId), { recursive: true })
+    return
+  }
+
+  const zipPath = builtinPluginZipPath(pluginId)
+  if (!await pathExists(zipPath)) {
+    throw new Error(`内置插件资源缺失：${zipPath}。请先运行 pnpm build:plugins。`)
+  }
+
+  const project = ensureProject()
+  const tempRoot = safeChildPath(project.pluginsPath, `.${pluginId}.installing-${Date.now()}`)
+  await rm(tempRoot, { recursive: true, force: true })
+  try {
+    await extractZipFile(zipPath, tempRoot)
+    const manifest = await readPluginManifest(tempRoot)
+    if (manifest?.id !== pluginId) throw new Error(`内置插件包 id 不匹配：${pluginId}`)
+    await rename(tempRoot, root)
+    await mkdir(pluginDataRoot(pluginId), { recursive: true })
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true })
+    throw error
+  }
 }
 
 export async function ensureProjectPlugins(): Promise<void> {
@@ -163,15 +159,9 @@ export async function ensureProjectPlugins(): Promise<void> {
     mkdir(project.pluginDataPath, { recursive: true })
   ])
 
-  for (const plugin of BUILTIN_PLUGINS) {
-    const root = pluginRoot(plugin.id)
-    await mkdir(root, { recursive: true })
-    for (const file of plugin.files) {
-      await writeIfMissing(safeChildPath(root, file.path), file.content)
-    }
-    await mkdir(pluginDataRoot(plugin.id), { recursive: true })
+  for (const pluginId of BUILTIN_PLUGIN_IDS) {
+    await installBuiltinPlugin(pluginId)
   }
-  await ensureBuiltinPluginData()
 }
 
 export async function listProjectPlugins(): Promise<PluginDescriptor[]> {
@@ -184,7 +174,7 @@ export async function listProjectPlugins(): Promise<PluginDescriptor[]> {
       const root = safeChildPath(project.pluginsPath, name)
       const stats = await stat(root)
       if (!stats.isDirectory()) return null
-      const manifest = normalizePluginManifest(JSON.parse(await readFile(join(root, 'plugin.json'), 'utf-8')))
+      const manifest = await readPluginManifest(root)
       return manifest ? { manifest, source: 'project' as const } : null
     } catch {
       return null
@@ -201,7 +191,7 @@ export function listProjectPluginsSync(): PluginDescriptor[] {
       try {
         const root = safeChildPath(project.pluginsPath, name)
         if (!statSync(root).isDirectory()) return null
-        const manifest = normalizePluginManifest(JSON.parse(readFileSync(join(root, 'plugin.json'), 'utf-8')))
+        const manifest = readPluginManifestSync(root)
         return manifest ? { manifest, source: 'project' as const } : null
       } catch {
         return null
