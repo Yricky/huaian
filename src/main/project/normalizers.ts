@@ -4,8 +4,7 @@ import type {
   CharacterForgeData,
   ChatRuntimeConfig,
   JsonRecord,
-  PromptTemplateProjectConfig,
-  PromptTemplateSettings,
+  PluginProjectConfig,
   ProjectConfig
 } from '../../shared/types'
 import { asBoolean, asRecord, asString } from '../../shared/value-utils'
@@ -16,7 +15,7 @@ export function defaultProjectConfig(): ProjectConfig {
   return {
     schemaVersion: 1,
     chatCreateDefaults: defaultChatCreationDefaults(),
-    promptTemplate: defaultPromptTemplateConfig()
+    plugins: defaultPluginProjectConfig()
   }
 }
 
@@ -68,82 +67,36 @@ function nullableInteger(value: unknown): number | null {
 
 export function defaultChatCreationDefaults(): ChatCreationDefaults {
   return {
-    characterId: null,
-    loreBookIds: [],
-    characterRegexScriptsEnabled: true
+    enabledPluginIds: [...defaultPluginProjectConfig().enabledPluginIds]
   }
 }
 
-export function defaultPromptTemplateSettings(): PromptTemplateSettings {
+export function defaultPluginProjectConfig(): PluginProjectConfig {
   return {
-    enabled: true,
-    generateEnabled: true,
-    generateLoaderEnabled: true,
-    renderEnabled: true,
-    renderLoaderEnabled: true,
-    rawMessageEvaluationEnabled: true,
-    filterMessageEnabled: true,
-    injectLoaderEnabled: true,
-    invertEnabled: true,
-    sandbox: true,
-    withContextDisabled: false,
-    debugEnabled: false,
-    cacheEnabled: 0,
-    cacheSize: 64
+    enabledPluginIds: [
+      'silly_tavern_compat',
+      'character_card_tool_calls',
+      'st_prompt_template_compat'
+    ]
   }
 }
 
-function cacheMode(value: unknown): 0 | 1 | 2 {
-  const number = toNumber(value, 0)
-  return number === 1 || number === 2 ? number : 0
-}
-
-export function normalizePromptTemplateSettings(value: unknown): PromptTemplateSettings {
+export function normalizePluginProjectConfig(value: unknown): PluginProjectConfig {
   const data = asRecord(value)
-  const defaults = defaultPromptTemplateSettings()
+  const enabledPluginIds = Array.isArray(data.enabledPluginIds)
+    ? data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean)
+    : defaultPluginProjectConfig().enabledPluginIds
   return {
-    enabled: toBoolean(data.enabled, defaults.enabled),
-    generateEnabled: toBoolean(data.generateEnabled, defaults.generateEnabled),
-    generateLoaderEnabled: toBoolean(data.generateLoaderEnabled, defaults.generateLoaderEnabled),
-    renderEnabled: toBoolean(data.renderEnabled, defaults.renderEnabled),
-    renderLoaderEnabled: toBoolean(data.renderLoaderEnabled, defaults.renderLoaderEnabled),
-    rawMessageEvaluationEnabled: toBoolean(data.rawMessageEvaluationEnabled, defaults.rawMessageEvaluationEnabled),
-    filterMessageEnabled: toBoolean(data.filterMessageEnabled, defaults.filterMessageEnabled),
-    injectLoaderEnabled: toBoolean(data.injectLoaderEnabled, defaults.injectLoaderEnabled),
-    invertEnabled: toBoolean(data.invertEnabled, defaults.invertEnabled),
-    sandbox: toBoolean(data.sandbox, defaults.sandbox),
-    withContextDisabled: toBoolean(data.withContextDisabled, defaults.withContextDisabled),
-    debugEnabled: toBoolean(data.debugEnabled, defaults.debugEnabled),
-    cacheEnabled: cacheMode(data.cacheEnabled),
-    cacheSize: Math.max(0, Math.trunc(toNumber(data.cacheSize, defaults.cacheSize)))
-  }
-}
-
-export function defaultPromptTemplateConfig(): PromptTemplateProjectConfig {
-  return {
-    settings: defaultPromptTemplateSettings(),
-    globalVariables: {}
-  }
-}
-
-export function normalizePromptTemplateConfig(value: unknown): PromptTemplateProjectConfig {
-  const data = asRecord(value)
-  return {
-    settings: normalizePromptTemplateSettings(data.settings ?? data),
-    globalVariables: asRecord(data.globalVariables)
+    enabledPluginIds: [...new Set(enabledPluginIds)]
   }
 }
 
 export function normalizeChatCreationDefaults(value: unknown): ChatCreationDefaults {
   const data = asRecord(value)
-  const loreBookIds = Array.isArray(data.loreBookIds)
-    ? data.loreBookIds.map(item => Number(item)).filter(Number.isInteger)
-    : []
-
   return {
-    characterId: nullableInteger(data.characterId),
-    loreBookIds: [...new Set(loreBookIds)],
-    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false
+    enabledPluginIds: Array.isArray(data.enabledPluginIds)
+      ? [...new Set(data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean))]
+      : [...defaultPluginProjectConfig().enabledPluginIds]
   }
 }
 
@@ -152,22 +105,18 @@ export function normalizeProjectConfig(value: unknown): ProjectConfig {
   return {
     schemaVersion: toNumber(data.schemaVersion, 1),
     chatCreateDefaults: normalizeChatCreationDefaults(data.chatCreateDefaults),
-    promptTemplate: normalizePromptTemplateConfig(data.promptTemplate)
+    plugins: normalizePluginProjectConfig(data.plugins)
   }
 }
 
 export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
   const data = asRecord(value)
-  const loreBookIds = Array.isArray(data.loreBookIds)
-    ? data.loreBookIds.map(item => Number(item)).filter(Number.isInteger)
-    : []
-
   return {
-    characterId: nullableInteger(data.characterId),
     llmInstanceId: nullableInteger(data.llmInstanceId),
-    loreBookIds: [...new Set(loreBookIds)],
-    characterRegexScriptsEnabled: data.characterRegexScriptsEnabled !== false,
-    promptTemplateVariables: asRecord(data.promptTemplateVariables)
+    enabledPluginIds: Array.isArray(data.enabledPluginIds)
+      ? [...new Set(data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean))]
+      : defaultPluginProjectConfig().enabledPluginIds,
+    pluginData: asRecord(data.pluginData)
   }
 }
 

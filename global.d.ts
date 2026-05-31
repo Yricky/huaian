@@ -12,9 +12,11 @@ declare module 'ejs' {
   }
 
   export function compile(template: string, options?: Options): unknown
+  export function render(template: string, data?: Record<string, unknown>, options?: Options): string | Promise<string>
 
   const ejs: {
     compile: typeof compile
+    render: typeof render
   }
 
   export default ejs

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue'
-import { MdChat, MdFolderOpen, MdMenuBook, MdPerson, MdSettings } from 'vue-icons-plus/md'
+import { MdChat, MdExtension, MdFolderOpen, MdSettings } from 'vue-icons-plus/md'
 import type { SidebarView } from '@/shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
@@ -23,10 +23,9 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { view: 'characters', label: '角色卡', icon: MdPerson },
-  { view: 'loreBooks', label: '世界书', icon: MdMenuBook },
   { view: 'chat', label: '聊天', icon: MdChat },
-  { view: 'settings', label: '设置', icon: MdSettings }
+  { view: 'settings', label: '设置', icon: MdSettings },
+  { view: 'plugins', label: '插件', icon: MdExtension }
 ]
 
 const recentProjectItems = computed(() => {

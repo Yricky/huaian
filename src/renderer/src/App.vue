@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import ChatPage from './components/ChatPage.vue'
-import CharacterPage from './components/CharacterPage.vue'
+import PluginsPage from './components/PluginsPage.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import ToastStack from './components/ToastStack.vue'
-import LoreBooksPage from './components/LoreBooksPage.vue'
 import { createProjectWorkbench, provideProjectWorkbench } from './composables/useProjectWorkbench'
 
 const workbench = createProjectWorkbench()
@@ -19,10 +18,9 @@ const { activeView } = workbench
       <SidebarNav />
 
       <main class="content">
-        <CharacterPage v-if="activeView === 'characters'" />
-        <LoreBooksPage v-if="activeView === 'loreBooks'" />
         <ChatPage v-if="activeView === 'chat'" />
         <SettingsPage v-if="activeView === 'settings'" />
+        <PluginsPage v-if="activeView === 'plugins'" />
       </main>
     </div>
 

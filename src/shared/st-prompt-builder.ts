@@ -3,7 +3,6 @@ import type {
   ChatBlockTargetRole,
   ChatContentPart,
   ChatGenerationPreviewMessage,
-  ChatRuntimeConfig,
   CharacterEntry,
   JsonRecord,
   LoreBook,
@@ -22,6 +21,12 @@ import {
 } from './st-regex-scripts'
 
 type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
+
+interface SillyTavernPromptRuntimeConfig {
+  characterId?: number | null
+  loreBookIds?: number[]
+  characterRegexScriptsEnabled?: boolean
+}
 
 export interface InjectionDetail {
   title: string
@@ -59,7 +64,7 @@ type InjectionPreviewMetadataInput = JsonRecord & {
 }
 
 export interface PromptBuildInput {
-  chat: { id: number; runtimeConfig: ChatRuntimeConfig; createdAt: string; updatedAt: string }
+  chat: { id: number; runtimeConfig: SillyTavernPromptRuntimeConfig; createdAt: string; updatedAt: string }
   characters: CharacterEntry[]
   loreBooks: LoreBook[]
   worldEntries: WorldEntry[]
@@ -495,11 +500,11 @@ function realBlockScanLine(block: RuntimeBlock, character: CharacterEntry | null
   return `${name}: ${text}`
 }
 
-function activeLoreBookIds(config: ChatRuntimeConfig, character: CharacterEntry | null): number[] {
+function activeLoreBookIds(config: SillyTavernPromptRuntimeConfig, character: CharacterEntry | null): number[] {
   const characterLoreBookId = character?.forgeData.loreBookId
   const ids = [
     ...(characterLoreBookId === null || characterLoreBookId === undefined ? [] : [characterLoreBookId]),
-    ...config.loreBookIds
+    ...(config.loreBookIds ?? [])
   ]
   return [...new Set(ids)]
 }

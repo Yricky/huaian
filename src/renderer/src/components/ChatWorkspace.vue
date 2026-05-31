@@ -1,41 +1,31 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  MdAutoStories,
   MdBook,
   MdCheck,
   MdClose,
-  MdKeyboardArrowDown,
-  MdKeyboardArrowUp,
   MdMoreVert,
   MdPostAdd,
   MdSmartToy,
   MdVisibility
 } from 'vue-icons-plus/md'
-import { buildSillyTavernLikePrompt } from '../../../shared/st-prompt-builder'
-import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
 import type {
   ChatBlock,
   ChatBlockCreatePayload,
-  ChatContentPart,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatRuntimeConfig,
   ChatSession,
-  CharacterEntry,
   JsonRecord,
   LlmInstance,
-  LoreBook,
-  PromptTemplateBlockRenderRequest,
-  PromptTemplateBlockRenderResult,
-  PromptTemplateProjectConfig,
-  WorldEntry
+  PluginDescriptor,
+  PluginToolCallManifest
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
 
 type ChatListItem =
-  | { type: 'block'; block: ChatBlock }
+  | { type: 'block'; block: ChatBlock; sourceBlock: ChatBlock | null }
   | { type: 'actions'; id: string }
 
 interface ChatVirtualListExpose {
@@ -51,20 +41,17 @@ interface ChatBlockRowExpose {
 const props = defineProps<{
   blocks: ChatBlock[]
   chat: ChatSession
-  characters: CharacterEntry[]
   createChatBlock: (payload: ChatBlockCreatePayload) => Promise<ChatBlock | null>
   deleteChatBlock: (block: ChatBlock) => Promise<void>
   frozen: boolean
   llmInstances: LlmInstance[]
-  loreBooks: LoreBook[]
+  plugins: PluginDescriptor[]
+  prepareChatDisplayBlocks: (chat: ChatSession, blocks: ChatBlock[]) => Promise<ChatBlock[]>
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
-  promptTemplateConfig: PromptTemplateProjectConfig | null
-  renderPromptTemplateBlock: (payload: PromptTemplateBlockRenderRequest) => Promise<PromptTemplateBlockRenderResult | null>
   saveChat: (chat: ChatSession) => Promise<void>
   saveChatBlock: (block: ChatBlock) => Promise<void>
   startChatGeneration: (payload: ChatGenerationRequest) => Promise<void>
   stopChatGeneration: (chatId: number) => Promise<void>
-  worldEntries: WorldEntry[]
 }>()
 
 const listRef = ref<ChatVirtualListExpose | null>(null)
@@ -80,51 +67,48 @@ const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
-const renderedContentPartsByBlockId = ref<Record<number, ChatContentPart[]>>({})
-const showVirtualEntries = ref(false)
+const displayBlocks = ref<ChatBlock[]>([])
+const pluginDataRevision = ref(0)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
-let renderProjectionVersion = 0
+let displayRefreshVersion = 0
 
 const canGenerateReply = computed(() => Boolean(
   props.chat.runtimeConfig.llmInstanceId && !props.frozen
 ))
-const selectedCharacter = computed(() => {
-  const id = props.chat.runtimeConfig.characterId
-  return id === null || id === undefined ? null : props.characters.find(character => character.id === id) ?? null
-})
 const selectedLlmInstance = computed(() => {
   const id = props.chat.runtimeConfig.llmInstanceId
   return id === null || id === undefined ? null : props.llmInstances.find(instance => instance.id === id) ?? null
 })
-const selectedLoreBooks = computed(() => props.chat.runtimeConfig.loreBookIds
-  .map(id => props.loreBooks.find(book => book.id === id))
-  .filter((book): book is LoreBook => Boolean(book)))
-const availableLoreBooks = computed(() => {
-  const selected = new Set(props.chat.runtimeConfig.loreBookIds)
-  return props.loreBooks.filter(book => !selected.has(book.id))
-})
-const promptPreview = computed(() => buildSillyTavernLikePrompt({
-  chat: props.chat,
-  characters: props.characters,
-  loreBooks: props.loreBooks,
-  worldEntries: props.worldEntries,
-  blocks: props.blocks
-}))
-const replyButtonLabel = computed(() => {
-  const character = selectedCharacter.value ? characterName(selectedCharacter.value) : '无角色'
-  const instance = selectedLlmInstance.value?.name ?? '未选择 LLM'
-  return `${character} · ${instance}`
-})
-const characterRegexScriptsEnabled = computed(() => props.chat.runtimeConfig.characterRegexScriptsEnabled !== false)
-const displayRegexDepthByBlockId = computed(() => {
-  const regexBlocks = props.blocks.filter(block => (
-    (block.kind === 'user' || block.kind === 'assistant') &&
-    block.contentParts.some(part => part.type !== 'tool_call' && part.text.trim().length > 0)
-  ))
-  return new Map(regexBlocks.map((block, index) => [block.id, regexBlocks.length - index - 1]))
-})
+const activePluginIds = computed(() => new Set(props.chat.runtimeConfig.enabledPluginIds))
+const activePlugins = computed(() => props.plugins.filter(plugin => activePluginIds.value.has(plugin.manifest.id)))
+const availableToolCalls = computed(() => activePlugins.value.flatMap(plugin => (
+  plugin.manifest.entry?.toolCalls?.map(toolCall => ({ plugin, toolCall })) ?? []
+)))
+const replyButtonLabel = computed(() => selectedLlmInstance.value?.name ?? '未选择 LLM')
 const previewMessagesJson = computed(() => formatJson(contextPreviewMessages.value ?? []))
-const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.stringify({
+const sourceBlockById = computed(() => new Map(props.blocks.map(block => [block.id, block])))
+const displaySignature = computed(() => JSON.stringify({
+  chatId: props.chat.id,
+  runtimeConfig: props.chat.runtimeConfig,
+  pluginDataRevision: pluginDataRevision.value,
+  plugins: props.plugins.map(plugin => ({
+    id: plugin.manifest.id,
+    versionCode: plugin.manifest.versionCode,
+    entry: plugin.manifest.entry
+  })),
+  blocks: props.blocks.map(block => ({
+    id: block.id,
+    kind: block.kind,
+    enabled: block.enabled,
+    status: block.status,
+    orderIndex: block.orderIndex,
+    contentParts: block.contentParts,
+    metadata: block.metadata,
+    errorText: block.errorText,
+    updatedAt: block.updatedAt
+  }))
+}))
+const blockAutoFollowSignature = computed(() => displayBlocks.value.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
   enabled: block.enabled,
@@ -133,69 +117,14 @@ const blockAutoFollowSignature = computed(() => props.blocks.map(block => JSON.s
   contentParts: block.contentParts,
   errorText: block.errorText
 })).join('\u001f'))
-const renderProjectionSignature = computed(() => props.blocks
-  .filter(block => block.metadata.virtual !== true && block.status !== 'generating')
-  .map(block => JSON.stringify({
-    id: block.id,
-    enabled: block.enabled,
-    status: block.status,
-    orderIndex: block.orderIndex,
-    metadata: block.metadata,
-    contentParts: block.contentParts
-  }))
-  .join('\u001f') + `\u001e${JSON.stringify({
-    chatId: props.chat.id,
-    runtimeConfig: props.chat.runtimeConfig,
-    promptTemplateConfig: props.promptTemplateConfig,
-    worldEntries: props.worldEntries.map(entry => ({
-      id: entry.id,
-      loreBookId: entry.loreBookId,
-      stData: entry.stData
-    })),
-    characters: props.characters.map(character => ({
-      id: character.id,
-      stData: character.stData,
-      forgeData: character.forgeData
-    }))
-  })}`)
-const chatListItems = computed<ChatListItem[]>(() => {
-  const startBlocks: ChatBlock[] = []
-  const endBlocks: ChatBlock[] = []
-  const before = new Map<number, ChatBlock[]>()
-  const after = new Map<number, ChatBlock[]>()
-
-  if (showVirtualEntries.value) {
-    for (const block of promptPreview.value.virtualBlocks) {
-      const metadata = block.metadata
-      const beforeBlockId = numberFromMetadata(metadata.displayBeforeBlockId)
-      const afterBlockId = numberFromMetadata(metadata.displayAfterBlockId)
-      if (beforeBlockId !== null) {
-        const list = before.get(beforeBlockId) ?? []
-        list.push(block)
-        before.set(beforeBlockId, list)
-        continue
-      }
-      if (afterBlockId !== null) {
-        const list = after.get(afterBlockId) ?? []
-        list.push(block)
-        after.set(afterBlockId, list)
-        continue
-      }
-      if (metadata.displaySlot === 'end') endBlocks.push(block)
-      else startBlocks.push(block)
-    }
-  }
-
-  const items: ChatListItem[] = startBlocks.map((block): ChatListItem => ({ type: 'block', block }))
-  for (const block of props.blocks) {
-    for (const injection of before.get(block.id) ?? []) items.push({ type: 'block', block: injection })
-    items.push({ type: 'block', block })
-    for (const injection of after.get(block.id) ?? []) items.push({ type: 'block', block: injection })
-  }
-  for (const block of endBlocks) items.push({ type: 'block', block })
-  items.push({ type: 'actions', id: `chat-actions-${props.chat.id}` })
-  return items
-})
+const chatListItems = computed<ChatListItem[]>(() => [
+  ...displayBlocks.value.map((block): ChatListItem => ({
+    type: 'block',
+    block,
+    sourceBlock: block.metadata.virtual === true ? null : sourceBlockById.value.get(block.id) ?? block
+  })),
+  { type: 'actions', id: `chat-actions-${props.chat.id}` }
+])
 
 watch(() => props.chat.id, () => {
   titleDraft.value = props.chat.title
@@ -203,8 +132,6 @@ watch(() => props.chat.id, () => {
   menuOpen.value = false
   replyPanelOpen.value = false
   contextPreviewMessages.value = null
-  renderedContentPartsByBlockId.value = {}
-  showVirtualEntries.value = false
   shouldFollow.value = true
   nextTick(() => listRef.value?.scrollToBottom())
 }, { immediate: true })
@@ -219,8 +146,8 @@ watch(blockAutoFollowSignature, () => {
   }
 })
 
-watch(renderProjectionSignature, () => {
-  void refreshPromptTemplateRenderProjection()
+watch(displaySignature, () => {
+  void refreshDisplayBlocks()
 }, { immediate: true })
 
 watch(menuOpen, (open) => {
@@ -250,25 +177,16 @@ watch(replyPanelOpen, (open) => {
 onBeforeUnmount(() => {
   removeMenuListeners()
   removeReplyPanelListeners()
+  window.removeEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
 })
 
 function chatListItemKey(item: ChatListItem) {
-  if (item.type !== 'block') return item.id
-  return blockStateKey(item.block)
+  return item.type === 'block' ? blockStateKey(item.block) : item.id
 }
 
 function blockStateKey(block: ChatBlock): string {
-  return block.metadata.virtual === true
-    ? [
-      'virtual',
-      props.chat.id,
-      block.id,
-      stringFromJson(block.metadata.displaySlot),
-      numberFromMetadata(block.metadata.displayBeforeBlockId) ?? '',
-      numberFromMetadata(block.metadata.displayAfterBlockId) ?? '',
-      Array.isArray(block.metadata.activatedEntryIds) ? block.metadata.activatedEntryIds.join(',') : ''
-    ].join(':')
-    : `block:${block.id}`
+  if (block.metadata.virtual !== true) return `block:${block.id}`
+  return `virtual:${props.chat.id}:${block.id}:${JSON.stringify(block.metadata)}`
 }
 
 function defaultBlockCollapsed(block: ChatBlock): boolean {
@@ -280,16 +198,17 @@ function isBlockCollapsed(block: ChatBlock): boolean {
   return collapsedBlockState.value[blockStateKey(block)] ?? defaultBlockCollapsed(block)
 }
 
-async function setBlockCollapsed(block: ChatBlock, collapsed: boolean) {
+async function setBlockCollapsed(block: ChatBlock, sourceBlock: ChatBlock | null, collapsed: boolean) {
+  const key = blockStateKey(block)
   collapsedBlockState.value = {
     ...collapsedBlockState.value,
-    [blockStateKey(block)]: collapsed
+    [key]: collapsed
   }
-  if (block.metadata.virtual === true || block.metadata.uiCollapsed === collapsed) return
+  if (!sourceBlock || sourceBlock.metadata.uiCollapsed === collapsed) return
   await props.saveChatBlock({
-    ...block,
+    ...sourceBlock,
     metadata: {
-      ...block.metadata,
+      ...sourceBlock.metadata,
       uiCollapsed: collapsed
     }
   })
@@ -311,6 +230,21 @@ function setBlockRowRef(blockId: number, element: unknown) {
 
   blockRowRefs.delete(blockId)
 }
+
+function handlePluginDataChanged() {
+  pluginDataRevision.value += 1
+}
+
+async function refreshDisplayBlocks() {
+  const version = ++displayRefreshVersion
+  const blocks = await props.prepareChatDisplayBlocks(props.chat, props.blocks)
+  if (version !== displayRefreshVersion) return
+  displayBlocks.value = blocks
+}
+
+onMounted(() => {
+  window.addEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
+})
 
 function beforeListMutation() {
   shouldFollow.value = listRef.value?.isNearBottom(100) ?? true
@@ -400,49 +334,23 @@ function updateReplyPanelPosition() {
   }
 }
 
-function numberFromMetadata(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
 function recordFromJson(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function stringFromJson(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-async function refreshPromptTemplateRenderProjection() {
-  const version = ++renderProjectionVersion
-  const blocks = props.blocks.filter(block => block.metadata.virtual !== true && block.status !== 'generating')
-  const entries = await Promise.all(blocks.map(async block => {
-    const result = await props.renderPromptTemplateBlock({ chatId: props.chat.id, blockId: block.id })
-    return [block.id, result?.contentParts ?? block.contentParts] as const
-  }))
-  if (version !== renderProjectionVersion) return
-  renderedContentPartsByBlockId.value = Object.fromEntries(entries)
 }
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? 'undefined'
 }
 
-function characterName(character: CharacterEntry): string {
-  const data = recordFromJson(character.stData.data)
-  return stringFromJson(data.name, `角色 #${character.id}`).trim() || `角色 #${character.id}`
-}
-
 function runtimeConfigWith(patch: Partial<ChatRuntimeConfig>): ChatRuntimeConfig {
   return {
-    characterId: patch.characterId === undefined ? props.chat.runtimeConfig.characterId : patch.characterId,
     llmInstanceId: patch.llmInstanceId === undefined ? props.chat.runtimeConfig.llmInstanceId : patch.llmInstanceId,
-    loreBookIds: patch.loreBookIds === undefined ? [...props.chat.runtimeConfig.loreBookIds] : [...patch.loreBookIds],
-    characterRegexScriptsEnabled: patch.characterRegexScriptsEnabled === undefined
-      ? characterRegexScriptsEnabled.value
-      : patch.characterRegexScriptsEnabled,
-    promptTemplateVariables: patch.promptTemplateVariables === undefined
-      ? recordFromJson(props.chat.runtimeConfig.promptTemplateVariables)
-      : recordFromJson(patch.promptTemplateVariables)
+    enabledPluginIds: patch.enabledPluginIds === undefined
+      ? [...props.chat.runtimeConfig.enabledPluginIds]
+      : [...patch.enabledPluginIds],
+    pluginData: patch.pluginData === undefined
+      ? recordFromJson(props.chat.runtimeConfig.pluginData)
+      : recordFromJson(patch.pluginData)
   }
 }
 
@@ -453,34 +361,15 @@ async function saveRuntimeConfig(config: ChatRuntimeConfig) {
   })
 }
 
+async function toggleChatPlugin(pluginId: string) {
+  const current = new Set(props.chat.runtimeConfig.enabledPluginIds)
+  if (current.has(pluginId)) current.delete(pluginId)
+  else current.add(pluginId)
+  await saveRuntimeConfig(runtimeConfigWith({ enabledPluginIds: [...current] }))
+}
+
 async function selectReplyLlmInstance(llmInstanceId: number | null) {
   await saveRuntimeConfig(runtimeConfigWith({ llmInstanceId }))
-}
-
-async function setChatLoreBookIds(loreBookIds: number[]) {
-  await saveRuntimeConfig(runtimeConfigWith({ loreBookIds: [...new Set(loreBookIds)] }))
-}
-
-async function addLoreBook(event: Event) {
-  const select = event.target as HTMLSelectElement
-  const id = Number(select.value)
-  select.value = ''
-  if (!Number.isInteger(id)) return
-  await setChatLoreBookIds([...props.chat.runtimeConfig.loreBookIds, id])
-}
-
-async function removeLoreBook(id: number) {
-  await setChatLoreBookIds(props.chat.runtimeConfig.loreBookIds.filter(loreBookId => loreBookId !== id))
-}
-
-async function moveLoreBook(id: number, direction: -1 | 1) {
-  const ids = [...props.chat.runtimeConfig.loreBookIds]
-  const index = ids.indexOf(id)
-  const nextIndex = index + direction
-  if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) return
-  const [item] = ids.splice(index, 1)
-  ids.splice(nextIndex, 0, item)
-  await setChatLoreBookIds(ids)
 }
 
 async function saveTitle() {
@@ -507,20 +396,30 @@ async function addUserBlockForEditing() {
   blockRowRefs.get(block.id)?.startEdit()
 }
 
+function toolDefinitionPrompt(toolCall: PluginToolCallManifest): string {
+  return toolCall.prompt?.trim() || `你可以使用 ${toolCall.label || toolCall.name}。`
+}
+
 async function insertToolDefinitionBlock(relativeBlock: ChatBlock, placement: 'before' | 'after') {
   if (props.frozen) return
+  const selected = availableToolCalls.value[0]
+  if (!selected) {
+    window.alert('当前聊天没有启用可插入的工具调用插件。')
+    return
+  }
   beforeListMutation()
   await saveEditingBlocks()
   await props.createChatBlock({
     chatId: props.chat.id,
     kind: 'tool_definition',
     enabled: true,
-    contentParts: [{ type: 'text', text: defaultLoreBookEditPrompt(null) }],
+    contentParts: [{ type: 'text', text: toolDefinitionPrompt(selected.toolCall) }],
     metadata: {
       toolDefinition: {
-        group: LOREBOOK_EDIT_TOOL_GROUP,
-        loreBookId: null,
-        enabledTools: ['list_lorebook_entries', 'get_lorebook_entries_json', 'test_lorebook_trigger', 'upsert_lorebook_entry']
+        pluginId: selected.plugin.manifest.id,
+        toolCallName: selected.toolCall.name,
+        label: selected.toolCall.label || selected.toolCall.name,
+        commonArgs: {}
       }
     },
     insertRelativeBlockId: relativeBlock.id,
@@ -599,12 +498,11 @@ async function removeBlock(block: ChatBlock) {
       :estimated-item-height="180" :buffer-size="6">
       <template #item="{ item: chatItem }">
         <ChatBlockRow v-if="chatItem.type === 'block'" :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
-          :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen" :lore-books="loreBooks"
-          :rendered-content-parts="renderedContentPartsByBlockId[chatItem.block.id]"
-          :character="selectedCharacter" :character-regex-scripts-enabled="characterRegexScriptsEnabled"
-          :display-regex-depth="displayRegexDepthByBlockId.get(chatItem.block.id) ?? 0"
+          :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen"
+          :plugins="plugins"
+          :source-block="chatItem.sourceBlock || undefined"
           :preview-chat-generation="previewChatGeneration"
-          @collapse-change="setBlockCollapsed(chatItem.block, $event)" @save="saveChatBlock" @delete="removeBlock"
+          @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock" @delete="removeBlock"
           @regenerate="regenerate" @stop="stopChatGeneration" @insert-tool-definition="insertToolDefinitionBlock" />
         <div v-else class="chat-action-strip">
           <button class="md3-pill-button input-pill" type="button" :disabled="frozen" @click="addUserBlockForEditing">
@@ -614,8 +512,7 @@ async function removeBlock(block: ChatBlock) {
           <div class="md3-pill-combo">
             <button ref="replyButtonRef" class="md3-pill-combo-trigger config-trigger" type="button" :disabled="frozen"
               @click.stop="toggleReplyPanel">
-              <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel
-                }}</span>
+              <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel }}</span>
             </button>
             <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
               @click="generateReply">
@@ -630,48 +527,25 @@ async function removeBlock(block: ChatBlock) {
       <div v-if="menuOpen" ref="menuRef" class="workspace-menu" :style="menuStyle" @click.stop>
         <section class="popup-section">
           <div class="popup-section-title">
-            <MdAutoStories class="menu-icon" aria-hidden="true" />世界书
+            <MdBook class="menu-icon" aria-hidden="true" />插件
           </div>
-          <select class="popup-select" :disabled="availableLoreBooks.length === 0" aria-label="添加世界书"
-            @change="addLoreBook">
-            <option value="">添加世界书</option>
-            <option v-for="book in availableLoreBooks" :key="book.id" :value="book.id">{{ book.name }}</option>
-          </select>
-          <div class="ordered-list">
-            <div v-for="(book, index) in selectedLoreBooks" :key="book.id" class="ordered-row">
-              <span>{{ book.name }}</span>
-              <div class="row-actions">
-                <button class="icon-button compact" type="button" :disabled="index === 0"
-                  :aria-label="`上移 ${book.name}`" data-tooltip="上移" @click="moveLoreBook(book.id, -1)">
-                  <MdKeyboardArrowUp class="menu-icon" aria-hidden="true" />
-                </button>
-                <button class="icon-button compact" type="button" :disabled="index === selectedLoreBooks.length - 1"
-                  :aria-label="`下移 ${book.name}`" data-tooltip="下移" @click="moveLoreBook(book.id, 1)">
-                  <MdKeyboardArrowDown class="menu-icon" aria-hidden="true" />
-                </button>
-                <button class="icon-button compact" type="button" :aria-label="`移除 ${book.name}`" data-tooltip="移除"
-                  @click="removeLoreBook(book.id)">
-                  <MdClose class="menu-icon" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            <div v-if="selectedLoreBooks.length === 0" class="empty-row">未绑定世界书</div>
-          </div>
+          <button
+            v-for="plugin in plugins"
+            :key="plugin.manifest.id"
+            class="setting-row"
+            type="button"
+            :aria-pressed="activePluginIds.has(plugin.manifest.id)"
+            :class="{ selected: activePluginIds.has(plugin.manifest.id) }"
+            @click="toggleChatPlugin(plugin.manifest.id)"
+          >
+            <span class="setting-row-text">{{ plugin.manifest.name || plugin.manifest.id }}</span>
+            <span class="setting-check" aria-hidden="true">
+              <MdCheck v-if="activePluginIds.has(plugin.manifest.id)" class="setting-check-icon" />
+            </span>
+          </button>
         </section>
 
         <section class="popup-section">
-          <button
-            class="setting-row"
-            type="button"
-            :aria-pressed="showVirtualEntries"
-            :class="{ selected: showVirtualEntries }"
-            @click="showVirtualEntries = !showVirtualEntries"
-          >
-            <span class="setting-row-text">展示虚拟入口</span>
-            <span class="setting-check" aria-hidden="true">
-              <MdCheck v-if="showVirtualEntries" class="setting-check-icon" />
-            </span>
-          </button>
           <button type="button" @click="showGenerationPreview">
             <MdVisibility class="menu-icon" aria-hidden="true" />查看将要发送的上下文
           </button>
@@ -783,7 +657,6 @@ async function removeBlock(block: ChatBlock) {
   font-size: 14px;
   font-weight: 600;
   padding: 0;
-  transition: background 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
   white-space: nowrap;
 }
 
@@ -843,12 +716,6 @@ async function removeBlock(block: ChatBlock) {
   opacity: 0.5;
 }
 
-.md3-pill-button:focus-visible,
-.md3-pill-combo-trigger:focus-visible {
-  outline: 2px solid #446bd7;
-  outline-offset: 2px;
-}
-
 .button-icon {
   width: 18px;
   height: 18px;
@@ -862,6 +729,98 @@ async function removeBlock(block: ChatBlock) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-menu,
+.reply-panel {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 8px;
+  max-height: min(620px, calc(100vh - 16px));
+  overflow: auto;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(32, 39, 49, 0.14);
+}
+
+.workspace-menu button,
+.reply-panel button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #303a49;
+  padding: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.workspace-menu button:hover:not(:disabled),
+.reply-panel button:hover:not(:disabled) {
+  background: #f1f5fa;
+}
+
+.popup-section {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.popup-section+.popup-section {
+  border-top: 1px solid #edf0f4;
+  padding-top: 8px;
+}
+
+.popup-section-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #66758a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 4px;
+  text-transform: uppercase;
+}
+
+.setting-row,
+.choice-row {
+  justify-content: space-between;
+}
+
+.setting-row.selected,
+.choice-row.selected {
+  background: #edf5ff;
+  color: #174f99;
+}
+
+.setting-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setting-check {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #2f6fca;
+}
+
+.setting-check-icon,
+.menu-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
 
 .preview-dialog {
@@ -932,188 +891,5 @@ async function removeBlock(block: ChatBlock) {
   font: 12px/1.55 "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.workspace-menu,
-.reply-panel {
-  position: fixed;
-  z-index: 120;
-  display: grid;
-  gap: 8px;
-  max-height: min(620px, calc(100vh - 16px));
-  overflow: auto;
-  border: 1px solid #d7dee8;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 8px;
-  box-shadow: 0 8px 24px rgba(32, 39, 49, 0.14);
-}
-
-.workspace-menu button,
-.reply-panel button {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #303a49;
-  padding: 8px;
-  text-align: left;
-  font-size: 12px;
-}
-
-.workspace-menu button:hover:not(:disabled),
-.reply-panel button:hover:not(:disabled) {
-  background: #f1f5fa;
-}
-
-.workspace-menu button:disabled,
-.reply-panel button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.popup-section {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.popup-section+.popup-section {
-  border-top: 1px solid #edf0f4;
-  padding-top: 8px;
-}
-
-.popup-section-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #465469;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.popup-select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid #d7dee8;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #273245;
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-.ordered-list {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.ordered-row,
-.choice-row {
-  min-width: 0;
-  display: flex !important;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid #e1e7ef !important;
-  border-radius: 7px !important;
-  background: #fbfcfd !important;
-  padding: 7px 8px !important;
-}
-
-.ordered-row span,
-.choice-row span {
-  min-width: 0;
-  overflow: hidden;
-  color: #303a49;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.choice-row.selected {
-  border-color: #2f6fca !important;
-  background: #f4f8ff !important;
-}
-
-.setting-row {
-  min-width: 0;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid #e1e7ef;
-  border-radius: 7px;
-  background: #fbfcfd;
-  color: #303a49;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 7px 8px;
-}
-
-.setting-row:hover {
-  background: #f1f5fa;
-}
-
-.setting-row.selected {
-  border-color: #2f6fca;
-  background: #f4f8ff;
-}
-
-.setting-row-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.setting-check {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  color: #2f6fca;
-}
-
-.setting-check-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.icon-button.compact {
-  width: 26px;
-  height: 26px;
-  justify-content: center;
-  padding: 0 !important;
-}
-
-.empty-row {
-  min-width: 0;
-  border: 1px dashed #d7dee8;
-  border-radius: 7px;
-  color: #7a8594;
-  font-size: 12px;
-  padding: 9px;
-  text-align: center;
-}
-
-.menu-icon {
-  width: 17px;
-  height: 17px;
-  flex-shrink: 0;
 }
 </style>

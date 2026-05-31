@@ -6,6 +6,8 @@ export interface ProjectContext {
   configPath: string
   exportsPath: string
   assetsPath: string
+  pluginsPath: string
+  pluginDataPath: string
   db: any
   config: ProjectConfig
 }

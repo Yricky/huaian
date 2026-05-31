@@ -15,33 +15,37 @@ import {
   MdVisibility,
   MdVisibilityOff
 } from 'vue-icons-plus/md'
-import { LOREBOOK_EDIT_TOOL_GROUP, defaultLoreBookEditPrompt } from '../../../shared/lorebook-tooling'
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
-import type { InjectionDetail } from '../../../shared/st-prompt-builder'
-import { REGEX_PLACEMENT, getRegexedMarkdownString, type RegexPlacement } from '../../../shared/st-regex-scripts'
 import type {
   ChatBlock,
   ChatContentPart,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
-  CharacterEntry,
-  LoreBook,
+  PluginDescriptor,
   ReasoningContentPart,
   ToolCallContentPart
 } from '../../../shared/types'
 import JsonDialog from './JsonDialog.vue'
 import MarkdownView from './MarkdownView.vue'
+import PluginFrame from './PluginFrame.vue'
+
+interface InjectionDetail {
+  title: string
+  source: 'character' | 'worldInfo'
+  sourceName: string
+  reason: string
+  content: string
+  entryId?: number
+  loreBookId?: number
+}
 
 const props = defineProps<{
   block: ChatBlock
-  character: CharacterEntry | null
-  characterRegexScriptsEnabled: boolean
   collapsed: boolean
-  displayRegexDepth: number
   frozen: boolean
-  loreBooks: LoreBook[]
+  plugins: PluginDescriptor[]
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
-  renderedContentParts?: ChatContentPart[]
+  sourceBlock?: ChatBlock
 }>()
 
 const emit = defineEmits<{
@@ -68,8 +72,9 @@ const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
 
-const text = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
-const displayContentParts = computed(() => props.renderedContentParts ?? props.block.contentParts)
+const sourceBlock = computed(() => props.sourceBlock ?? props.block)
+const text = computed(() => sourceBlock.value.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
+const displayContentParts = computed(() => props.block.contentParts)
 const displayText = computed(() => displayContentParts.value.filter(part => part.type === 'text').map(part => part.text).join(''))
 const isVirtual = computed(() => props.block.metadata.virtual === true)
 const isInjection = computed(() => props.block.kind === 'injection')
@@ -93,21 +98,27 @@ const statusLabel = computed(() => {
 const sentAtLabel = computed(() => formatDateTime(props.block.createdAt))
 const tokenCount = computed(() => tokenCountFromUsage(props.block.metadata.usage))
 const tokenLabel = computed(() => tokenCount.value === null ? 'Token -' : `${numberFormatter.format(tokenCount.value)} tokens`)
-const headerTitle = computed(() => chatBlockTitle(props.block, { character: props.character }) || roleLabel.value)
+const headerTitle = computed(() => chatBlockTitle(props.block) || roleLabel.value)
 const blockSubMeta = computed(() => [
   chatBlockSummary(props.block),
   isVirtual.value ? '虚拟注入' : statusLabel.value,
   sentAtLabel.value,
   isVirtual.value ? '' : tokenLabel.value
 ].filter(Boolean).join(' · '))
-const canEdit = computed(() => !props.frozen && props.block.status !== 'generating' && !isVirtual.value)
+const canEdit = computed(() => !props.frozen && sourceBlock.value.status !== 'generating' && !isVirtual.value)
 const showMarkdown = computed(() => !isCollapsed.value && props.block.kind !== 'injection')
 const toolDefinition = computed(() => recordFromMetadata(props.block.metadata.toolDefinition))
-const toolDefinitionLoreBookId = computed(() => numberFromMetadata(toolDefinition.value.loreBookId))
-const selectedToolLoreBook = computed(() => {
-  const id = toolDefinitionLoreBookId.value
-  return id === null ? null : props.loreBooks.find(book => book.id === id) ?? null
-})
+const toolDefinitionPluginId = computed(() => stringFromMetadata(toolDefinition.value.pluginId))
+const toolDefinitionToolCallName = computed(() => stringFromMetadata(toolDefinition.value.toolCallName))
+const selectedToolPlugin = computed(() => props.plugins.find(plugin => plugin.manifest.id === toolDefinitionPluginId.value) ?? null)
+const selectedToolCall = computed(() => (
+  selectedToolPlugin.value?.manifest.entry?.toolCalls?.find(toolCall => toolCall.name === toolDefinitionToolCallName.value) ?? null
+))
+const selectedToolCommonArgs = computed(() => recordFromMetadata(toolDefinition.value.commonArgs))
+const selectedToolSettingsHtml = computed(() => selectedToolCall.value?.settingsHtml ?? '')
+const selectedToolLabel = computed(() => selectedToolCall.value?.label || selectedToolCall.value?.name || '工具调用')
+const selectedToolPluginLabel = computed(() => selectedToolPlugin.value?.manifest.name || selectedToolPlugin.value?.manifest.id || '未知插件')
+const selectedToolNames = computed(() => selectedToolCall.value?.tools?.map(tool => tool.name).join(', ') || '')
 const injectionDetails = computed(() => {
   const raw = props.block.metadata.injectionDetails
   if (!Array.isArray(raw)) return []
@@ -123,9 +134,10 @@ const detailJson = computed(() => ({
   llmInstanceSnapshot: props.block.llmInstanceSnapshot,
   errorText: props.block.errorText,
   content: text.value,
-  renderedContent: props.renderedContentParts ? displayText.value : null,
+  renderedContent: displayText.value,
+  sourceBlock: props.sourceBlock ? sourceBlock.value : null,
+  displayBlock: props.sourceBlock ? props.block : null,
   contentParts: props.block.contentParts,
-  renderedContentParts: props.renderedContentParts ?? null,
   metadata: props.block.metadata
 }))
 const visibleContentParts = computed(() => displayContentParts.value
@@ -219,27 +231,12 @@ function stringFromMetadata(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
-function displayRegexPlacementForBlock(): RegexPlacement | null {
-  if (props.block.kind === 'user') return REGEX_PLACEMENT.USER_INPUT
-  if (props.block.kind === 'assistant') return REGEX_PLACEMENT.AI_OUTPUT
-  return null
-}
-
-function displayRegexedMarkdown(value: string, placement: RegexPlacement | null): string {
-  if (placement === null) return value
-  return getRegexedMarkdownString(value, placement, {
-    character: props.character,
-    enabled: props.characterRegexScriptsEnabled,
-    depth: props.displayRegexDepth
-  })
-}
-
 function displayTextMarkdown(value: string): string {
-  return displayRegexedMarkdown(value, displayRegexPlacementForBlock())
+  return value
 }
 
 function displayReasoningMarkdown(value: string): string {
-  return displayRegexedMarkdown(value, REGEX_PLACEMENT.REASONING)
+  return value
 }
 
 function optionalNumberFromMetadata(value: unknown): number | undefined {
@@ -283,13 +280,13 @@ function setEditorElement(element: Element | ComponentPublicInstance | null) {
 }
 
 function firstTextPartIndex(): number {
-  const index = props.block.contentParts.findIndex(part => part.type === 'text')
-  return index >= 0 ? index : props.block.contentParts.length
+  const index = sourceBlock.value.contentParts.findIndex(part => part.type === 'text')
+  return index >= 0 ? index : sourceBlock.value.contentParts.length
 }
 
 function startEdit(partIndex = firstTextPartIndex()) {
   if (!canEdit.value) return
-  const part = props.block.contentParts[partIndex]
+  const part = sourceBlock.value.contentParts[partIndex]
   draft.value = part?.type === 'text' ? part.text : ''
   editingPartIndex.value = partIndex
   setCollapsed(false)
@@ -303,13 +300,13 @@ function cancelEdit() {
   editing.value = false
   editingPartIndex.value = null
   menuOpen.value = false
-  if (isEmptyChatBlock(props.block)) {
-    emit('delete', props.block)
+  if (isEmptyChatBlock(sourceBlock.value)) {
+    emit('delete', sourceBlock.value)
   }
 }
 
 function editedBlock(): ChatBlock {
-  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
   const partIndex = editingPartIndex.value ?? firstTextPartIndex()
   if (next.contentParts[partIndex]?.type === 'text') {
     next.contentParts[partIndex] = { type: 'text', text: draft.value }
@@ -332,7 +329,7 @@ function saveEdit() {
   const next = commitEdit()
   if (!next) return
   if (isEmptyChatBlock(next)) {
-    emit('delete', props.block)
+    emit('delete', sourceBlock.value)
     return
   }
   emit('save', next)
@@ -352,7 +349,7 @@ function isEmptyChatBlock(block: ChatBlock): boolean {
 
 function toggleEnabled() {
   if (!canEdit.value) return
-  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
   next.enabled = !next.enabled
   menuOpen.value = false
   emit('save', next)
@@ -375,7 +372,7 @@ function toggleReasoningOpen(partIndex: number) {
 
 function toggleReasoningContext(partIndex: number) {
   if (!canEdit.value) return
-  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
   const part = next.contentParts[partIndex]
   if (part?.type !== 'reasoning') return
   part.sendAsContext = !reasoningSendsAsContext(part)
@@ -400,9 +397,10 @@ function toolCallTitle(part: ToolCallContentPart): string {
 }
 
 function toolCallSummary(part: ToolCallContentPart): string {
-  const extension = recordFromMetadata(part.extensions.loreBookEdit)
-  const loreBookName = stringFromMetadata(extension.loreBookName)
-  return [toolCallStatusLabel(part), loreBookName].filter(Boolean).join(' · ')
+  const extension = recordFromMetadata(part.extensions.pluginTool)
+  const pluginId = stringFromMetadata(extension.pluginId)
+  const toolCallName = stringFromMetadata(extension.toolCallName)
+  return [toolCallStatusLabel(part), pluginId, toolCallName].filter(Boolean).join(' · ')
 }
 
 function toolCallStatusLabel(part: ToolCallContentPart): string {
@@ -436,64 +434,47 @@ function toggleToolCallOpen(part: ToolCallContentPart) {
 
 function toggleToolCallContext(partIndex: number) {
   if (!canEdit.value) return
-  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
   const part = next.contentParts[partIndex]
   if (part?.type !== 'tool_call') return
   part.sendAsContext = part.sendAsContext !== true
   emit('save', next)
 }
 
-function updateToolTargetLine(value: string, loreBook: LoreBook | null): string {
-  const targetLine = loreBook
-    ? `当前绑定世界书：${loreBook.name}（ID ${loreBook.id}）。`
-    : '当前工具定义块尚未绑定世界书。'
-  if (!value.trim()) return defaultLoreBookEditPrompt(loreBook)
-  const pattern = /当前绑定世界书：.*?。\n?|当前工具定义块尚未绑定世界书。\n?/
-  return pattern.test(value) ? value.replace(pattern, `${targetLine}\n`) : value
-}
-
-function updateToolLoreBook(event: Event) {
+function updateToolCommonArgs(commonArgs: Record<string, unknown>) {
   if (!canEdit.value) return
-  const value = (event.target as HTMLSelectElement).value
-  const loreBookId = value ? Number(value) : null
-  const loreBook = loreBookId === null ? null : props.loreBooks.find(book => book.id === loreBookId) ?? null
-  const currentDefinition = toolDefinition.value
-  const next = JSON.parse(JSON.stringify(props.block)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
   next.metadata = {
     ...next.metadata,
     toolDefinition: {
-      group: LOREBOOK_EDIT_TOOL_GROUP,
-      loreBookId: loreBook?.id ?? null,
-      enabledTools: Array.isArray(currentDefinition.enabledTools)
-        ? currentDefinition.enabledTools
-        : ['list_lorebook_entries', 'get_lorebook_entries_json', 'test_lorebook_trigger', 'upsert_lorebook_entry']
+      ...toolDefinition.value,
+      commonArgs
     }
   }
-  next.contentParts = [{ type: 'text', text: updateToolTargetLine(text.value, loreBook) }]
   emit('save', next)
 }
 
 function regenerate() {
   if (isVirtual.value) return
   menuOpen.value = false
-  emit('regenerate', props.block)
+  emit('regenerate', sourceBlock.value)
 }
 
 function stop() {
   menuOpen.value = false
-  emit('stop', props.block.chatId)
+  emit('stop', sourceBlock.value.chatId)
 }
 
 function remove() {
   if (!canEdit.value) return
   menuOpen.value = false
-  emit('delete', props.block)
+  emit('delete', sourceBlock.value)
 }
 
 function insertToolDefinition(placement: 'before' | 'after') {
   if (props.frozen || isVirtual.value) return
   menuOpen.value = false
-  emit('insert-tool-definition', props.block, placement)
+  emit('insert-tool-definition', sourceBlock.value, placement)
 }
 
 function openDetails() {
@@ -503,10 +484,10 @@ function openDetails() {
 
 async function openLlmView() {
   menuOpen.value = false
-  const messages = await props.previewChatGeneration({ chatId: props.block.chatId })
+  const messages = await props.previewChatGeneration({ chatId: sourceBlock.value.chatId })
   if (!messages) return
   llmViewMessages.value = messages
-    .filter(message => message.blockId === props.block.id)
+    .filter(message => message.blockId === sourceBlock.value.id)
     .map(message => ({
       role: message.role,
       content: message.content
@@ -571,25 +552,29 @@ defineExpose({
               <strong>注入内容</strong>
               <span>未记录结构来源</span>
             </header>
-            <pre>{{ text }}</pre>
+            <pre>{{ displayText }}</pre>
           </section>
         </div>
       </div>
 
       <div v-else-if="isToolDefinition" class="tool-definition-body">
-        <label class="tool-definition-selector">
-          <span>绑定世界书</span>
-          <select :value="toolDefinitionLoreBookId ?? ''" :disabled="!canEdit" @change="updateToolLoreBook">
-            <option value="">未选择世界书</option>
-            <option v-for="book in loreBooks" :key="book.id" :value="book.id">{{ book.name }}</option>
-          </select>
-        </label>
-        <p v-if="selectedToolLoreBook" class="tool-definition-note">世界书编辑工具组已绑定：{{ selectedToolLoreBook.name }}</p>
-        <p v-else class="tool-definition-note invalid">未绑定有效世界书时，此工具定义不会发送给 LLM。</p>
+        <div class="tool-definition-summary">
+          <strong>{{ selectedToolLabel }}</strong>
+          <span>{{ selectedToolPluginLabel }}</span>
+          <small v-if="selectedToolNames">工具：{{ selectedToolNames }}</small>
+        </div>
+        <p v-if="!selectedToolCall" class="tool-definition-note invalid">当前工具调用插件不可用。</p>
+        <PluginFrame
+          v-else-if="selectedToolSettingsHtml"
+          :plugin-id="toolDefinitionPluginId"
+          :html-path="selectedToolSettingsHtml"
+          :common-args="selectedToolCommonArgs"
+          @update:common-args="updateToolCommonArgs"
+        />
         <div class="block-content tool-definition-prompt">
           <textarea v-if="editing" :ref="setEditorElement" v-model="draft" class="block-editor embedded" rows="8"
             @blur="autoSaveEdit" />
-          <MarkdownView v-else :markdown="text" />
+          <MarkdownView v-else :markdown="displayText" />
         </div>
       </div>
 
@@ -635,7 +620,7 @@ defineExpose({
           </section>
         </template>
 
-        <textarea v-if="editing && editingPartIndex === block.contentParts.length" :ref="setEditorElement"
+        <textarea v-if="editing && editingPartIndex === sourceBlock.contentParts.length" :ref="setEditorElement"
           v-model="draft" class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
       </div>
     </template>

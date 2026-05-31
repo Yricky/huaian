@@ -11,30 +11,21 @@ import type {
   ChatGenerationStartResult,
   ChatSession,
   ChatUpdatePayload,
-  CharacterEntry,
-  CharacterUpdatePayload,
-  ExportResult,
   IpcJsonPayload,
-  LoreBookDraftApplyPayload,
-  LoreBookDraftSummary,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
-  ProjectImportResult,
+  PluginDescriptor,
+  PluginFileEntry,
+  PluginToolCallRequest,
+  PluginToolCallResponse,
   ProjectConfig,
   ProjectConfigUpdatePayload,
-  PromptTemplateBlockRenderRequest,
-  PromptTemplateBlockRenderResult,
   ProjectSnapshot,
-  RecentProject,
-  LoreBook,
-  LoreBookUpdatePayload,
-  WorldEntry,
-  WorldEntryOrderPayload,
-  WorldEntryUpdatePayload
+  RecentProject
 } from '../shared/types'
 
 const electronAPI = {
@@ -44,29 +35,6 @@ const electronAPI = {
     ipcRenderer.invoke('project:updateConfig', payload),
   openProject: (): Promise<ProjectSnapshot | null> => ipcRenderer.invoke('project:open'),
   openProjectPath: (path: string): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:openPath', path),
-  createCharacter: (): Promise<CharacterEntry> => ipcRenderer.invoke('project:createCharacter'),
-  updateCharacter: (payload: IpcJsonPayload<CharacterUpdatePayload>): Promise<CharacterEntry> =>
-    ipcRenderer.invoke('project:updateCharacter', payload),
-  deleteCharacter: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteCharacter', id),
-  createWorldEntry: (loreBookId: number): Promise<WorldEntry> => ipcRenderer.invoke('project:createWorldEntry', loreBookId),
-  updateWorldEntry: (payload: IpcJsonPayload<WorldEntryUpdatePayload>): Promise<WorldEntry> =>
-    ipcRenderer.invoke('project:updateWorldEntry', payload),
-  deleteWorldEntry: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteWorldEntry', id),
-  reorderWorldEntries: (payload: IpcJsonPayload<WorldEntryOrderPayload>): Promise<ProjectSnapshot> =>
-    ipcRenderer.invoke('project:reorderWorldEntries', payload),
-  createLoreBook: (): Promise<LoreBook> => ipcRenderer.invoke('project:createLoreBook'),
-  updateLoreBook: (payload: IpcJsonPayload<LoreBookUpdatePayload>): Promise<LoreBook> =>
-    ipcRenderer.invoke('project:updateLoreBook', payload),
-  deleteLoreBook: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:deleteLoreBook', id),
-  exportCharacter: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportCharacter', id),
-  exportLoreBook: (id: number): Promise<ExportResult> => ipcRenderer.invoke('project:exportLoreBook', id),
-  importCharacters: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importCharacters'),
-  importLoreBooks: (): Promise<ProjectImportResult | null> => ipcRenderer.invoke('project:importLoreBooks'),
-  listLoreBookDrafts: (): Promise<LoreBookDraftSummary[]> => ipcRenderer.invoke('project:listLoreBookDrafts'),
-  applyLoreBookDraft: (payload: IpcJsonPayload<LoreBookDraftApplyPayload>): Promise<ProjectSnapshot> =>
-    ipcRenderer.invoke('project:applyLoreBookDraft', payload),
-  discardLoreBookDraft: (loreBookId: number): Promise<void> =>
-    ipcRenderer.invoke('project:discardLoreBookDraft', loreBookId),
   createLlmProvider: (payload: IpcJsonPayload<LlmProviderCreatePayload>): Promise<LlmProvider> =>
     ipcRenderer.invoke('llm:createProvider', payload),
   updateLlmProvider: (payload: IpcJsonPayload<LlmProviderUpdatePayload>): Promise<LlmProvider> =>
@@ -95,9 +63,29 @@ const electronAPI = {
     ipcRenderer.invoke('chat:startGeneration', payload),
   previewChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationPreviewMessage[]> =>
     ipcRenderer.invoke('chat:previewGeneration', payload),
-  renderPromptTemplateBlock: (payload: IpcJsonPayload<PromptTemplateBlockRenderRequest>): Promise<PromptTemplateBlockRenderResult> =>
-    ipcRenderer.invoke('chat:renderPromptTemplateBlock', payload),
   stopChatGeneration: (chatId: number): Promise<boolean> => ipcRenderer.invoke('chat:stopGeneration', chatId),
+  listPlugins: (): Promise<PluginDescriptor[]> => ipcRenderer.invoke('plugin:list'),
+  readPluginFile: (pluginId: string, path: string): Promise<string> => ipcRenderer.invoke('plugin:readFile', pluginId, path),
+  listPluginDataFiles: (pluginId: string, path = ''): Promise<PluginFileEntry[]> =>
+    ipcRenderer.invoke('plugin:listDataFiles', pluginId, path),
+  readPluginDataFile: (pluginId: string, path: string): Promise<string> =>
+    ipcRenderer.invoke('plugin:readDataFile', pluginId, path),
+  writePluginDataFile: (pluginId: string, path: string, content: string): Promise<void> =>
+    ipcRenderer.invoke('plugin:writeDataFile', pluginId, path, content),
+  pluginAssetUrl: (pluginId: string, path: string): string => {
+    const cleanPath = path.replace(/\\/g, '/').replace(/^\/+/, '')
+    const encoded = [pluginId, ...cleanPath.split('/').filter(Boolean)]
+      .map(part => encodeURIComponent(part))
+      .join('/')
+    return `st-forge-plugin:///${encoded}`
+  },
+  onPluginToolCallRequest: (callback: (request: PluginToolCallRequest) => void): (() => void) => {
+    const listener = (_: IpcRendererEvent, request: PluginToolCallRequest) => callback(request)
+    ipcRenderer.on('plugin:toolCallRequest', listener)
+    return () => ipcRenderer.removeListener('plugin:toolCallRequest', listener)
+  },
+  resolvePluginToolCall: (response: IpcJsonPayload<PluginToolCallResponse>): Promise<void> =>
+    ipcRenderer.invoke('plugin:toolCallResponse', response),
   onChatGenerationEvent: (callback: (event: ChatGenerationEvent) => void): (() => void) => {
     const listener = (_: IpcRendererEvent, event: ChatGenerationEvent) => callback(event)
     ipcRenderer.on('chat:generationEvent', listener)

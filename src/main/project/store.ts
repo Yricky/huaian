@@ -9,8 +9,6 @@ import type {
   ChatRuntimeConfig,
   ChatSession,
   ChatUpdatePayload,
-  CharacterEntry,
-  CharacterUpdatePayload,
   JsonRecord,
   LlmInstance,
   LlmInstanceCreatePayload,
@@ -23,38 +21,26 @@ import type {
   ProjectConfig,
   ProjectConfigUpdatePayload,
   ProjectSnapshot,
-  RecentProject,
-  LoreBook,
-  LoreBookUpdatePayload,
-  WorldEntry,
-  WorldEntryOrderPayload,
-  WorldEntryUpdatePayload
+  RecentProject
 } from '../../shared/types'
 import { chatBlockMetadataForStorage } from '../../shared/chat-blocks'
 import { readConfig, saveConfig } from './app-config'
 import { app } from 'electron'
-import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
+import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PLUGIN_DATA_DIR, PLUGINS_DIR, PROJECT_FILE } from './constants'
 import {
   initDatabase,
-  rowToCharacter,
   rowToChatBlock,
   rowToChatSession,
   rowToLlmInstance,
-  rowToLlmProvider,
-  rowToLoreBook,
-  rowToWorldEntry
+  rowToLlmProvider
 } from './database'
 import {
   asRecord,
-  defaultCharacterCard,
   defaultProjectConfig,
-  defaultWorldEntry,
   normalizeChatRuntimeConfig,
-  normalizeCharacterCard,
-  normalizeCharacterForgeData,
-  normalizeProjectConfig,
-  normalizeWorldEntryData
+  normalizeProjectConfig
 } from './normalizers'
+import { ensureProjectPlugins, listProjectPluginsSync } from './plugins'
 import { ensureProject, getCurrentProject, setCurrentProject, type ProjectContext } from './state'
 
 const MAX_RECENT_PROJECTS = 20
@@ -177,6 +163,8 @@ export async function openProjectAt(projectPath: string): Promise<ProjectSnapsho
   const dbPath = join(projectPath, DATABASE_FILE)
   const exportsPath = join(projectPath, EXPORTS_DIR)
   const assetsPath = join(projectPath, ASSETS_DIR)
+  const pluginsPath = join(projectPath, PLUGINS_DIR)
+  const pluginDataPath = join(projectPath, PLUGIN_DATA_DIR)
 
   if (!await isValidProject(projectPath)) {
     if (!await isEmptyDirectory(projectPath)) {
@@ -184,55 +172,32 @@ export async function openProjectAt(projectPath: string): Promise<ProjectSnapsho
     }
     await mkdir(exportsPath, { recursive: true })
     await mkdir(assetsPath, { recursive: true })
+    await mkdir(pluginsPath, { recursive: true })
+    await mkdir(pluginDataPath, { recursive: true })
     await writeFile(configPath, JSON.stringify(defaultProjectConfig(), null, 2), 'utf-8')
   }
 
   await mkdir(exportsPath, { recursive: true })
   await mkdir(assetsPath, { recursive: true })
+  await mkdir(pluginsPath, { recursive: true })
+  await mkdir(pluginDataPath, { recursive: true })
   const project: ProjectContext = {
     path: projectPath,
     dbPath,
     configPath,
     exportsPath,
     assetsPath,
+    pluginsPath,
+    pluginDataPath,
     db: initDatabase(dbPath),
     config: await readProjectConfig(configPath)
   }
 
   setCurrentProject(project)
+  await ensureProjectPlugins()
   await writeProjectConfig(project)
   await rememberProjectPath(projectPath)
   return getProjectSnapshot()
-}
-
-export function listCharacters(): CharacterEntry[] {
-  const project = ensureProject()
-  return project.db.prepare('SELECT * FROM character_entries ORDER BY updated_at DESC, id DESC').all().map(rowToCharacter)
-}
-
-export function listLoreBooks(): LoreBook[] {
-  const project = ensureProject()
-  return project.db.prepare('SELECT * FROM world_books ORDER BY updated_at DESC, id DESC').all().map(rowToLoreBook)
-}
-
-function sortWorldEntries(entries: WorldEntry[]): WorldEntry[] {
-  return [...entries].sort((a, b) => {
-    const orderDelta = a.stData.insertion_order - b.stData.insertion_order
-    if (orderDelta !== 0) return orderDelta
-    return a.id - b.id
-  })
-}
-
-export function listWorldEntries(): WorldEntry[] {
-  const project = ensureProject()
-  const entries = project.db.prepare('SELECT * FROM world_entries').all().map(rowToWorldEntry)
-  return [...entries].sort((a, b) => {
-    const bookDelta = a.loreBookId - b.loreBookId
-    if (bookDelta !== 0) return bookDelta
-    const orderDelta = a.stData.insertion_order - b.stData.insertion_order
-    if (orderDelta !== 0) return orderDelta
-    return a.id - b.id
-  })
 }
 
 export function listLlmProviders(): LlmProvider[] {
@@ -260,34 +225,6 @@ export function listChatBlocksForChat(chatId: number): ChatBlock[] {
   return project.db.prepare(`
     SELECT * FROM chat_blocks WHERE chat_id = ? ORDER BY order_index ASC, id ASC
   `).all(chatId).map(rowToChatBlock)
-}
-
-export function listWorldEntriesForBook(loreBookId: number): WorldEntry[] {
-  const project = ensureProject()
-  return sortWorldEntries(
-    project.db.prepare('SELECT * FROM world_entries WHERE world_book_id = ?').all(loreBookId).map(rowToWorldEntry)
-  )
-}
-
-export function getCharacter(id: number): CharacterEntry {
-  const project = ensureProject()
-  const row = project.db.prepare('SELECT * FROM character_entries WHERE id = ?').get(id)
-  if (!row) throw new Error('角色卡不存在。')
-  return rowToCharacter(row)
-}
-
-export function getLoreBook(id: number): LoreBook {
-  const project = ensureProject()
-  const row = project.db.prepare('SELECT * FROM world_books WHERE id = ?').get(id)
-  if (!row) throw new Error('世界书不存在。')
-  return rowToLoreBook(row)
-}
-
-export function getWorldEntry(id: number): WorldEntry {
-  const project = ensureProject()
-  const row = project.db.prepare('SELECT * FROM world_entries WHERE id = ?').get(id)
-  if (!row) throw new Error('世界书条目不存在。')
-  return rowToWorldEntry(row)
 }
 
 export function getLlmProvider(id: number): LlmProvider {
@@ -323,187 +260,12 @@ export function getProjectSnapshot(): ProjectSnapshot {
   return {
     path: project.path,
     config: project.config,
-    characters: listCharacters(),
-    loreBooks: listLoreBooks(),
-    worldEntries: listWorldEntries(),
+    plugins: listProjectPluginsSync(),
     llmProviders: listLlmProviders(),
     llmInstances: listLlmInstances(),
     chats: listChats(),
     chatBlocks: listChatBlocks()
   }
-}
-
-export function createCharacter(): CharacterEntry {
-  const project = ensureProject()
-  const now = new Date().toISOString()
-  const result = project.db.prepare(`
-    INSERT INTO character_entries (created_at, updated_at, asset_path, st_data, forge_data)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(now, now, null, JSON.stringify(defaultCharacterCard()), JSON.stringify({
-    loreBookId: null,
-    exportFileName: '',
-    characterBookName: ''
-  }))
-  return getCharacter(Number(result.lastInsertRowid))
-}
-
-export function updateCharacter(entry: CharacterUpdatePayload): CharacterEntry {
-  const project = ensureProject()
-  const now = new Date().toISOString()
-  const stData = normalizeCharacterCard(entry.stData, now)
-  const forgeData = normalizeCharacterForgeData(entry.forgeData)
-  project.db.prepare(`
-    UPDATE character_entries SET updated_at = ?, st_data = ?, forge_data = ? WHERE id = ?
-  `).run(now, JSON.stringify(stData), JSON.stringify(forgeData), entry.id)
-  return getCharacter(entry.id)
-}
-
-export async function deleteCharacter(id: number): Promise<ProjectSnapshot> {
-  const project = ensureProject()
-  const transaction = project.db.transaction(() => {
-    project.db.prepare('DELETE FROM character_entries WHERE id = ?').run(id)
-    const now = nowIso()
-    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
-    for (const chat of listChats()) {
-      if (chat.runtimeConfig.characterId !== id) continue
-      update.run(
-        json({ ...chat.runtimeConfig, characterId: null }),
-        now,
-        chat.id
-      )
-    }
-  })
-  transaction()
-  return getProjectSnapshot()
-}
-
-export function createLoreBook(): LoreBook {
-  const project = ensureProject()
-  const now = new Date().toISOString()
-  const result = project.db.prepare(`
-    INSERT INTO world_books (name, created_at, updated_at)
-    VALUES (?, ?, ?)
-  `).run('Untitled LoreBook', now, now)
-  return getLoreBook(Number(result.lastInsertRowid))
-}
-
-export function updateLoreBook(book: LoreBookUpdatePayload): LoreBook {
-  const project = ensureProject()
-  const name = book.name.trim() || 'Untitled LoreBook'
-  const now = new Date().toISOString()
-  project.db.prepare('UPDATE world_books SET name = ?, updated_at = ? WHERE id = ?').run(name, now, book.id)
-  return getLoreBook(book.id)
-}
-
-export async function deleteLoreBook(id: number): Promise<ProjectSnapshot> {
-  const project = ensureProject()
-  getLoreBook(id)
-
-  const transaction = project.db.transaction(() => {
-    for (const character of listCharacters()) {
-      if (character.forgeData.loreBookId === id) {
-        character.forgeData.loreBookId = null
-        updateCharacter(character)
-      }
-    }
-    const now = nowIso()
-    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
-    for (const chat of listChats()) {
-      if (!chat.runtimeConfig.loreBookIds.includes(id)) continue
-      update.run(
-        json({
-          ...chat.runtimeConfig,
-          loreBookIds: chat.runtimeConfig.loreBookIds.filter(loreBookId => loreBookId !== id)
-        }),
-        now,
-        chat.id
-      )
-    }
-    project.db.prepare('DELETE FROM world_entries WHERE world_book_id = ?').run(id)
-    project.db.prepare('DELETE FROM world_books WHERE id = ?').run(id)
-  })
-  transaction()
-
-  return getProjectSnapshot()
-}
-
-export function createWorldEntry(loreBookId: number): WorldEntry {
-  const project = ensureProject()
-  getLoreBook(loreBookId)
-  const now = new Date().toISOString()
-  const data = defaultWorldEntry()
-  data.insertion_order = listWorldEntriesForBook(loreBookId).length + 1
-  const result = project.db.prepare(`
-    INSERT INTO world_entries (world_book_id, created_at, updated_at, st_data, forge_data)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(loreBookId, now, now, JSON.stringify(data), JSON.stringify({}))
-  return getWorldEntry(Number(result.lastInsertRowid))
-}
-
-export function updateWorldEntry(entry: WorldEntryUpdatePayload): WorldEntry {
-  const project = ensureProject()
-  getLoreBook(entry.loreBookId)
-  const now = new Date().toISOString()
-  project.db.prepare(`
-    UPDATE world_entries SET world_book_id = ?, updated_at = ?, st_data = ?, forge_data = ? WHERE id = ?
-  `).run(
-    entry.loreBookId,
-    now,
-    JSON.stringify(normalizeWorldEntryData(entry.stData)),
-    JSON.stringify(asRecord(entry.forgeData)),
-    entry.id
-  )
-  return getWorldEntry(entry.id)
-}
-
-function renumberLoreBookEntries(loreBookId: number): void {
-  const project = ensureProject()
-  const now = new Date().toISOString()
-  const update = project.db.prepare('UPDATE world_entries SET updated_at = ?, st_data = ? WHERE id = ?')
-  for (const [index, entry] of listWorldEntriesForBook(loreBookId).entries()) {
-    const data = normalizeWorldEntryData(entry.stData)
-    data.insertion_order = index + 1
-    update.run(now, JSON.stringify(data), entry.id)
-  }
-}
-
-export async function deleteWorldEntry(id: number): Promise<ProjectSnapshot> {
-  const project = ensureProject()
-  const entry = getWorldEntry(id)
-  project.db.prepare('DELETE FROM world_entries WHERE id = ?').run(id)
-  renumberLoreBookEntries(entry.loreBookId)
-  return getProjectSnapshot()
-}
-
-export function reorderWorldEntries(payload: WorldEntryOrderPayload): ProjectSnapshot {
-  const project = ensureProject()
-  getLoreBook(payload.loreBookId)
-  const currentEntries = listWorldEntriesForBook(payload.loreBookId)
-  const currentIds = currentEntries.map(entry => entry.id)
-  const requestedIds = payload.worldEntryIds
-  const sameEntries = currentIds.length === requestedIds.length &&
-    currentIds.every(id => requestedIds.includes(id)) &&
-    requestedIds.every(id => currentIds.includes(id))
-
-  if (!sameEntries) {
-    throw new Error('条目排序数据与当前世界书不匹配。')
-  }
-
-  const entryById = new Map(currentEntries.map(entry => [entry.id, entry]))
-  const now = new Date().toISOString()
-  const update = project.db.prepare('UPDATE world_entries SET updated_at = ?, st_data = ? WHERE id = ?')
-  const transaction = project.db.transaction((ids: number[]) => {
-    ids.forEach((id, index) => {
-      const entry = entryById.get(id)
-      if (!entry) return
-      const data = normalizeWorldEntryData(entry.stData)
-      data.insertion_order = index + 1
-      update.run(now, JSON.stringify(data), id)
-    })
-  })
-  transaction(requestedIds)
-
-  return getProjectSnapshot()
 }
 
 function nowIso(): string {
@@ -516,11 +278,9 @@ function json(value: unknown): string {
 
 function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRuntimeConfig {
   return {
-    characterId: null,
     llmInstanceId,
-    loreBookIds: [],
-    characterRegexScriptsEnabled: true,
-    promptTemplateVariables: {}
+    enabledPluginIds: [...ensureProject().config.plugins.enabledPluginIds],
+    pluginData: {}
   }
 }
 

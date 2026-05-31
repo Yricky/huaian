@@ -1,18 +1,7 @@
 import type { WebContents } from 'electron'
+import { randomUUID } from 'crypto'
 import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
-import { buildSillyTavernLikePrompt } from '../../shared/st-prompt-builder'
-import { LOREBOOK_EDIT_TOOL_GROUP, LOREBOOK_EDIT_TOOL_NAMES, loreBookToolFieldHints } from '../../shared/lorebook-tooling'
-import { asRecord, asString } from '../../shared/value-utils'
-import {
-  filterPromptTemplateMessageBlocks,
-  preprocessPromptTemplate,
-  processPromptTemplateBlockRender,
-  processPromptTemplateGeneration,
-  processPromptTemplateOutput,
-  type PromptTemplateGenerationResult,
-  type PromptTemplatePreprocessResult,
-  type RuntimeWorldEntry
-} from './prompt-template'
+import { asRecord } from '../../shared/value-utils'
 import type {
   ChatBlock,
   ChatBlockTokenUsage,
@@ -21,34 +10,20 @@ import type {
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
-  JsonRecord,
   LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
-  PromptTemplateDiagnostic,
-  PromptTemplateBlockRenderRequest,
-  PromptTemplateBlockRenderResult,
-  PromptTemplateVariables
+  LlmToolDefinition,
+  JsonRecord,
+  PluginToolCallRequest,
+  PluginToolCallResponse
 } from '../../shared/types'
-import {
-  getLoreBookDraftEntriesJson,
-  listLoreBookDraftEntries,
-  testLoreBookDraftTrigger,
-  upsertLoreBookDraftEntry,
-  type LoreBookEntryUpsertInput
-} from './lorebook-drafts'
 import {
   createAssistantGenerationBlock,
   getChat,
   getChatBlock,
-  getProjectSnapshot,
-  listCharacters,
   listChatBlocksForChat,
-  listLoreBooks,
-  listWorldEntries,
   prepareAssistantBlockForRegeneration,
-  updateChat,
-  updateProjectConfig,
   updateAssistantGenerationBlock
 } from './store'
 import {
@@ -66,23 +41,12 @@ interface ActiveGeneration {
   chatId: number
 }
 
-interface PromptTemplateBundle {
-  messages: ModelMessage[]
-  templateDiagnostics: PromptTemplateDiagnostic[]
-  templateVariables: PromptTemplateVariables
-  templateGlobalVariables: JsonRecord
-  templateLocalVariables: JsonRecord
-  templateMessageVariablesByBlockId: Map<number, JsonRecord>
-  specialEntries: RuntimeWorldEntry[]
-}
-
 const activeGenerations = new Map<number, ActiveGeneration>()
-
-const LEGACY_LOREBOOK_EDIT_TOOL_NAMES = [
-  'list_lorebook_entries',
-  'test_lorebook_trigger',
-  'upsert_lorebook_entry'
-] as const
+const pendingPluginToolCalls = new Map<string, {
+  reject: (error: Error) => void
+  resolve: (value: unknown) => void
+  timeout: ReturnType<typeof setTimeout>
+}>()
 
 function usageNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -130,6 +94,15 @@ function sendEvent(webContents: WebContents, event: ChatGenerationEvent): void {
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+export function resolvePluginToolCall(response: PluginToolCallResponse): void {
+  const pending = pendingPluginToolCalls.get(response.requestId)
+  if (!pending) return
+  pendingPluginToolCalls.delete(response.requestId)
+  clearTimeout(pending.timeout)
+  if (response.ok) pending.resolve(response.output)
+  else pending.reject(new Error(response.error || '插件工具调用失败。'))
 }
 
 function messageHasSendableContent(message: ModelMessage): boolean {
@@ -192,155 +165,54 @@ function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): Js
   return settings
 }
 
-interface ActiveLoreBookToolDefinition {
-  block: ChatBlock
-  loreBookId: number
-  loreBookName: string
-  toolNames: Array<typeof LOREBOOK_EDIT_TOOL_NAMES[number]>
-}
-
-function numberFromToolDefinition(value: unknown): number | null {
-  const number = Number(value)
-  return Number.isInteger(number) ? number : null
-}
-
-function activeLoreBookToolDefinition(blocks: ChatBlock[]): ActiveLoreBookToolDefinition | null {
-  const loreBooks = listLoreBooks()
-  const loreBookById = new Map(loreBooks.map(book => [book.id, book]))
-  const definitions = [...blocks]
-    .filter(block => block.enabled && block.kind === 'tool_definition')
-    .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
-
-  for (const block of definitions.reverse()) {
-    const definition = asRecord(block.metadata.toolDefinition)
-    if (asString(definition.group) !== LOREBOOK_EDIT_TOOL_GROUP) continue
-    const loreBookId = numberFromToolDefinition(definition.loreBookId)
-    if (loreBookId === null) continue
-    const loreBook = loreBookById.get(loreBookId)
-    if (!loreBook) continue
-    const enabledTools = Array.isArray(definition.enabledTools)
-      ? definition.enabledTools.filter((name): name is typeof LOREBOOK_EDIT_TOOL_NAMES[number] => (
-        typeof name === 'string' && (LOREBOOK_EDIT_TOOL_NAMES as readonly string[]).includes(name)
-      ))
-      : [...LOREBOOK_EDIT_TOOL_NAMES]
-    const hasLegacyFullSet = LEGACY_LOREBOOK_EDIT_TOOL_NAMES.every(name => enabledTools.includes(name))
-    const toolNames = hasLegacyFullSet
-      ? [...new Set([...enabledTools, 'get_lorebook_entries_json' as const])]
-      : enabledTools
-    return {
-      block,
-      loreBookId,
-      loreBookName: loreBook.name,
-      toolNames: toolNames.length > 0 ? toolNames : [...LOREBOOK_EDIT_TOOL_NAMES]
+function pluginToolCallExtensions(definition: LlmToolDefinition | null): JsonRecord {
+  if (!definition) return {}
+  return {
+    pluginTool: {
+      pluginId: definition.pluginId,
+      toolCallName: definition.toolCallName,
+      commonArgs: definition.commonArgs
     }
   }
-
-  return null
 }
 
-function loreBookToolSchemas() {
-  return {
-    list_lorebook_entries: jsonSchema<Record<string, never>>({
-      type: 'object',
-      properties: {},
-      additionalProperties: false
-    }),
-    get_lorebook_entries_json: jsonSchema<{ ids: number[] }>({
-      type: 'object',
-      properties: {
-        ids: {
-          type: 'array',
-          items: { type: 'number' },
-          description: '要读取完整 JSON 的世界书条目 id 列表。可包含正式条目 id 或临时副本中新建条目的负数 id。'
-        }
-      },
-      required: ['ids'],
-      additionalProperties: false
-    }),
-    test_lorebook_trigger: jsonSchema<{ example: string }>({
-      type: 'object',
-      properties: {
-        example: {
-          type: 'string',
-          description: '用于测试世界书触发的例句。系统会把它当作最新一条用户消息进行扫描。'
-        }
-      },
-      required: ['example'],
-      additionalProperties: false
-    }),
-    upsert_lorebook_entry: jsonSchema<LoreBookEntryUpsertInput>({
-      type: 'object',
-      properties: {
-        id: {
-          type: 'number',
-          description: '要更新的世界书条目 id；不传或传入不存在的 id 时会新建条目，并返回新条目 id。'
-        },
-        title: { type: 'string', description: loreBookToolFieldHints.title },
-        order: { type: 'number', description: loreBookToolFieldHints.order },
-        position: {
-          type: 'number',
-          enum: [0, 1, 2, 3, 4, 5, 6, 7],
-          description: `${loreBookToolFieldHints.position} 0=Before Char Defs，1=After Char Defs，2=Before Author's Note，3=After Author's Note，4=At Depth，5=Before Example Messages，6=After Example Messages，7=Outlet。`
-        },
-        role: {
-          anyOf: [
-            { type: 'number', enum: [0, 1, 2] },
-            { type: 'string', enum: ['system', 'user', 'assistant'] }
-          ],
-          description: `${loreBookToolFieldHints.role} 0/system，1/user，2/assistant。`
-        },
-        depth: { type: 'number', description: loreBookToolFieldHints.depth },
-        outletName: { type: 'string', description: loreBookToolFieldHints.outletName },
-        probability: { type: 'number', minimum: 0, maximum: 100, description: loreBookToolFieldHints.probability },
-        enabled: { type: 'boolean', description: loreBookToolFieldHints.enabled },
-        constant: { type: 'boolean', description: loreBookToolFieldHints.constant },
-        selective: { type: 'boolean', description: loreBookToolFieldHints.selective },
-        selectiveLogic: {
-          type: 'number',
-          enum: [0, 1, 2, 3],
-          description: `${loreBookToolFieldHints.selectiveLogic} 0=AND ANY，3=AND ALL，1=NOT ALL，2=NOT ANY。`
-        },
-        keys: {
-          type: 'array',
-          items: { type: 'string' },
-          description: loreBookToolFieldHints.keys
-        },
-        secondaryKeys: {
-          type: 'array',
-          items: { type: 'string' },
-          description: loreBookToolFieldHints.secondaryKeys
-        },
-        content: { type: 'string', description: loreBookToolFieldHints.content }
-      },
-      additionalProperties: false
-    })
+function invokePluginTool(
+  webContents: WebContents,
+  chatId: number,
+  definition: LlmToolDefinition,
+  input: unknown
+): Promise<unknown> {
+  const requestId = randomUUID()
+  const request: PluginToolCallRequest = {
+    requestId,
+    chatId,
+    pluginId: definition.pluginId,
+    toolCallName: definition.toolCallName,
+    toolName: definition.toolName,
+    input: asRecord(input),
+    commonArgs: asRecord(definition.commonArgs)
   }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingPluginToolCalls.delete(requestId)
+      reject(new Error(`插件工具调用超时：${definition.toolName}`))
+    }, 120_000)
+    pendingPluginToolCalls.set(requestId, { resolve, reject, timeout })
+    webContents.send('plugin:toolCallRequest', request)
+  })
 }
 
-function loreBookEditTools(definition: ActiveLoreBookToolDefinition) {
-  const schemas = loreBookToolSchemas()
-  return {
-    list_lorebook_entries: tool({
-      description: `获取世界书「${definition.loreBookName}」临时副本中的所有条目，只返回 [id, title] 二元组。`,
-      inputSchema: schemas.list_lorebook_entries,
-      execute: async () => listLoreBookDraftEntries(definition.loreBookId)
-    }),
-    get_lorebook_entries_json: tool({
-      description: `按 id 列表读取世界书「${definition.loreBookName}」临时副本中的完整条目 JSON，返回匹配到的 WorldEntry 对象列表。`,
-      inputSchema: schemas.get_lorebook_entries_json,
-      execute: async ({ ids }) => getLoreBookDraftEntriesJson(definition.loreBookId, ids)
-    }),
-    test_lorebook_trigger: tool({
-      description: `用一条例句测试世界书「${definition.loreBookName}」临时副本会触发哪些条目，返回 id/title/reason/content。`,
-      inputSchema: schemas.test_lorebook_trigger,
-      execute: async ({ example }) => testLoreBookDraftTrigger(definition.loreBookId, example)
-    }),
-    upsert_lorebook_entry: tool({
-      description: `更新或新建世界书「${definition.loreBookName}」临时副本中的条目。只允许编辑世界书编辑 UI 中除高级 JSON 以外的字段。`,
-      inputSchema: schemas.upsert_lorebook_entry,
-      execute: async (input) => upsertLoreBookDraftEntry(definition.loreBookId, input)
-    })
+function pluginToolsForDefinitions(webContents: WebContents, chatId: number, definitions: LlmToolDefinition[]) {
+  const tools: Record<string, ReturnType<typeof tool>> = {}
+  for (const definition of definitions) {
+    tools[definition.toolName] = tool({
+      description: definition.description,
+      inputSchema: jsonSchema(definition.inputSchema as any),
+      execute: async (input: unknown) => invokePluginTool(webContents, chatId, definition, input)
+    } as any)
   }
+  return tools
 }
 
 function generatedText(parts: ChatContentPart[]): string {
@@ -362,17 +234,6 @@ function appendTextDelta(parts: ChatContentPart[], type: 'text' | 'reasoning', t
   }
   next.push({ type, text })
   return next
-}
-
-function loreBookToolCallExtensions(definition: ActiveLoreBookToolDefinition | null): JsonRecord {
-  if (!definition) return {}
-  return {
-    loreBookEdit: {
-      sourceToolDefinitionBlockId: definition.block.id,
-      loreBookId: definition.loreBookId,
-      loreBookName: definition.loreBookName
-    }
-  }
 }
 
 function upsertToolCallPart(
@@ -419,172 +280,19 @@ function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number |
   return blocks.filter(block => block.orderIndex < target.orderIndex)
 }
 
-async function buildPromptBundle(
-  chat: ReturnType<typeof getChat>,
-  blocks: ChatBlock[],
-  options: { dryRun?: boolean } = {}
-): Promise<PromptTemplateBundle> {
-  const config = getProjectSnapshot().config.promptTemplate
-  const settings = config.settings
-  const contextBlocks = filterPromptTemplateMessageBlocks(settings, blocks)
-  const characters = listCharacters()
-  const loreBooks = listLoreBooks()
-  const worldEntries = listWorldEntries()
-  const preprocessed: PromptTemplatePreprocessResult = await preprocessPromptTemplate({
-    chat,
-    characters,
-    loreBooks,
-    worldEntries,
-    blocks: contextBlocks,
-    settings,
-    globalVariables: config.globalVariables,
-    dryRun: options.dryRun
-  })
-  const prompt = buildSillyTavernLikePrompt({
-    chat: {
-      ...chat,
-      runtimeConfig: {
-        ...chat.runtimeConfig,
-        promptTemplateVariables: preprocessed.localVariables
-      }
-    },
-    characters,
-    loreBooks,
-    worldEntries: preprocessed.worldEntries,
-    blocks: contextBlocks
-  })
-  const generated: PromptTemplateGenerationResult = await processPromptTemplateGeneration({
-    chat: {
-      ...chat,
-      runtimeConfig: {
-        ...chat.runtimeConfig,
-        promptTemplateVariables: preprocessed.localVariables
-      }
-    },
-    characters,
-    loreBooks,
-    worldEntries: preprocessed.worldEntries,
-    blocks: contextBlocks,
-    settings,
-    globalVariables: preprocessed.globalVariables,
-    initialVariables: preprocessed.variables.initial,
-    messageVariablesByBlockId: preprocessed.messageVariablesByBlockId,
-    dryRun: options.dryRun,
-    messages: prompt.messages,
-    virtualBlocks: prompt.virtualBlocks,
-    specialEntries: preprocessed.specialEntries
-  })
-
-  return {
-    messages: generated.messages.filter(messageHasSendableContent),
-    templateDiagnostics: [...preprocessed.diagnostics, ...generated.diagnostics],
-    templateVariables: generated.variables,
-    templateGlobalVariables: generated.globalVariables,
-    templateLocalVariables: generated.localVariables,
-    templateMessageVariablesByBlockId: generated.messageVariablesByBlockId,
-    specialEntries: preprocessed.specialEntries
-  }
-}
-
-async function persistPromptTemplateVariables(chat: ReturnType<typeof getChat>, bundle: Pick<PromptTemplateBundle, 'templateGlobalVariables' | 'templateLocalVariables'>): Promise<void> {
-  await updateProjectConfig({
-    promptTemplate: {
-      ...getProjectSnapshot().config.promptTemplate,
-      globalVariables: bundle.templateGlobalVariables
-    }
-  })
-  const currentChat = getChat(chat.id)
-  updateChat({
-    id: chat.id,
-    runtimeConfig: {
-      ...currentChat.runtimeConfig,
-      promptTemplateVariables: bundle.templateLocalVariables
-    }
-  })
-}
-
-export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[]> {
-  const chat = getChat(request.chatId)
-  if (activeGenerations.has(chat.id)) {
-    throw new Error('当前聊天已有正在生成的块。')
-  }
-  resolveLlmProviderForInstance(chat.runtimeConfig.llmInstanceId)
-  const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
-    .filter(block => block.id !== request.regenerateBlockId)
-  const prompt = await buildPromptBundle(chat, contextBlocks, { dryRun: true })
-  const messages = prompt.messages
-  if (!messages.length) {
-    throw new Error('没有可发送的内容块。')
-  }
-
-  return messages
-}
-
-export async function renderPromptTemplateBlock(request: PromptTemplateBlockRenderRequest): Promise<PromptTemplateBlockRenderResult> {
-  const chat = getChat(request.chatId)
-  const block = getChatBlock(request.blockId)
-  if (block.chatId !== chat.id) throw new Error('要渲染的聊天块不属于当前聊天。')
-
-  const config = getProjectSnapshot().config.promptTemplate
-  const characters = listCharacters()
-  const loreBooks = listLoreBooks()
-  const worldEntries = listWorldEntries()
-  const blocks = listChatBlocksForChat(chat.id).filter(item => item.orderIndex <= block.orderIndex)
-  const preprocessed = await preprocessPromptTemplate({
-    chat,
-    characters,
-    loreBooks,
-    worldEntries,
-    blocks,
-    settings: config.settings,
-    globalVariables: config.globalVariables,
-    dryRun: true
-  })
-  const rendered = await processPromptTemplateBlockRender({
-    chat: {
-      ...chat,
-      runtimeConfig: {
-        ...chat.runtimeConfig,
-        promptTemplateVariables: preprocessed.localVariables
-      }
-    },
-    characters,
-    loreBooks,
-    worldEntries: preprocessed.worldEntries,
-    blocks,
-    settings: config.settings,
-    globalVariables: preprocessed.globalVariables,
-    initialVariables: preprocessed.variables.initial,
-    messageVariablesByBlockId: preprocessed.messageVariablesByBlockId,
-    dryRun: true,
-    block,
-    contentParts: block.contentParts,
-    specialEntries: preprocessed.specialEntries
-  })
-
-  return {
-    blockId: block.id,
-    contentParts: rendered.contentParts,
-    diagnostics: [...preprocessed.diagnostics, ...rendered.diagnostics],
-    variables: rendered.variables
-  }
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted|abort/i.test(error.message))
 }
 
 async function runGeneration(
   webContents: WebContents,
-  chat: ReturnType<typeof getChat>,
+  chatId: number,
   instance: LlmInstance,
   provider: LlmProvider,
   messages: ModelMessage[],
   generationBlock: ChatBlock,
   abortController: AbortController,
-  loreBookTools: ActiveLoreBookToolDefinition | null,
-  promptBundle: PromptTemplateBundle,
-  contextBlocks: ChatBlock[]
+  toolDefinitions: LlmToolDefinition[]
 ): Promise<void> {
   let contentParts: ChatContentPart[] = []
   let lastPersistAt = 0
@@ -600,11 +308,12 @@ async function runGeneration(
   try {
     const model = await createLanguageModel(instance, provider)
     const settings = generationSettings(instance, abortController.signal)
-    if (loreBookTools) {
-      settings.tools = loreBookEditTools(loreBookTools)
-      settings.activeTools = loreBookTools.toolNames
+    if (toolDefinitions.length > 0) {
+      settings.tools = pluginToolsForDefinitions(webContents, chatId, toolDefinitions)
+      settings.activeTools = toolDefinitions.map(definition => definition.toolName)
       if (!settings.stopWhen) settings.stopWhen = stepCountIs(8)
     }
+
     const result = streamText({
       ...settings,
       model,
@@ -618,17 +327,18 @@ async function runGeneration(
         continue
       }
       if (part.type === 'tool-call') {
+        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           status: 'pending',
           input: part.input,
-          extensions: loreBookToolCallExtensions(loreBookTools)
+          extensions: pluginToolCallExtensions(pluginDefinition)
         })
         persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId: generationBlock.chatId,
+          chatId,
           blockId: generationBlock.id,
           text: '',
           content: generatedText(contentParts),
@@ -637,18 +347,19 @@ async function runGeneration(
         continue
       }
       if (part.type === 'tool-result') {
+        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           status: 'success',
           input: part.input,
           output: part.output,
-          extensions: loreBookToolCallExtensions(loreBookTools)
+          extensions: pluginToolCallExtensions(pluginDefinition)
         })
         persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId: generationBlock.chatId,
+          chatId,
           blockId: generationBlock.id,
           text: '',
           content: generatedText(contentParts),
@@ -657,19 +368,19 @@ async function runGeneration(
         continue
       }
       if (part.type === 'tool-error') {
-        const input = asRecord((part as any).input)
+        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           status: 'error',
-          input,
+          input: (part as any).input,
           error: errorText((part as any).error),
-          extensions: loreBookToolCallExtensions(loreBookTools)
+          extensions: pluginToolCallExtensions(pluginDefinition)
         })
         persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId: generationBlock.chatId,
+          chatId,
           blockId: generationBlock.id,
           text: '',
           content: generatedText(contentParts),
@@ -683,7 +394,7 @@ async function runGeneration(
       persist()
       sendEvent(webContents, {
         type: 'delta',
-        chatId: generationBlock.chatId,
+        chatId,
         blockId: generationBlock.id,
         text,
         content: generatedText(contentParts),
@@ -698,54 +409,11 @@ async function runGeneration(
         totalUsage = null
       }
     }
-    let outputDiagnostics: PromptTemplateDiagnostic[] = []
-    let messageVariables: JsonRecord = {}
-    try {
-      const config = getProjectSnapshot().config.promptTemplate
-      const output = await processPromptTemplateOutput({
-        chat: {
-          ...getChat(chat.id),
-          runtimeConfig: {
-            ...getChat(chat.id).runtimeConfig,
-            promptTemplateVariables: promptBundle.templateLocalVariables
-          }
-        },
-        characters: listCharacters(),
-        loreBooks: listLoreBooks(),
-        worldEntries: listWorldEntries(),
-        blocks: [...contextBlocks, generationBlock],
-        settings: config.settings,
-        globalVariables: promptBundle.templateGlobalVariables,
-        initialVariables: promptBundle.templateVariables.initial,
-        messageVariablesByBlockId: promptBundle.templateMessageVariablesByBlockId,
-        block: generationBlock,
-        contentParts,
-        specialEntries: promptBundle.specialEntries
-      })
-      contentParts = output.contentParts
-      outputDiagnostics = output.diagnostics
-      messageVariables = output.messageVariables
-      await persistPromptTemplateVariables(getChat(chat.id), {
-        templateGlobalVariables: output.globalVariables,
-        templateLocalVariables: output.localVariables
-      })
-    } catch (error) {
-      outputDiagnostics = [{
-        level: 'error',
-        phase: 'render',
-        message: `Prompt Template output processing failed: ${errorText(error)}`
-      }]
-    }
 
     const finishedAt = new Date().toISOString()
     const metadataPatch: JsonRecord = {
       generationFinishedAt: finishedAt,
-      usageRecordedAt: finishedAt,
-      promptTemplate: {
-        ...asRecord(generationBlock.metadata.promptTemplate),
-        variables: messageVariables,
-        diagnostics: [...promptBundle.templateDiagnostics, ...outputDiagnostics]
-      }
+      usageRecordedAt: finishedAt
     }
     if (finishReason) metadataPatch.finishReason = finishReason
     if (totalUsage) metadataPatch.usage = totalUsage
@@ -758,7 +426,7 @@ async function runGeneration(
       '',
       metadataPatch
     )
-    sendEvent(webContents, { type: 'finished', chatId: generationBlock.chatId, block })
+    sendEvent(webContents, { type: 'finished', chatId, block })
   } catch (error) {
     if (isAbortError(error) || abortController.signal.aborted) {
       const block = updateAssistantGenerationBlock(
@@ -769,7 +437,7 @@ async function runGeneration(
         '',
         { generationFinishedAt: new Date().toISOString() }
       )
-      sendEvent(webContents, { type: 'stopped', chatId: generationBlock.chatId, block })
+      sendEvent(webContents, { type: 'stopped', chatId, block })
       return
     }
 
@@ -782,10 +450,24 @@ async function runGeneration(
       message,
       { generationFinishedAt: new Date().toISOString() }
     )
-    sendEvent(webContents, { type: 'error', chatId: generationBlock.chatId, block, error: message })
+    sendEvent(webContents, { type: 'error', chatId, block, error: message })
   } finally {
-    activeGenerations.delete(generationBlock.chatId)
+    activeGenerations.delete(chatId)
   }
+}
+
+function preparedMessages(request: ChatGenerationRequest): ModelMessage[] {
+  const messages = request.messages?.filter(messageHasSendableContent) ?? []
+  if (!messages.length) {
+    throw new Error('插件管线没有提供可发送上下文。')
+  }
+  return messages
+}
+
+export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[]> {
+  getChat(request.chatId)
+  contextBlocksForGeneration(request.chatId, request.regenerateBlockId)
+  return preparedMessages(request)
 }
 
 export async function startChatGeneration(
@@ -797,36 +479,24 @@ export async function startChatGeneration(
     throw new Error('当前聊天已有正在生成的块。')
   }
   const { instance, provider } = resolveLlmProviderForInstance(chat.runtimeConfig.llmInstanceId)
-  const contextBlocks = contextBlocksForGeneration(chat.id, request.regenerateBlockId)
-    .filter(block => block.id !== request.regenerateBlockId)
-  const prompt = await buildPromptBundle(chat, contextBlocks)
-  const loreBookTools = activeLoreBookToolDefinition(contextBlocks)
-  const messages = prompt.messages
-  if (!messages.length) {
-    throw new Error('没有可发送的内容块。')
-  }
+  contextBlocksForGeneration(chat.id, request.regenerateBlockId)
+  const messages = preparedMessages(request)
 
   const generationBlock = request.regenerateBlockId
     ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance)
     : createAssistantGenerationBlock(chat.id, instance)
-  const promptTemplateMetadata = {
-    ...generationBlock.metadata,
-    promptTemplate: {
-      ...asRecord(generationBlock.metadata.promptTemplate),
-      variables: asRecord(prompt.templateMessageVariablesByBlockId.get(generationBlock.id)),
-      diagnostics: prompt.templateDiagnostics
-    }
-  }
   updateAssistantGenerationBlock(
     generationBlock.id,
     generationBlock.contentParts,
     generationBlock.status,
     generationBlock.enabled,
     generationBlock.errorText,
-    promptTemplateMetadata
+    {
+      ...generationBlock.metadata,
+      pluginPrompt: asRecord(request.promptMetadata)
+    }
   )
   const currentGenerationBlock = getChatBlock(generationBlock.id)
-  await persistPromptTemplateVariables(chat, prompt)
   const abortController = new AbortController()
 
   activeGenerations.set(chat.id, {
@@ -836,7 +506,16 @@ export async function startChatGeneration(
   })
   sendEvent(webContents, { type: 'started', chatId: chat.id, block: currentGenerationBlock })
 
-  void runGeneration(webContents, chat, instance, provider, messages, currentGenerationBlock, abortController, loreBookTools, prompt, contextBlocks)
+  void runGeneration(
+    webContents,
+    chat.id,
+    instance,
+    provider,
+    messages,
+    currentGenerationBlock,
+    abortController,
+    request.toolDefinitions ?? []
+  )
 
   return { block: currentGenerationBlock }
 }

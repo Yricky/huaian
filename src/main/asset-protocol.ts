@@ -2,17 +2,24 @@ import { protocol } from 'electron'
 import { readFile, realpath } from 'fs/promises'
 import { extname, isAbsolute, relative, resolve } from 'path'
 import { getCurrentProject } from './project/state'
+import { pluginAssetPath } from './project/plugins'
 
 export const ASSET_PROTOCOL = 'st-forge-asset'
+export const PLUGIN_PROTOCOL = 'st-forge-plugin'
 
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
+const CONTENT_TYPES: Record<string, string> = {
   '.apng': 'image/apng',
+  '.css': 'text/css; charset=utf-8',
   '.avif': 'image/avif',
   '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
   '.webp': 'image/webp'
 }
 
@@ -21,7 +28,7 @@ function notFound(): Response {
 }
 
 function contentTypeForPath(filePath: string): string {
-  return IMAGE_CONTENT_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+  return CONTENT_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
 }
 
 function decodeAssetPath(url: string): string | null {
@@ -44,6 +51,15 @@ export function registerAssetProtocolSchemes(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: ASSET_PROTOCOL,
+      privileges: {
+        corsEnabled: true,
+        secure: true,
+        standard: true,
+        supportFetchAPI: true
+      }
+    },
+    {
+      scheme: PLUGIN_PROTOCOL,
       privileges: {
         corsEnabled: true,
         secure: true,
@@ -75,6 +91,28 @@ export function registerAssetProtocol(): void {
       return new Response(new Uint8Array(bytes), {
         headers: {
           'Cache-Control': 'no-store',
+          'Content-Type': contentTypeForPath(filePath)
+        }
+      })
+    } catch {
+      return notFound()
+    }
+  })
+
+  protocol.handle(PLUGIN_PROTOCOL, async request => {
+    const project = getCurrentProject()
+    const pluginPath = decodeAssetPath(request.url)
+    if (!project || !pluginPath) return notFound()
+    const [pluginId, ...pathParts] = pluginPath.split('/').filter(Boolean)
+    if (!pluginId || pluginId === 'base') return notFound()
+
+    try {
+      const filePath = pluginAssetPath(pluginId, pathParts.join('/'))
+      const bytes = await readFile(filePath)
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': "default-src 'self' 'unsafe-inline' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: st-forge-plugin: st-forge-asset:;",
           'Content-Type': contentTypeForPath(filePath)
         }
       })

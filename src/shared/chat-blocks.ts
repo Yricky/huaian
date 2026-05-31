@@ -1,12 +1,10 @@
-import { characterName, replaceCharacterMacros } from './st-regex-scripts'
-import type { ChatBlock, ChatBlockKind, ChatBlockTargetRole, CharacterEntry, JsonRecord } from './types'
+import type { ChatBlock, ChatBlockKind, ChatBlockTargetRole, JsonRecord } from './types'
 import { asRecord, asString } from './value-utils'
 
 type ChatBlockLike = Pick<ChatBlock, 'kind' | 'metadata'>
 type ChatBlockDisplayLike = Pick<ChatBlock, 'kind' | 'metadata' | 'status'>
 
 export interface ChatBlockDisplayOptions {
-  character?: CharacterEntry | null
   userName?: string
 }
 
@@ -44,15 +42,18 @@ export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unkno
 
 export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDisplayOptions = {}): string {
   if (block.kind === 'injection') return '注入内容'
-  if (block.kind === 'tool_definition') return '世界书编辑工具'
-  if (block.kind === 'assistant') return characterName(options.character ?? null)
-  if (block.kind === 'user') return replaceCharacterMacros('{{user}}', options.character ?? null, { userName: options.userName })
+  if (block.kind === 'tool_definition') return asString(asRecord(block.metadata.toolDefinition).label, '工具调用定义')
+  if (block.kind === 'assistant') return 'Assistant'
+  if (block.kind === 'user') return options.userName || 'User'
   if (block.kind === 'system') return 'System'
   return chatBlockTargetRole(block)
 }
 
 export function chatBlockSummary(block: ChatBlockLike): string {
-  if (block.kind === 'tool_definition') return '工具定义'
+  if (block.kind === 'tool_definition') {
+    const definition = asRecord(block.metadata.toolDefinition)
+    return [asString(definition.pluginId), asString(definition.toolCallName)].filter(Boolean).join(' · ') || '工具定义'
+  }
   if (block.kind !== 'injection') return ''
 
   const role = chatBlockTargetRole(block)

@@ -4,58 +4,47 @@ import type {
   ChatBlockCreatePayload,
   ChatBlockUpdatePayload,
   ChatGenerationRequest,
-  PromptTemplateBlockRenderRequest,
   ChatUpdatePayload,
-  CharacterUpdatePayload,
   IpcJsonPayload,
-  LoreBookDraftApplyPayload,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
-  LoreBookUpdatePayload,
-  ProjectConfigUpdatePayload,
-  WorldEntryOrderPayload,
-  WorldEntryUpdatePayload
+  PluginToolCallResponse,
+  ProjectConfigUpdatePayload
 } from '../shared/types'
-import { hasActiveGeneration, previewChatGeneration, renderPromptTemplateBlock, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import { hasActiveGeneration, previewChatGeneration, resolvePluginToolCall, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { fetchProviderModels } from './project/llm-provider'
-import { exportCharacter, exportLoreBook } from './project/exporters'
-import { importCharactersFromDialog, importLoreBooksFromDialog } from './project/importers'
-import { applyLoreBookDraft, discardLoreBookDraft, listLoreBookDrafts } from './project/lorebook-drafts'
 import { hasProject } from './project/state'
+import {
+  listPluginDataFiles,
+  listProjectPlugins,
+  readPluginDataFile,
+  readPluginFile,
+  writePluginDataFile
+} from './project/plugins'
 import {
   clearLlmProviderModelsCache,
   createChat,
   createChatBlock,
-  createCharacter,
   createLlmInstance,
   createLlmProvider,
-  createLoreBook,
-  createWorldEntry,
   deleteChat,
   deleteChatBlock,
-  deleteCharacter,
   deleteLlmInstance,
   deleteLlmProvider,
-  deleteLoreBook,
-  deleteWorldEntry,
   forgetRecentProject,
   getChatBlock,
   getProjectSnapshot,
   listRecentProjects,
   openDefaultProject,
   openProjectAt,
-  reorderWorldEntries,
   restoreLlmProviderFromInstance,
   updateChat,
   updateChatBlock,
-  updateCharacter,
   updateProjectConfig,
   updateLlmInstance,
-  updateLlmProvider,
-  updateLoreBook,
-  updateWorldEntry
+  updateLlmProvider
 } from './project/store'
 
 function parseIpcPayload<T>(payload: IpcJsonPayload<T>): T {
@@ -89,37 +78,6 @@ export function registerIpcHandlers(): void {
       throw error
     }
   })
-
-  ipcMain.handle('project:createCharacter', () => createCharacter())
-  ipcMain.handle('project:updateCharacter', (_, payload: IpcJsonPayload<CharacterUpdatePayload>) => (
-    updateCharacter(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('project:deleteCharacter', (_, id: number) => deleteCharacter(id))
-
-  ipcMain.handle('project:createWorldEntry', (_, loreBookId: number) => createWorldEntry(loreBookId))
-  ipcMain.handle('project:updateWorldEntry', (_, payload: IpcJsonPayload<WorldEntryUpdatePayload>) => (
-    updateWorldEntry(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('project:deleteWorldEntry', (_, id: number) => deleteWorldEntry(id))
-  ipcMain.handle('project:reorderWorldEntries', (_, payload: IpcJsonPayload<WorldEntryOrderPayload>) => (
-    reorderWorldEntries(parseIpcPayload(payload))
-  ))
-
-  ipcMain.handle('project:createLoreBook', () => createLoreBook())
-  ipcMain.handle('project:updateLoreBook', (_, payload: IpcJsonPayload<LoreBookUpdatePayload>) => (
-    updateLoreBook(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('project:deleteLoreBook', (_, id: number) => deleteLoreBook(id))
-
-  ipcMain.handle('project:exportCharacter', (_, id: number) => exportCharacter(id))
-  ipcMain.handle('project:exportLoreBook', (_, id: number) => exportLoreBook(id))
-  ipcMain.handle('project:importCharacters', () => importCharactersFromDialog())
-  ipcMain.handle('project:importLoreBooks', () => importLoreBooksFromDialog())
-  ipcMain.handle('project:listLoreBookDrafts', () => listLoreBookDrafts())
-  ipcMain.handle('project:applyLoreBookDraft', (_, payload: IpcJsonPayload<LoreBookDraftApplyPayload>) => (
-    applyLoreBookDraft(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('project:discardLoreBookDraft', (_, loreBookId: number) => discardLoreBookDraft(loreBookId))
 
   ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
     createLlmProvider(parseIpcPayload(payload))
@@ -180,10 +138,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('chat:previewGeneration', (_, payload: IpcJsonPayload<ChatGenerationRequest>) => (
     previewChatGeneration(parseIpcPayload(payload))
   ))
-  ipcMain.handle('chat:renderPromptTemplateBlock', (_, payload: IpcJsonPayload<PromptTemplateBlockRenderRequest>) => (
-    renderPromptTemplateBlock(parseIpcPayload(payload))
-  ))
   ipcMain.handle('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
+
+  ipcMain.handle('plugin:list', () => listProjectPlugins())
+  ipcMain.handle('plugin:readFile', (_, pluginId: string, path: string) => readPluginFile(pluginId, path))
+  ipcMain.handle('plugin:listDataFiles', (_, pluginId: string, path = '') => listPluginDataFiles(pluginId, path))
+  ipcMain.handle('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
+  ipcMain.handle('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
+    writePluginDataFile(pluginId, path, content)
+  ))
+  ipcMain.handle('plugin:toolCallResponse', (_, payload: IpcJsonPayload<PluginToolCallResponse>) => (
+    resolvePluginToolCall(parseIpcPayload(payload))
+  ))
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:getName', () => app.getName())

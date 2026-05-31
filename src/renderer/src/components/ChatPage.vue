@@ -1,22 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import {
-  MdAdd,
-  MdCheck,
-  MdClose,
-  MdDeleteOutline,
-  MdKeyboardArrowDown,
-  MdKeyboardArrowUp,
-  MdPerson
-} from 'vue-icons-plus/md'
-import type { ChatCreationDefaults, ChatSession, CharacterEntry, JsonRecord, LoreBook } from '../../../shared/types'
+import { MdAdd, MdChat, MdCheck, MdClose, MdDeleteOutline } from 'vue-icons-plus/md'
+import type { ChatSession } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import ChatWorkspace from './ChatWorkspace.vue'
 
 const {
   chats,
-  characterAssetUrl,
-  characters,
   createChat,
   createChatBlock,
   deleteChat,
@@ -24,10 +14,10 @@ const {
   generatingChatIds,
   isSelectedChatGenerating,
   llmInstances,
-  loreBooks,
+  plugins,
+  prepareChatDisplayBlocks,
   previewChatGeneration,
   project,
-  renderPromptTemplateBlock,
   saveProjectConfig,
   saveChat,
   saveChatBlock,
@@ -35,8 +25,7 @@ const {
   selectedChat,
   selectedChatBlocks,
   startChatGeneration,
-  stopChatGeneration,
-  worldEntries
+  stopChatGeneration
 } = useProjectWorkbench()
 
 const newChatDialogOpen = ref(false)
@@ -44,22 +33,25 @@ const creatingChat = ref(false)
 const newChatButtonRef = ref<HTMLButtonElement | null>(null)
 const newChatPopupRef = ref<HTMLElement | null>(null)
 const newChatPopupStyle = ref<Record<string, string>>({})
-const draftCharacterId = ref<number | null>(null)
-const draftLoreBookIds = ref<number[]>([])
-const draftCharacterRegexScriptsEnabled = ref(true)
+const draftEnabledPluginIds = ref<string[]>([])
 const chatContextMenu = ref<{ chat: ChatSession } | null>(null)
 const chatContextMenuStyle = ref<Record<string, string>>({})
 
-const draftSelectedLoreBooks = computed(() => draftLoreBookIds.value
-  .map(id => loreBooks.value.find(book => book.id === id))
-  .filter((book): book is LoreBook => Boolean(book)))
-const draftAvailableLoreBooks = computed(() => {
-  const selected = new Set(draftLoreBookIds.value)
-  return loreBooks.value.filter(book => !selected.has(book.id))
-})
+const projectEnabledPluginIds = computed(() => (
+  project.value?.config.plugins.enabledPluginIds ?? plugins.value.map(plugin => plugin.manifest.id)
+))
 
 function chatKey(chat: ChatSession) {
   return chat.id
+}
+
+function pluginCountLabel(chat: ChatSession): string {
+  const count = chat.runtimeConfig.enabledPluginIds.length
+  return count > 0 ? `${count} 个插件` : '未启用插件'
+}
+
+function isChatGenerating(chat: ChatSession): boolean {
+  return generatingChatIds.value.includes(chat.id)
 }
 
 watch(chatContextMenu, (menu) => {
@@ -100,67 +92,9 @@ function removeNewChatPopupListeners() {
   window.removeEventListener('resize', closeNewChatDialog)
 }
 
-function recordFromJson(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
-}
-
-function stringFromJson(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function characterName(character: CharacterEntry): string {
-  const data = recordFromJson(character.stData.data)
-  return stringFromJson(data.name, `角色 #${character.id}`).trim() || `角色 #${character.id}`
-}
-
-function chatCharacter(chat: ChatSession): CharacterEntry | null {
-  const id = chat.runtimeConfig.characterId
-  return id === null || id === undefined ? null : characters.value.find(character => character.id === id) ?? null
-}
-
-function chatCharacterLabel(chat: ChatSession): string {
-  const character = chatCharacter(chat)
-  return character ? characterName(character) : '无角色'
-}
-
-function chatAvatarUrl(chat: ChatSession): string {
-  const character = chatCharacter(chat)
-  return character ? characterAssetUrl(character) : ''
-}
-
-function isChatGenerating(chat: ChatSession): boolean {
-  return generatingChatIds.value.includes(chat.id)
-}
-
-function normalizeCreationDefaults(defaults?: ChatCreationDefaults): ChatCreationDefaults {
-  const characterId = defaults?.characterId ?? null
-  const existingCharacterId = characterId !== null && characters.value.some(character => character.id === characterId)
-    ? characterId
-    : null
-  const existingLoreBookIds = new Set(loreBooks.value.map(book => book.id))
-  const loreBookIds = [...new Set(defaults?.loreBookIds ?? [])].filter(id => existingLoreBookIds.has(id))
-
-  return {
-    characterId: existingCharacterId,
-    loreBookIds,
-    characterRegexScriptsEnabled: defaults?.characterRegexScriptsEnabled !== false
-  }
-}
-
-function currentDraftDefaults(): ChatCreationDefaults {
-  return normalizeCreationDefaults({
-    characterId: draftCharacterId.value,
-    loreBookIds: draftLoreBookIds.value,
-    characterRegexScriptsEnabled: draftCharacterRegexScriptsEnabled.value
-  })
-}
-
 function openNewChatDialog() {
   closeChatContextMenu()
-  const defaults = normalizeCreationDefaults(project.value?.config.chatCreateDefaults)
-  draftCharacterId.value = defaults.characterId
-  draftLoreBookIds.value = defaults.loreBookIds
-  draftCharacterRegexScriptsEnabled.value = defaults.characterRegexScriptsEnabled
+  draftEnabledPluginIds.value = [...projectEnabledPluginIds.value]
   newChatDialogOpen.value = true
   nextTick(updateNewChatPopupPosition)
 }
@@ -178,7 +112,7 @@ function updateNewChatPopupPosition() {
   const gap = 6
   const margin = 8
   const width = Math.min(520, window.innerWidth - margin * 2)
-  const height = newChatPopupRef.value?.offsetHeight ?? 620
+  const height = newChatPopupRef.value?.offsetHeight ?? 420
   const left = Math.min(
     window.innerWidth - width - margin,
     Math.max(margin, rect.right - width)
@@ -195,54 +129,35 @@ function updateNewChatPopupPosition() {
   }
 }
 
+function isDraftPluginEnabled(pluginId: string): boolean {
+  return draftEnabledPluginIds.value.includes(pluginId)
+}
+
+function toggleDraftPlugin(pluginId: string) {
+  draftEnabledPluginIds.value = isDraftPluginEnabled(pluginId)
+    ? draftEnabledPluginIds.value.filter(id => id !== pluginId)
+    : [...draftEnabledPluginIds.value, pluginId]
+}
+
 async function confirmCreateChat() {
   if (creatingChat.value) return
-  const defaults = currentDraftDefaults()
-  const character = defaults.characterId === null
-    ? null
-    : characters.value.find(item => item.id === defaults.characterId) ?? null
-  const title = character ? characterName(character) : '新聊天'
-
   creatingChat.value = true
-  const saved = await saveProjectConfig({ chatCreateDefaults: defaults })
+  const enabledPluginIds = [...draftEnabledPluginIds.value]
+  const saved = await saveProjectConfig({
+    chatCreateDefaults: { enabledPluginIds },
+    plugins: { enabledPluginIds }
+  })
   const chat = saved
     ? await createChat({
-      title,
+      title: '新聊天',
       runtimeConfig: {
-        characterId: defaults.characterId,
-        loreBookIds: defaults.loreBookIds,
-        characterRegexScriptsEnabled: defaults.characterRegexScriptsEnabled
+        enabledPluginIds,
+        pluginData: {}
       }
     })
     : null
   creatingChat.value = false
   if (chat) newChatDialogOpen.value = false
-}
-
-function selectDraftCharacter(characterId: number | null) {
-  draftCharacterId.value = characterId
-}
-
-function addDraftLoreBook(event: Event) {
-  const select = event.target as HTMLSelectElement
-  const id = Number(select.value)
-  select.value = ''
-  if (!Number.isInteger(id) || draftLoreBookIds.value.includes(id)) return
-  draftLoreBookIds.value = [...draftLoreBookIds.value, id]
-}
-
-function removeDraftLoreBook(id: number) {
-  draftLoreBookIds.value = draftLoreBookIds.value.filter(loreBookId => loreBookId !== id)
-}
-
-function moveDraftLoreBook(id: number, direction: -1 | 1) {
-  const ids = [...draftLoreBookIds.value]
-  const index = ids.indexOf(id)
-  const nextIndex = index + direction
-  if (index < 0 || nextIndex < 0 || nextIndex >= ids.length) return
-  const [item] = ids.splice(index, 1)
-  ids.splice(nextIndex, 0, item)
-  draftLoreBookIds.value = ids
 }
 
 function openChatContextMenu(event: MouseEvent, chat: ChatSession) {
@@ -293,12 +208,11 @@ async function deleteContextChat() {
           @contextmenu.prevent="openChatContextMenu($event, chat)"
         >
           <span class="chat-list-avatar">
-            <img v-if="chatAvatarUrl(chat)" :src="chatAvatarUrl(chat)" alt="" />
-            <MdPerson v-else class="chat-list-avatar-icon" aria-hidden="true" />
+            <MdChat class="chat-list-avatar-icon" aria-hidden="true" />
           </span>
           <span class="chat-list-copy">
             <strong>{{ chat.title }}</strong>
-            <span class="chat-list-meta">{{ chatCharacterLabel(chat) }}</span>
+            <span class="chat-list-meta">{{ pluginCountLabel(chat) }}</span>
             <span class="chat-list-updated">{{ new Date(chat.updatedAt).toLocaleString() }}</span>
           </span>
           <span
@@ -315,20 +229,17 @@ async function deleteContextChat() {
       v-if="selectedChat"
       :blocks="selectedChatBlocks"
       :chat="selectedChat"
-      :characters="characters"
       :create-chat-block="createChatBlock"
       :delete-chat-block="deleteChatBlock"
       :frozen="isSelectedChatGenerating"
       :llm-instances="llmInstances"
-      :lore-books="loreBooks"
+      :plugins="plugins"
+      :prepare-chat-display-blocks="prepareChatDisplayBlocks"
       :preview-chat-generation="previewChatGeneration"
-      :prompt-template-config="project?.config.promptTemplate ?? null"
-      :render-prompt-template-block="renderPromptTemplateBlock"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"
       :start-chat-generation="startChatGeneration"
       :stop-chat-generation="stopChatGeneration"
-      :world-entries="worldEntries"
     />
 
     <main v-else class="chat-empty">
@@ -345,93 +256,44 @@ async function deleteContextChat() {
 
     <Teleport to="body">
       <section v-if="newChatDialogOpen" ref="newChatPopupRef" class="new-chat-popup" :style="newChatPopupStyle" role="dialog" aria-modal="false" aria-labelledby="new-chat-title" @click.stop>
-          <header class="dialog-header">
-            <h2 id="new-chat-title">新建聊天</h2>
-            <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" :disabled="creatingChat" @click="closeNewChatDialog">
-              <MdClose class="toolbar-icon" aria-hidden="true" />
-            </button>
-          </header>
+        <header class="dialog-header">
+          <h2 id="new-chat-title">新建聊天</h2>
+          <button class="toolbar-button" type="button" aria-label="关闭" data-tooltip="关闭" :disabled="creatingChat" @click="closeNewChatDialog">
+            <MdClose class="toolbar-icon" aria-hidden="true" />
+          </button>
+        </header>
 
-          <div class="dialog-body">
-            <section class="dialog-section">
-              <h3>角色卡</h3>
-              <div class="choice-list">
-                <button class="dialog-choice-row" type="button" :class="{ selected: draftCharacterId === null }" @click="selectDraftCharacter(null)">
-                  <span class="dialog-avatar placeholder">
-                    <MdPerson class="dialog-avatar-icon" aria-hidden="true" />
-                  </span>
-                  <span class="dialog-choice-copy">
-                    <strong>无角色</strong>
-                  </span>
-                </button>
-                <button
-                  v-for="character in characters"
-                  :key="character.id"
-                  class="dialog-choice-row"
-                  type="button"
-                  :class="{ selected: draftCharacterId === character.id }"
-                  @click="selectDraftCharacter(character.id)"
-                >
-                  <span class="dialog-avatar">
-                    <img v-if="characterAssetUrl(character)" :src="characterAssetUrl(character)" alt="" />
-                    <MdPerson v-else class="dialog-avatar-icon" aria-hidden="true" />
-                  </span>
-                  <span class="dialog-choice-copy">
-                    <strong>{{ characterName(character) }}</strong>
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            <section class="dialog-section">
-              <h3>聊天设置</h3>
+        <div class="dialog-body">
+          <section class="dialog-section">
+            <h3>启用插件</h3>
+            <div class="choice-list">
               <button
-                class="setting-row"
+                v-for="plugin in plugins"
+                :key="plugin.manifest.id"
+                class="dialog-choice-row"
                 type="button"
-                :aria-pressed="draftCharacterRegexScriptsEnabled"
-                :class="{ selected: draftCharacterRegexScriptsEnabled }"
-                title="仅在展示和发送给模型时应用角色卡 extensions.regex_scripts；保存内容保持原始文本。"
-                @click="draftCharacterRegexScriptsEnabled = !draftCharacterRegexScriptsEnabled"
+                :class="{ selected: isDraftPluginEnabled(plugin.manifest.id) }"
+                @click="toggleDraftPlugin(plugin.manifest.id)"
               >
-                <span class="setting-row-text">角色正则脚本</span>
+                <span class="dialog-choice-copy">
+                  <strong>{{ plugin.manifest.name || plugin.manifest.id }}</strong>
+                  <span>{{ plugin.manifest.description || plugin.manifest.id }}</span>
+                </span>
                 <span class="setting-check" aria-hidden="true">
-                  <MdCheck v-if="draftCharacterRegexScriptsEnabled" class="setting-check-icon" />
+                  <MdCheck v-if="isDraftPluginEnabled(plugin.manifest.id)" class="setting-check-icon" />
                 </span>
               </button>
-            </section>
+              <p v-if="!plugins.length" class="empty-row">当前项目还没有插件。</p>
+            </div>
+          </section>
+        </div>
 
-            <section class="dialog-section">
-              <h3>世界书</h3>
-              <select class="dialog-select" :disabled="draftAvailableLoreBooks.length === 0" aria-label="添加世界书" @change="addDraftLoreBook">
-                <option value="">添加世界书</option>
-                <option v-for="book in draftAvailableLoreBooks" :key="book.id" :value="book.id">{{ book.name }}</option>
-              </select>
-              <div class="ordered-list">
-                <div v-for="(book, index) in draftSelectedLoreBooks" :key="book.id" class="ordered-row">
-                  <span>{{ book.name }}</span>
-                  <div class="row-actions">
-                    <button class="icon-button compact" type="button" :disabled="index === 0" :aria-label="`上移 ${book.name}`" data-tooltip="上移" @click="moveDraftLoreBook(book.id, -1)">
-                      <MdKeyboardArrowUp class="menu-icon" aria-hidden="true" />
-                    </button>
-                    <button class="icon-button compact" type="button" :disabled="index === draftSelectedLoreBooks.length - 1" :aria-label="`下移 ${book.name}`" data-tooltip="下移" @click="moveDraftLoreBook(book.id, 1)">
-                      <MdKeyboardArrowDown class="menu-icon" aria-hidden="true" />
-                    </button>
-                    <button class="icon-button compact" type="button" :aria-label="`移除 ${book.name}`" data-tooltip="移除" @click="removeDraftLoreBook(book.id)">
-                      <MdClose class="menu-icon" aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-                <div v-if="draftSelectedLoreBooks.length === 0" class="empty-row">未绑定世界书</div>
-              </div>
-            </section>
-          </div>
-
-          <footer class="dialog-actions">
-            <button class="outline-button" type="button" :disabled="creatingChat" @click="closeNewChatDialog">取消</button>
-            <button class="primary-button" type="button" :disabled="creatingChat" @click="confirmCreateChat">
-              {{ creatingChat ? '创建中' : '创建' }}
-            </button>
-          </footer>
+        <footer class="dialog-actions">
+          <button class="outline-button" type="button" :disabled="creatingChat" @click="closeNewChatDialog">取消</button>
+          <button class="primary-button" type="button" :disabled="creatingChat" @click="confirmCreateChat">
+            {{ creatingChat ? '创建中' : '创建' }}
+          </button>
+        </footer>
       </section>
     </Teleport>
   </section>
@@ -492,12 +354,6 @@ async function deleteContextChat() {
   border-radius: 50%;
   background: #edf2f7;
   color: #5d6b7e;
-}
-
-.chat-list-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .chat-list-avatar-icon {
@@ -568,14 +424,18 @@ async function deleteContextChat() {
   background: #ffffff;
 }
 
-.chat-context-menu {
+.chat-context-menu,
+.new-chat-popup {
   position: fixed;
-  z-index: 130;
   border: 1px solid #d7dee8;
   border-radius: 8px;
   background: #ffffff;
-  padding: 6px;
   box-shadow: 0 8px 24px rgba(32, 39, 49, 0.14);
+}
+
+.chat-context-menu {
+  z-index: 130;
+  padding: 6px;
 }
 
 .chat-context-menu button {
@@ -613,16 +473,11 @@ async function deleteContextChat() {
 }
 
 .new-chat-popup {
-  position: fixed;
   z-index: 125;
   max-height: min(720px, calc(100vh - 32px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid #d7dee8;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 18px 42px rgba(32, 39, 49, 0.18);
 }
 
 .dialog-header,
@@ -666,7 +521,7 @@ async function deleteContextChat() {
 
 .choice-list {
   min-width: 0;
-  max-height: 236px;
+  max-height: 260px;
   overflow: auto;
   display: grid;
   border: 1px solid #e1e7ef;
@@ -676,7 +531,7 @@ async function deleteContextChat() {
 .dialog-choice-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
   gap: 9px;
   border: 0;
@@ -698,34 +553,18 @@ async function deleteContextChat() {
   background: #edf5ff;
 }
 
-.dialog-avatar {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border-radius: 50%;
-  background: #edf2f7;
-  color: #5d6b7e;
-}
-
-.dialog-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.dialog-avatar-icon {
-  width: 20px;
-  height: 20px;
-}
-
 .dialog-choice-copy,
-.dialog-choice-copy strong {
+.dialog-choice-copy strong,
+.dialog-choice-copy span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dialog-choice-copy {
+  display: grid;
+  gap: 2px;
 }
 
 .dialog-choice-copy strong {
@@ -733,36 +572,9 @@ async function deleteContextChat() {
   font-size: 13px;
 }
 
-.setting-row {
-  min-width: 0;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid #e1e7ef;
-  border-radius: 7px;
-  background: #fbfcfd;
-  color: #303a49;
-  cursor: pointer;
+.dialog-choice-copy span {
+  color: #697386;
   font-size: 12px;
-  padding: 7px 8px;
-}
-
-.setting-row:hover {
-  background: #f1f5fa;
-}
-
-.setting-row.selected {
-  border-color: #2f6fca;
-  background: #f4f8ff;
-}
-
-.setting-row-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .setting-check {
@@ -777,72 +589,6 @@ async function deleteContextChat() {
 .setting-check-icon {
   width: 18px;
   height: 18px;
-}
-
-.dialog-select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid #d7dee8;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #273245;
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-.ordered-list {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.ordered-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid #e1e7ef;
-  border-radius: 7px;
-  background: #fbfcfd;
-  padding: 7px 8px;
-}
-
-.ordered-row span {
-  min-width: 0;
-  overflow: hidden;
-  color: #303a49;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.icon-button.compact {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  padding: 0;
-}
-
-.icon-button.compact:hover:not(:disabled) {
-  background: #e8edf4;
-}
-
-.icon-button.compact:disabled {
-  cursor: default;
-  opacity: 0.45;
 }
 
 .empty-row {

@@ -74,9 +74,7 @@ export interface WorldEntryOrderPayload {
 }
 
 export interface ChatCreationDefaults {
-  characterId: number | null
-  loreBookIds: number[]
-  characterRegexScriptsEnabled: boolean
+  enabledPluginIds: string[]
 }
 
 export interface PromptTemplateSettings {
@@ -99,6 +97,54 @@ export interface PromptTemplateSettings {
 export interface PromptTemplateProjectConfig {
   settings: PromptTemplateSettings
   globalVariables: JsonRecord
+}
+
+export interface PluginToolSchema {
+  name: string
+  description: string
+  inputSchema: JsonRecord
+}
+
+export interface PluginToolCallManifest {
+  name: string
+  label?: string
+  handler?: string
+  prompt?: string
+  tools?: PluginToolSchema[]
+  settingsHtml?: string
+}
+
+export interface PluginManifestEntry {
+  initGlobal?: string
+  initChat?: string
+  chatBlockProcessor?: string
+  toolCalls?: PluginToolCallManifest[]
+  settingsHtml?: string
+  chatHtml?: string
+}
+
+export interface PluginManifest {
+  id: string
+  name?: string
+  description?: string
+  versionCode: number
+  dependencies?: string[]
+  entry?: PluginManifestEntry
+}
+
+export interface PluginDescriptor {
+  manifest: PluginManifest
+  source: 'project'
+}
+
+export interface PluginFileEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+}
+
+export interface PluginProjectConfig {
+  enabledPluginIds: string[]
 }
 
 export interface PromptTemplateVariables {
@@ -143,20 +189,18 @@ export interface PromptTemplateBlockRenderResult {
 export interface ProjectConfig {
   schemaVersion: number
   chatCreateDefaults: ChatCreationDefaults
-  promptTemplate: PromptTemplateProjectConfig
+  plugins: PluginProjectConfig
 }
 
 export interface ProjectConfigUpdatePayload {
   chatCreateDefaults?: ChatCreationDefaults
-  promptTemplate?: PromptTemplateProjectConfig
+  plugins?: PluginProjectConfig
 }
 
 export interface ProjectSnapshot {
   path: string
   config: ProjectConfig
-  characters: CharacterEntry[]
-  loreBooks: LoreBook[]
-  worldEntries: WorldEntry[]
+  plugins: PluginDescriptor[]
   llmProviders: LlmProvider[]
   llmInstances: LlmInstance[]
   chats: ChatSession[]
@@ -253,11 +297,9 @@ export interface LlmInstanceCreatePayload {
 export type LlmInstanceUpdatePayload = LlmInstanceCreatePayload & { id: number }
 
 export interface ChatRuntimeConfig {
-  characterId: number | null
   llmInstanceId: number | null
-  loreBookIds: number[]
-  characterRegexScriptsEnabled: boolean
-  promptTemplateVariables: JsonRecord
+  enabledPluginIds: string[]
+  pluginData: JsonRecord
 }
 
 export interface ChatSession {
@@ -347,12 +389,41 @@ export interface ChatBlockUpdatePayload {
 export interface ChatGenerationRequest {
   chatId: number
   regenerateBlockId?: number | null
+  messages?: ChatGenerationPreviewMessage[]
+  toolDefinitions?: LlmToolDefinition[]
+  promptMetadata?: JsonRecord
 }
 
 export interface ChatGenerationPreviewMessage {
   role: 'system' | 'user' | 'assistant'
   content: string | ChatContentPart[]
   blockId?: number
+}
+
+export interface LlmToolDefinition {
+  pluginId: string
+  toolCallName: string
+  toolName: string
+  description: string
+  inputSchema: JsonRecord
+  commonArgs: JsonRecord
+}
+
+export interface PluginToolCallRequest {
+  requestId: string
+  chatId: number
+  pluginId: string
+  toolCallName: string
+  toolName: string
+  input: JsonRecord
+  commonArgs: JsonRecord
+}
+
+export interface PluginToolCallResponse {
+  requestId: string
+  ok: boolean
+  output?: unknown
+  error?: string
 }
 
 export interface LoreBookDraftChange {
@@ -387,6 +458,6 @@ export type ChatGenerationEvent =
   | { type: 'stopped'; chatId: number; block: ChatBlock }
   | { type: 'error'; chatId: number; block: ChatBlock; error: string }
 
-export type SidebarView = 'characters' | 'loreBooks' | 'chat' | 'settings'
+export type SidebarView = 'chat' | 'settings' | 'plugins'
 
 export type IpcJsonPayload<T> = T | string
