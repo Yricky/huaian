@@ -1,14 +1,13 @@
 import ejs from 'ejs'
 import {
-  chatBlockTargetRole,
-  type ChatBlock,
   type ChatContentPart,
-  type ChatGenerationPreviewMessage,
   type JsonRecord,
-  type PluginProcessorState,
+  type LLMContentPart,
+  type MixedChatBlock,
+  type ProcessingChat,
   type PluginRuntimeContext
 } from '@st-forge/plugin-api'
-import { asRecord } from '@st-forge/plugin-api'
+import { asRecord, textFromContentParts } from '@st-forge/plugin-api'
 
 const DEFAULT_USER_NAME = 'User'
 const VARIABLE_SCOPE_KEY = 'variables'
@@ -127,36 +126,6 @@ async function renderPromptTemplateText(content: string, scopes: VariableScopes,
   }
 }
 
-async function renderMessageContent(
-  message: ChatGenerationPreviewMessage,
-  scopes: VariableScopes,
-  env: JsonRecord,
-  messageIndex: number
-): Promise<ChatGenerationPreviewMessage> {
-  if (typeof message.content === 'string') {
-    return {
-      ...message,
-      content: await renderPromptTemplateText(message.content, scopes, env, `message #${messageIndex} (${message.role})`)
-    }
-  }
-  return {
-    ...message,
-    content: await Promise.all(message.content.map(async (part, partIndex) => (
-      part.type === 'text'
-        ? {
-            ...part,
-            text: await renderPromptTemplateText(
-              part.text,
-              scopes,
-              env,
-              `message #${messageIndex} (${message.role}) part #${partIndex}`
-            )
-          }
-        : part
-    )))
-  }
-}
-
 async function renderContentParts(parts: ChatContentPart[], scopes: VariableScopes, env: JsonRecord, blockId: number): Promise<ChatContentPart[]> {
   return Promise.all(parts.map(async (part, partIndex) => {
     if (part.type !== 'text' && part.type !== 'reasoning') return part
@@ -167,44 +136,70 @@ async function renderContentParts(parts: ChatContentPart[], scopes: VariableScop
   }))
 }
 
-async function renderBlock(block: ChatBlock, scopes: VariableScopes, env: JsonRecord): Promise<ChatBlock> {
-  return {
-    ...block,
-    contentParts: await renderContentParts(block.contentParts, scopes, {
-      ...env,
-      blockId: block.id,
-      kind: block.kind,
-      role: chatBlockTargetRole(block)
-    }, block.id),
-    metadata: {
-      ...block.metadata,
-      renderedByPlugin: 'st_prompt_template_compat'
-    }
+async function renderLlmContent(
+  block: MixedChatBlock,
+  scopes: VariableScopes,
+  env: JsonRecord,
+  blockId: number
+): Promise<string | LLMContentPart[] | undefined> {
+  if (block.llm && !Object.prototype.hasOwnProperty.call(block.llm, 'content')) return undefined
+  const content = block.llm?.content
+  if (typeof content === 'string') {
+    return renderPromptTemplateText(content, scopes, env, `block #${blockId} llm`)
   }
+  if (Array.isArray(content)) {
+    return Promise.all(content.map(async (part, partIndex) => ({
+      ...part,
+      text: await renderPromptTemplateText(part.text, scopes, env, `block #${blockId} llm part #${partIndex}`)
+    })))
+  }
+  if (!block.original) return undefined
+  const renderedParts = await renderContentParts(block.original.contentParts, scopes, env, blockId)
+  return textFromContentParts(renderedParts).trim()
+}
+
+async function renderBlock(block: MixedChatBlock, scopes: VariableScopes, chatId: number): Promise<MixedChatBlock> {
+  const blockId = block.original?.id ?? 0
+  const env = {
+    chatId,
+    blockId,
+    role: block.role
+  }
+  const next: MixedChatBlock = {
+    ...block,
+    pluginData: asRecord(block.pluginData)
+  }
+
+  if (block.user && !Object.prototype.hasOwnProperty.call(block.user, 'contentParts')) {
+    next.user = {}
+  } else {
+    const sourceParts = block.user?.contentParts ?? block.original?.contentParts
+    if (sourceParts) next.user = { contentParts: await renderContentParts(sourceParts, scopes, env, blockId) }
+  }
+
+  if (block.llm && !Object.prototype.hasOwnProperty.call(block.llm, 'content')) {
+    next.llm = {}
+  } else {
+    const content = await renderLlmContent(block, scopes, env, blockId)
+    if (content !== undefined) next.llm = { content }
+  }
+
+  return next
 }
 
 export default function chatBlockProcessor(context: PluginRuntimeContext) {
   return {
-    async process(state: PluginProcessorState) {
+    async process(chat: ProcessingChat): Promise<ProcessingChat> {
       const config = asRecord(await context.api.storage.readJson('config.json', {
         enabled: true,
         renderMessages: true,
         globalVariables: {}
       }))
-      if (config.enabled === false || config.renderMessages === false) return {}
+      if (config.enabled === false || config.renderMessages === false) return chat
       const scopes = variableScopes(config, context.api.chat.getPluginData())
-      const messages = await Promise.all(state.messages.map((message, messageIndex) => (
-        renderMessageContent(message, scopes, {
-          chatId: state.chat.id,
-          role: message.role
-        }, messageIndex)
-      )))
-      const blocks = await Promise.all(state.blocks.map(block => renderBlock(block, scopes, {
-        chatId: state.chat.id
-      })))
       return {
-        blocks,
-        messages
+        ...chat,
+        chatBlocks: await Promise.all(chat.chatBlocks.map(block => renderBlock(block, scopes, chat.chatSession.id)))
       }
     }
   }

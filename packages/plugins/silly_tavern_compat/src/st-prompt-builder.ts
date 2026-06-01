@@ -1,5 +1,5 @@
 import type {
-  ChatBlock,
+  ChatBlockKind,
   ChatBlockTargetRole,
   ChatContentPart,
   ChatGenerationPreviewMessage,
@@ -25,7 +25,14 @@ import {
   type RegexPlacement
 } from './st-regex-scripts'
 
-type RuntimeBlock = Pick<ChatBlock, 'id' | 'kind' | 'enabled' | 'orderIndex' | 'contentParts' | 'metadata'>
+export interface RuntimeBlock {
+  id: number
+  kind: ChatBlockKind
+  enabled: boolean
+  orderIndex: number
+  contentParts: ChatContentPart[]
+  metadata: JsonRecord
+}
 
 interface SillyTavernPromptRuntimeConfig {
   characterId?: number | null

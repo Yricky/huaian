@@ -1,22 +1,31 @@
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, type InjectionKey } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch, type InjectionKey } from 'vue'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatCreatePayload,
-  ChatBlockCreatePayload,
+  DbChatBlockCreatePayload,
   ChatGenerationEvent,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatSession,
+  LlmToolDefinition,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
   ProjectConfigUpdatePayload,
   ProjectSnapshot,
+  ProcessingChat,
   RecentProject,
   SidebarView
 } from '@/shared/types'
-import { preparePluginChatGeneration, startPluginToolBridge } from '../pluginRuntime'
+import {
+  messagesFromProcessingChat,
+  mixedBlockFromDbChatBlock,
+  preparePluginChatProcessing,
+  processingChatFromDbBlocks,
+  startPluginToolBridge
+} from '../pluginRuntime'
+import { asRecord } from '../../../shared/value-utils'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -34,8 +43,14 @@ export function createProjectWorkbench() {
   const selectedLlmInstance = ref<LlmInstance | null>(null)
   const selectedChat = ref<ChatSession | null>(null)
   const generatingChatIds = ref<number[]>([])
+  const processingChats = ref<Record<number, ProcessingChat>>({})
+  const processingToolDefinitions = ref<Record<number, LlmToolDefinition[]>>({})
   const toasts = ref<ToastMessage[]>([])
   let toastId = 0
+  let processingRefreshSerial = 0
+  const processingRefreshPromises = new Map<number, Promise<ProcessingChat | null>>()
+  const processingRefreshTokens = new Map<number, number>()
+  const processingTimeoutChats = new Set<number>()
 
   const llmProviders = computed(() => project.value?.llmProviders ?? [])
   const llmInstances = computed(() => project.value?.llmInstances ?? [])
@@ -53,6 +68,18 @@ export function createProjectWorkbench() {
         if (orderDelta !== 0) return orderDelta
         return a.id - b.id
       })
+  })
+
+  const selectedProcessingChat = computed(() => {
+    const chat = selectedChat.value
+    if (!chat) return null
+    return processingChatForDisplay(chat, selectedChatBlocks.value)
+  })
+
+  const selectedProcessingSignature = computed(() => {
+    const chat = selectedChat.value
+    if (!chat || !project.value) return ''
+    return processingSignature(chat, selectedChatBlocks.value, project.value)
   })
 
   const selectedChatLlmInstance = computed(() => {
@@ -87,6 +114,106 @@ export function createProjectWorkbench() {
 
   function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error)
+  }
+
+  function sortedChatBlocksFor(chatId: number): DbChatBlock[] {
+    return chatBlocks.value
+      .filter(block => block.chatId === chatId)
+      .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
+  }
+
+  function processableChatBlocks(blocks: DbChatBlock[]): DbChatBlock[] {
+    return blocks.filter(block => block.status !== 'generating')
+  }
+
+  function metadataForOriginalSignature(metadata: unknown): Record<string, unknown> {
+    const { pluginData: _pluginData, ...rest } = asRecord(metadata)
+    return rest
+  }
+
+  function processingSignature(chat: ChatSession, blocks: DbChatBlock[], snapshot: ProjectSnapshot): string {
+    return JSON.stringify({
+      chatId: chat.id,
+      enabledPluginIds: chat.runtimeConfig.enabledPluginIds,
+      toolDefinitions: chat.runtimeConfig.toolDefinitions,
+      plugins: snapshot.plugins.map(plugin => ({
+        id: plugin.manifest.id,
+        versionCode: plugin.manifest.versionCode,
+        entry: plugin.manifest.entry
+      })),
+      blocks: processableChatBlocks(blocks).map(block => ({
+        id: block.id,
+        kind: block.kind,
+        role: block.metadata.targetRole,
+        enabled: block.enabled,
+        orderIndex: block.orderIndex,
+        contentParts: block.contentParts,
+        metadata: metadataForOriginalSignature(block.metadata)
+      }))
+    })
+  }
+
+  function pluginDataPatchHasEntries(value: unknown): boolean {
+    return Object.keys(asRecord(value)).length > 0
+  }
+
+  function mergePluginData(base: unknown, patch: unknown): Record<string, unknown> {
+    return {
+      ...asRecord(base),
+      ...asRecord(patch)
+    }
+  }
+
+  function processingChatForDisplay(chat: ChatSession, blocks: DbChatBlock[]): ProcessingChat {
+    const cached = processingChats.value[chat.id] ?? processingChatFromDbBlocks(chat, processableChatBlocks(blocks))
+    const missingBlocks = blocks
+      .filter(block => !cached.chatBlocks.some(item => item.original?.id === block.id))
+      .map(mixedBlockFromDbChatBlock)
+      .sort((a, b) => {
+        const left = blocks.find(block => block.id === a.original?.id)?.orderIndex ?? 0
+        const right = blocks.find(block => block.id === b.original?.id)?.orderIndex ?? 0
+        return left - right
+      })
+    if (!missingBlocks.length) return cached
+
+    const orderById = new Map(blocks.map(block => [block.id, block.orderIndex]))
+    const result: ProcessingChat['chatBlocks'] = []
+    let missingIndex = 0
+    for (const block of cached.chatBlocks) {
+      const order = block.original ? orderById.get(block.original.id) ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY
+      while (missingIndex < missingBlocks.length) {
+        const missing = missingBlocks[missingIndex]
+        const missingOrder = orderById.get(missing.original?.id ?? -1) ?? Number.POSITIVE_INFINITY
+        if (missingOrder >= order) break
+        result.push(missing)
+        missingIndex += 1
+      }
+      result.push(block)
+    }
+    result.push(...missingBlocks.slice(missingIndex))
+    return {
+      ...cached,
+      chatBlocks: result
+    }
+  }
+
+  function scopedProcessingChatForGeneration(chat: ChatSession, processingChat: ProcessingChat, regenerateBlockId?: number | null): ProcessingChat {
+    if (!regenerateBlockId) return processingChat
+    const target = sortedChatBlocksFor(chat.id).find(block => block.id === regenerateBlockId)
+    if (!target) return processingChat
+    const allowedIds = new Set(sortedChatBlocksFor(chat.id)
+      .filter(block => block.orderIndex < target.orderIndex)
+      .map(block => block.id))
+    const scopedBlocks: ProcessingChat['chatBlocks'] = []
+    for (const block of processingChat.chatBlocks) {
+      if (block.original?.id === regenerateBlockId) break
+      if (block.original && !allowedIds.has(block.original.id)) continue
+      scopedBlocks.push(block)
+    }
+    return {
+      ...processingChat,
+      chatBlocks: scopedBlocks
+    }
   }
 
   function resetProjectSelections() {
@@ -196,7 +323,7 @@ export function createProjectWorkbench() {
     selectedChat.value = clone(chat)
   }
 
-  function replaceChatBlock(block: ChatBlock) {
+  function replaceChatBlock(block: DbChatBlock) {
     if (!project.value) return
     const index = project.value.chatBlocks.findIndex(item => item.id === block.id)
     if (index >= 0) project.value.chatBlocks[index] = block
@@ -393,7 +520,7 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function createChatBlock(payload: ChatBlockCreatePayload) {
+  async function createChatBlock(payload: DbChatBlockCreatePayload) {
     try {
       const block = await window.electronAPI.createChatBlock(toIpcJson(payload))
       replaceChatBlock(block)
@@ -405,7 +532,7 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function saveChatBlock(block: ChatBlock) {
+  async function saveChatBlock(block: DbChatBlock) {
     try {
       replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcJson({
         id: block.id,
@@ -419,7 +546,7 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function deleteChatBlock(block: ChatBlock) {
+  async function deleteChatBlock(block: DbChatBlock) {
     try {
       project.value = await window.electronAPI.deleteChatBlock(block.id)
       refreshSelectedChat()
@@ -429,35 +556,160 @@ export function createProjectWorkbench() {
     }
   }
 
+  async function writeProcessingPluginData(chat: ChatSession, processingChat: ProcessingChat) {
+    if (pluginDataPatchHasEntries(processingChat.pluginData)) {
+      const updated = await window.electronAPI.updateChat(toIpcJson({
+        id: chat.id,
+        title: chat.title,
+        runtimeConfig: {
+          ...chat.runtimeConfig,
+          pluginData: mergePluginData(chat.runtimeConfig.pluginData, processingChat.pluginData)
+        }
+      }))
+      replaceChat(updated)
+    }
+
+    const blockById = new Map(sortedChatBlocksFor(chat.id).map(block => [block.id, block]))
+    for (const block of processingChat.chatBlocks) {
+      const originalId = block.original?.id
+      if (originalId === undefined || !pluginDataPatchHasEntries(block.pluginData)) continue
+      const sourceBlock = blockById.get(originalId)
+      if (!sourceBlock) continue
+      const metadata = {
+        ...sourceBlock.metadata,
+        pluginData: mergePluginData(asRecord(sourceBlock.metadata.pluginData), block.pluginData)
+      }
+      const updated = await window.electronAPI.updateChatBlock(toIpcJson({
+        id: sourceBlock.id,
+        metadata,
+        preserveStatus: true
+      }))
+      replaceChatBlock(updated)
+    }
+  }
+
+  async function disableChatPluginsAfterProcessingTimeout(chatId: number) {
+    if (processingTimeoutChats.has(chatId)) return
+    processingTimeoutChats.add(chatId)
+    const chat = chats.value.find(item => item.id === chatId)
+    if (!chat || chat.runtimeConfig.enabledPluginIds.length === 0) return
+    showToast('插件处理超过 1 秒，已禁用当前聊天插件。', 'error')
+    const updated = await window.electronAPI.updateChat(toIpcJson({
+      id: chat.id,
+      title: chat.title,
+      runtimeConfig: {
+        ...chat.runtimeConfig,
+        enabledPluginIds: []
+      }
+    }))
+    replaceChat(updated)
+    processingChats.value = {
+      ...processingChats.value,
+      [chatId]: processingChatFromDbBlocks(updated, processableChatBlocks(sortedChatBlocksFor(chatId)))
+    }
+    processingToolDefinitions.value = {
+      ...processingToolDefinitions.value,
+      [chatId]: []
+    }
+  }
+
+  async function refreshProcessingChat(chatId: number, writeBackPluginData: boolean): Promise<ProcessingChat | null> {
+    if (!project.value) return null
+    const chat = chats.value.find(item => item.id === chatId)
+    if (!chat) return null
+    const snapshot = project.value
+    const blocks = processableChatBlocks(sortedChatBlocksFor(chatId))
+    const token = ++processingRefreshSerial
+    processingRefreshTokens.set(chatId, token)
+    let currentPromise: Promise<ProcessingChat | null> | null = null
+    currentPromise = (async () => {
+      let timedOut = false
+      const timeout = window.setTimeout(() => {
+        timedOut = true
+        void disableChatPluginsAfterProcessingTimeout(chatId)
+      }, 1000)
+      try {
+        const bundle = await preparePluginChatProcessing(snapshot, chat, blocks)
+        if (timedOut) return null
+        processingTimeoutChats.delete(chatId)
+        if (processingRefreshTokens.get(chatId) === token) {
+          processingChats.value = {
+            ...processingChats.value,
+            [chatId]: bundle.processingChat
+          }
+          processingToolDefinitions.value = {
+            ...processingToolDefinitions.value,
+            [chatId]: bundle.toolDefinitions
+          }
+        }
+        if (writeBackPluginData) {
+          await writeProcessingPluginData(chat, bundle.processingChat)
+        }
+        return bundle.processingChat
+      } catch (error) {
+        showToast(errorText(error), 'error')
+        const fallback = processingChatFromDbBlocks(chat, blocks)
+        processingChats.value = {
+          ...processingChats.value,
+          [chatId]: fallback
+        }
+        processingToolDefinitions.value = {
+          ...processingToolDefinitions.value,
+          [chatId]: []
+        }
+        return fallback
+      } finally {
+        window.clearTimeout(timeout)
+        if (currentPromise && processingRefreshPromises.get(chatId) === currentPromise) {
+          processingRefreshPromises.delete(chatId)
+        }
+      }
+    })()
+    processingRefreshPromises.set(chatId, currentPromise)
+    return currentPromise
+  }
+
+  async function waitForProcessingRefresh(chatId: number, promise: Promise<ProcessingChat | null>): Promise<ProcessingChat | null> {
+    return Promise.race([
+      promise,
+      new Promise<null>(resolve => {
+        window.setTimeout(() => {
+          void disableChatPluginsAfterProcessingTimeout(chatId)
+          resolve(null)
+        }, 1000)
+      })
+    ])
+  }
+
+  async function processingChatForGeneration(chat: ChatSession): Promise<ProcessingChat> {
+    const pending = processingRefreshPromises.get(chat.id)
+    if (pending) {
+      const result = await waitForProcessingRefresh(chat.id, pending)
+      if (!result) throw new Error('插件处理超时，已取消生成。')
+      return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
+    }
+
+    const cached = processingChats.value[chat.id]
+    if (cached) return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
+
+    const result = await waitForProcessingRefresh(chat.id, refreshProcessingChat(chat.id, false))
+    if (!result) throw new Error('插件处理超时，已取消生成。')
+    return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
+  }
+
   async function prepareGenerationRequest(payload: ChatGenerationRequest): Promise<ChatGenerationRequest> {
     if (!project.value) return payload
     const chat = chats.value.find(item => item.id === payload.chatId)
     if (!chat) return payload
-    const blocks = chatBlocks.value
-      .filter(block => block.chatId === chat.id)
-      .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
-    const target = payload.regenerateBlockId
-      ? blocks.find(block => block.id === payload.regenerateBlockId)
-      : null
-    const contextBlocks = target
-      ? blocks.filter(block => block.orderIndex < target.orderIndex)
-      : blocks
-    const bundle = await preparePluginChatGeneration(project.value, chat, contextBlocks)
+    const processingChat = scopedProcessingChatForGeneration(
+      chat,
+      await processingChatForGeneration(chat),
+      payload.regenerateBlockId
+    )
     return {
       ...payload,
-      messages: bundle.messages,
-      toolDefinitions: bundle.toolDefinitions
-    }
-  }
-
-  async function prepareChatDisplayBlocks(chat: ChatSession, blocks: ChatBlock[]): Promise<ChatBlock[]> {
-    if (!project.value) return blocks
-    try {
-      const bundle = await preparePluginChatGeneration(project.value, chat, blocks)
-      return bundle.displayBlocks
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return blocks
+      messages: messagesFromProcessingChat(processingChat),
+      toolDefinitions: processingToolDefinitions.value[chat.id] ?? []
     }
   }
 
@@ -520,17 +772,37 @@ export function createProjectWorkbench() {
     void refreshProjectSnapshot()
   }
 
+  async function handlePluginDataChanged() {
+    try {
+      await refreshProjectSnapshot()
+    } catch {
+      // The processor refresh below still gives storage-only plugin changes a chance to update the cache.
+    }
+    const chatId = selectedChat.value?.id
+    if (chatId) void refreshProcessingChat(chatId, true)
+  }
+
   let unsubscribeGenerationEvents: (() => void) | null = null
+
+  watch(() => ({
+    chatId: selectedChat.value?.id ?? null,
+    signature: selectedProcessingSignature.value
+  }), (current, previous) => {
+    if (current.chatId === null || !current.signature) return
+    void refreshProcessingChat(current.chatId, previous?.chatId === current.chatId)
+  }, { immediate: true })
 
   onMounted(() => {
     void loadProject()
     startPluginToolBridge(() => project.value)
     unsubscribeGenerationEvents = window.electronAPI.onChatGenerationEvent(handleGenerationEvent)
+    window.addEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
     window.addEventListener('st-forge-project-snapshot-changed', handleProjectSnapshotChanged)
   })
 
   onBeforeUnmount(() => {
     unsubscribeGenerationEvents?.()
+    window.removeEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
     window.removeEventListener('st-forge-project-snapshot-changed', handleProjectSnapshotChanged)
   })
 
@@ -556,7 +828,7 @@ export function createProjectWorkbench() {
     openRecentProject,
     plugins,
     previewChatGeneration,
-    prepareChatDisplayBlocks,
+    selectedProcessingChat,
     project,
     providerSnapshot,
     recentProjects,

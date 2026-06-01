@@ -2,7 +2,7 @@
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import { MdCode, MdPsychology } from 'vue-icons-plus/md'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatContentPart,
   ReasoningContentPart,
   ToolCallContentPart
@@ -15,8 +15,8 @@ interface VisibleContentPart {
 }
 
 const props = defineProps<{
-  block: ChatBlock
-  sourceBlock: ChatBlock
+  block: DbChatBlock
+  sourceBlock: DbChatBlock
   canEdit: boolean
   editing: boolean
   editingPartIndex: number | null
@@ -24,7 +24,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  save: [block: ChatBlock]
+  save: [block: DbChatBlock]
   'update:draft': [value: string]
   'editor-ref': [element: Element | ComponentPublicInstance | null]
   'auto-save-edit': []
@@ -76,8 +76,8 @@ function startEdit(partIndex: number) {
   emit('start-edit', partIndex)
 }
 
-function cloneSourceBlock(): ChatBlock {
-  return JSON.parse(JSON.stringify(props.sourceBlock)) as ChatBlock
+function cloneSourceBlock(): DbChatBlock {
+  return JSON.parse(JSON.stringify(props.sourceBlock)) as DbChatBlock
 }
 
 function reasoningSendsAsContext(part: ReasoningContentPart): boolean {

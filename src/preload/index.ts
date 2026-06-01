@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatCreatePayload,
-  ChatBlockCreatePayload,
-  ChatBlockUpdatePayload,
+  DbChatBlockCreatePayload,
+  DbChatBlockUpdatePayload,
   ChatGenerationEvent,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
@@ -54,9 +54,9 @@ const electronAPI = {
   updateChat: (payload: IpcJsonPayload<ChatUpdatePayload>): Promise<ChatSession> =>
     ipcRenderer.invoke('chat:update', payload),
   deleteChat: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('chat:delete', id),
-  createChatBlock: (payload: IpcJsonPayload<ChatBlockCreatePayload>): Promise<ChatBlock> =>
+  createChatBlock: (payload: IpcJsonPayload<DbChatBlockCreatePayload>): Promise<DbChatBlock> =>
     ipcRenderer.invoke('chat:createBlock', payload),
-  updateChatBlock: (payload: IpcJsonPayload<ChatBlockUpdatePayload>): Promise<ChatBlock> =>
+  updateChatBlock: (payload: IpcJsonPayload<DbChatBlockUpdatePayload>): Promise<DbChatBlock> =>
     ipcRenderer.invoke('chat:updateBlock', payload),
   deleteChatBlock: (id: number): Promise<ProjectSnapshot> => ipcRenderer.invoke('chat:deleteBlock', id),
   startChatGeneration: (payload: IpcJsonPayload<ChatGenerationRequest>): Promise<ChatGenerationStartResult> =>

@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatSession, JsonRecord } from '../../shared/types'
+import type { DbChatBlock, ChatSession, JsonRecord } from '../../shared/types'
 import { asRecord, asString } from '../../shared/value-utils'
 
 const HOST_SOURCE = 'st-forge-plugin-sandbox-host'
@@ -42,15 +42,25 @@ function pluginDataFor(chat: ChatSession, pluginId: string): JsonRecord {
   return asRecord(asRecord(chat.runtimeConfig.pluginData)[pluginId])
 }
 
-function blockPluginDataFor(block: ChatBlock, pluginId: string): JsonRecord {
+function blockPluginDataFor(block: DbChatBlock, pluginId: string): JsonRecord {
   return asRecord(asRecord(block.metadata.pluginData)[pluginId])
 }
 
-function publicChatSession(chat: ChatSession | null): Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'updatedAt'> | null {
+function originalFromDbChatBlock(block: DbChatBlock): JsonRecord {
+  return {
+    id: block.id,
+    enabled: block.enabled,
+    contentParts: block.contentParts,
+    metadata: block.metadata
+  }
+}
+
+function publicChatSession(chat: ChatSession | null): JsonRecord | null {
   return chat
     ? {
         id: chat.id,
         title: chat.title,
+        pluginData: asRecord(chat.runtimeConfig.pluginData),
         createdAt: chat.createdAt,
         updatedAt: chat.updatedAt
       }
@@ -74,11 +84,10 @@ async function setChatPluginData(pluginId: string, chat: ChatSession, value: Jso
   return updated
 }
 
-async function setBlockPluginData(pluginId: string, block: ChatBlock, value: JsonRecord): Promise<ChatBlock> {
+async function setBlockPluginData(pluginId: string, block: DbChatBlock, value: JsonRecord): Promise<DbChatBlock> {
   const updated = await window.electronAPI.updateChatBlock(JSON.stringify({
     id: block.id,
-    enabled: block.enabled,
-    contentParts: block.contentParts,
+    preserveStatus: true,
     metadata: {
       ...block.metadata,
       pluginData: {
@@ -135,10 +144,10 @@ async function handleHostMethod(method: string, argsValue: unknown): Promise<unk
     return setChatPluginData(pluginId, args.chat as unknown as ChatSession, asRecord(args.value))
   }
   if (method === 'chat.getBlockPluginData') {
-    return blockPluginDataFor(args.block as unknown as ChatBlock, pluginId)
+    return blockPluginDataFor(args.block as unknown as DbChatBlock, pluginId)
   }
   if (method === 'chat.setBlockPluginData') {
-    return setBlockPluginData(pluginId, args.block as unknown as ChatBlock, asRecord(args.value))
+    return originalFromDbChatBlock(await setBlockPluginData(pluginId, args.block as unknown as DbChatBlock, asRecord(args.value)))
   }
 
   throw new Error(`Unknown plugin sandbox host method: ${method}`)
@@ -272,15 +281,25 @@ function pluginDataFor(config, pluginId) {
   return asRecord(asRecord(config.pluginData)[pluginId]);
 }
 
-function publicChatSession(chat) {
-  if (!chat) return null;
-  return {
-    id: chat.id,
-    title: asString(chat.title),
-    createdAt: asString(chat.createdAt),
-    updatedAt: asString(chat.updatedAt)
-  };
-}
+	function publicChatSession(chat) {
+	  if (!chat) return null;
+	  return {
+	    id: chat.id,
+	    title: asString(chat.title),
+	    pluginData: asRecord(chat.runtimeConfig?.pluginData),
+	    createdAt: asString(chat.createdAt),
+	    updatedAt: asString(chat.updatedAt)
+	  };
+	}
+
+	function originalFromDbChatBlock(block) {
+	  return {
+	    id: block.id,
+	    enabled: block.enabled === true,
+	    contentParts: cloneJson(block.contentParts ?? []),
+	    metadata: cloneJson(asRecord(block.metadata))
+	  };
+	}
 
 function pluginAssetUrl(pluginId, path) {
   const cleanPath = String(path ?? '').replace(/\\\\/g, '/').replace(/^\\/+/, '').replace(/^\\.\\//, '');
@@ -289,38 +308,6 @@ function pluginAssetUrl(pluginId, path) {
     .map(part => encodeURIComponent(part))
     .join('/');
   return 'huaianext://' + encodeURIComponent(pluginId) + '/' + encodedPath;
-}
-
-function mergeVirtualBlocks(blocks, virtualBlocks) {
-  const startBlocks = [];
-  const endBlocks = [];
-  const before = new Map();
-  const after = new Map();
-  for (const block of virtualBlocks) {
-    const metadata = asRecord(block.metadata);
-    const beforeBlockId = typeof metadata.displayBeforeBlockId === 'number' ? metadata.displayBeforeBlockId : null;
-    const afterBlockId = typeof metadata.displayAfterBlockId === 'number' ? metadata.displayAfterBlockId : null;
-    if (beforeBlockId !== null) {
-      const list = before.get(beforeBlockId) ?? [];
-      list.push(block);
-      before.set(beforeBlockId, list);
-      continue;
-    }
-    if (afterBlockId !== null) {
-      const list = after.get(afterBlockId) ?? [];
-      list.push(block);
-      after.set(afterBlockId, list);
-      continue;
-    }
-    if (metadata.displaySlot === 'end') endBlocks.push(block);
-    else startBlocks.push(block);
-  }
-  const result = [...startBlocks];
-  for (const block of blocks) {
-    result.push(...(before.get(block.id) ?? []), block, ...(after.get(block.id) ?? []));
-  }
-  result.push(...endBlocks);
-  return result;
 }
 
 function storageApi(pluginId) {
@@ -395,19 +382,19 @@ function chatApi(pluginId, chat, blocks = []) {
   return {
     getSession: () => publicChatSession(chat),
     getPluginData: () => chat ? pluginDataFor(chat.runtimeConfig, pluginId) : {},
-    setPluginData: async value => {
-      if (!chat) return null;
-      return publicChatSession(await callHost('chat.setPluginData', { pluginId, chat, value: asRecord(value) }));
-    },
+	    setPluginData: async value => {
+	      if (!chat) return null;
+	      return publicChatSession(await callHost('chat.setPluginData', { pluginId, chat, value: asRecord(value) }));
+	    },
     getBlockPluginData: blockId => {
       const block = blocks.find(item => item.id === blockId);
       return block ? asRecord(asRecord(block.metadata?.pluginData)[pluginId]) : {};
     },
-    setBlockPluginData: async (blockId, value) => {
-      const block = blocks.find(item => item.id === blockId);
-      if (!block) return null;
-      return callHost('chat.setBlockPluginData', { pluginId, block, value: asRecord(value) });
-    }
+	    setBlockPluginData: async (blockId, value) => {
+	      const block = blocks.find(item => item.id === blockId);
+	      if (!block) return null;
+	      return callHost('chat.setBlockPluginData', { pluginId, block, value: asRecord(value) });
+	    }
   };
 }
 
@@ -463,53 +450,63 @@ async function ensurePluginRuntime(input) {
   loadedProjectSignature = input.signature;
 }
 
-async function preparePluginChatGeneration(input) {
+async function preparePluginChatProcessing(input) {
   await ensurePluginRuntime(input.runtime);
   const activePlugins = Array.isArray(input.runtime?.activePlugins) ? input.runtime.activePlugins : [];
   const blocks = Array.isArray(input.blocks) ? input.blocks : [];
   const chat = input.chat;
   const hostChat = input.hostChat ?? input.chat;
-  const state = cloneJson(input.state);
+  let processingChat = cloneJson(input.processingChat);
+  const canonicalOriginals = new Map((Array.isArray(processingChat?.chatBlocks) ? processingChat.chatBlocks : [])
+    .map(block => asRecord(block).original)
+    .filter(original => typeof asRecord(original).id === 'number')
+    .map(original => [asRecord(original).id, cloneJson(original)]));
   pluginScopes.chat = {};
+
+  function sanitizeProcessingChat(value) {
+    const chatValue = asRecord(value);
+    if (!Array.isArray(chatValue.chatBlocks)) return processingChat;
+    return {
+      ...chatValue,
+      chatBlocks: chatValue.chatBlocks.map(blockValue => {
+        const block = asRecord(blockValue);
+        const original = asRecord(block.original);
+        const originalId = typeof original.id === 'number' ? original.id : null;
+        return originalId === null || !canonicalOriginals.has(originalId)
+          ? blockValue
+          : { ...block, original: cloneJson(canonicalOriginals.get(originalId)) };
+      })
+    };
+  }
 
   for (const descriptor of activePlugins) {
     const plugin = descriptor.manifest;
     const initChat = plugin.entry?.initChat;
     if (initChat) {
       pluginScopes.chat[plugin.id] = await executePluginScript(plugin, initChat, {
-        api: runtimeApi(plugin.id, hostChat, blocks),
-        blocks,
-        chat,
-        plugin
-      }) ?? {};
-    }
-    const processorPath = plugin.entry?.chatBlockProcessor;
-    if (!processorPath) continue;
-    const processor = asRecord(await executePluginScript(plugin, processorPath, {
-      api: runtimeApi(plugin.id, hostChat, blocks),
-      blocks,
-      chat,
-      plugin
-    }));
-    if (typeof processor.process !== 'function') continue;
-    const result = asRecord(await processor.process(state));
-    if (Array.isArray(result.blocks)) state.blocks = result.blocks;
-    if (Array.isArray(result.displayBlocks)) state.blocks = result.displayBlocks;
-    if (Array.isArray(result.messages)) state.messages = result.messages;
-    if (Array.isArray(result.virtualBlocks)) {
-      state.virtualBlocks = result.virtualBlocks;
-      if (!Array.isArray(result.blocks) && !Array.isArray(result.displayBlocks)) {
-        state.blocks = mergeVirtualBlocks(state.blocks, state.virtualBlocks);
-      }
-    }
-  }
+	        api: runtimeApi(plugin.id, hostChat, blocks),
+	        blocks,
+	        chat,
+	        plugin,
+	        processingChat
+	      }) ?? {};
+	    }
+	    const processorPath = plugin.entry?.chatBlockProcessor;
+	    if (!processorPath) continue;
+	    const processor = asRecord(await executePluginScript(plugin, processorPath, {
+	      api: runtimeApi(plugin.id, hostChat, blocks),
+	      blocks,
+	      chat,
+	      plugin,
+	      processingChat
+	    }));
+	    if (typeof processor.process !== 'function') continue;
+	    const result = asRecord(await processor.process(processingChat));
+	    if (Array.isArray(result.chatBlocks)) processingChat = sanitizeProcessingChat(result);
+	  }
 
-  return {
-    displayBlocks: Array.isArray(state.blocks) ? state.blocks : [],
-    messages: Array.isArray(state.messages) ? state.messages : [],
-    virtualBlocks: Array.isArray(state.virtualBlocks) ? state.virtualBlocks : []
-  };
-}
+	  return processingChat;
+	}
 
 async function handlePluginToolCallRequest(input) {
   await ensurePluginRuntime(input.runtime);
@@ -535,7 +532,7 @@ async function handlePluginToolCallRequest(input) {
 
 const methods = {
   ensurePluginRuntime,
-  preparePluginChatGeneration,
+  preparePluginChatProcessing,
   handlePluginToolCallRequest
 };
 

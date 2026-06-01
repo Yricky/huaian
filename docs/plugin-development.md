@@ -152,8 +152,8 @@ entry(context, myAppPlugins)
 仓库内提供了 `@st-forge/plugin-api` 包，里面导出当前插件系统的类型和少量辅助函数：
 
 ```ts
-import type { PluginRuntimeContext, PluginProcessorState } from '@st-forge/plugin-api'
-import { asRecord, asString, mergeVirtualBlocks } from '@st-forge/plugin-api'
+import type { PluginRuntimeContext, ProcessingChat } from '@st-forge/plugin-api'
+import { asRecord, asString, textFromContentParts } from '@st-forge/plugin-api'
 ```
 
 在仓库内开发插件时，可以直接依赖这个 workspace 包。第三方插件如果在仓库外开发，需要确保最终入口 JS 是自包含产物：类型导入应在构建时被擦除，运行时依赖应被打包进入口文件。
@@ -162,7 +162,7 @@ import { asRecord, asString, mergeVirtualBlocks } from '@st-forge/plugin-api'
 
 - `types`：manifest、聊天、聊天块、工具调用、运行时上下文等类型。
 - `value-utils`：`asRecord`、`asString` 等安全取值工具。
-- `chat-blocks`：`baseMessagesFromBlocks`、`mergeVirtualBlocks`、`chatBlockTargetRole` 等聊天块工具。
+- `chat-blocks`：`baseMessagesFromBlocks`、`textFromContentParts`、`chatBlockTargetRole` 等聊天块工具。
 
 处理器返回值、工具输出、写入 storage 的 JSON 都应该保持可 JSON 序列化。函数、DOM 对象、循环引用、`Map`、`Set` 等复杂对象不应跨宿主边界返回。
 
@@ -223,15 +223,16 @@ export default function initChat(context) {
 
 ### chatBlockProcessor
 
-`chatBlockProcessor` 是生成前上下文处理的核心入口。它需要返回一个带 `process` 方法的对象。
+`chatBlockProcessor` 是聊天块处理缓存的核心入口。它需要返回一个带 `process` 方法的对象，`process` 的参数和返回值都是 `ProcessingChat`。
 
 ```js
 export default function chatBlockProcessor(context) {
   return {
-    async process(state) {
+    async process(chat) {
       return {
-        messages: state.messages,
-        metadata: {
+        ...chat,
+        pluginData: {
+          ...chat.pluginData,
           myPlugin: { enabled: true }
         }
       }
@@ -240,34 +241,26 @@ export default function chatBlockProcessor(context) {
 }
 ```
 
-`process(state)` 会按插件依赖顺序执行。每个处理器都会接收上一个处理器更新后的 `state`。
+`process(chat)` 会按插件依赖顺序执行。每个处理器都会接收上一个处理器返回的 `ProcessingChat`。
 
-`state` 当前包含：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `blocks` | `ChatBlock[]` | 当前聊天块列表。 |
-| `chat` | `ChatSession` | 当前聊天。 |
-| `messages` | `ChatGenerationPreviewMessage[]` | 当前将发送给 LLM 的消息。初始值由基础聊天块转换而来。 |
-| `virtualBlocks` | `ChatBlock[]` | 当前虚拟块列表。 |
-
-`process` 可以返回：
+`ProcessingChat` 当前包含：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `blocks` | `ChatBlock[]` | 替换后续插件看到的块列表和最终显示块列表。 |
-| `displayBlocks` | `ChatBlock[]` | 当前实现中等同于替换 `state.blocks`，会影响后续插件和最终显示。 |
-| `messages` | `ChatGenerationPreviewMessage[]` | 替换最终发送给 LLM 的消息。 |
-| `virtualBlocks` | `ChatBlock[]` | 设置虚拟块。如果没有同时返回 `blocks` 或 `displayBlocks`，运行时会把虚拟块合并到 `state.blocks`。 |
+| `chatSession` | `ChatSession` | 当前聊天，包含 `pluginData`。 |
+| `pluginData` | `JsonRecord` | 要写回 `chat.runtimeConfig.pluginData` 的 patch。 |
+| `chatBlocks` | `MixedChatBlock[]` | 处理链路中的聊天块。 |
 
-如果插件只改变 UI 显示，不改变 `messages`，LLM 看到的上下文不会随显示块自动变化。需要影响模型输入时，必须返回 `messages`。
+`MixedChatBlock.original` 是从数据库块拆出的只读原始块，插件不得修改。插件可以新增 `original` 为空的块；也可以通过 `user` 或 `llm` 控制用户视角和 LLM 视角内容。若要隐藏某个块，把对应视角设置为空对象即可，例如 `llm: {}`。
+
+处理结束后，前端会校验所有带 `original` 的块仍然存在且相对顺序一致。`pluginData` 和块级 `pluginData` 会作为 patch 写回；插件对 `original.metadata` 的修改不会写回。
 
 ## 聊天块与消息
 
 当前聊天块类型：
 
 ```ts
-type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection' | 'tool_definition'
+type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection'
 ```
 
 当前内容片段类型：
@@ -294,68 +287,30 @@ type ChatContentPart =
 基础消息转换规则由 `baseMessagesFromBlocks` 提供：
 
 - 只读取 `enabled === true` 的块。
-- 忽略 `metadata.virtual === true` 的块。
 - `system`、`user`、`assistant` 块使用自身角色。
 - `injection` 块使用 `metadata.targetRole`，默认 `system`。
-- `tool_definition` 块作为 `system` 消息。
 - `text` 片段会拼入消息文本。
-- `tool_call` 片段只有在 `sendAsContext === true` 时会以文本形式拼入上下文。
+- `reasoning` 和 `tool_call` 片段只有在 `sendAsContext === true` 时会以文本形式拼入上下文。
 
-`reasoning` 片段当前不会被基础转换函数拼入文本上下文。插件如果要把 reasoning 作为模型输入，应在自己的处理器里显式构造 `messages`。
+## 插件块
 
-## 虚拟块
-
-虚拟块用于在 UI 中展示插件注入的内容，不直接写入数据库。虚拟块通常设置：
+插件不再返回数据库形态的虚拟块。需要注入只用于显示或上下文的内容时，可以在 `ProcessingChat.chatBlocks` 中新增没有 `original` 的 `MixedChatBlock`。
 
 ```js
-{
-  id: -1001,
-  chatId: state.chat.id,
-  kind: 'injection',
-  enabled: true,
-  status: 'idle',
-  orderIndex: -1001,
-  contentParts: [{ type: 'text', text: '注入内容' }],
-  metadata: {
-    virtual: true,
-    displayAfterBlockId: 12,
-    targetRole: 'system'
-  },
-  llmInstanceSnapshot: null,
-  errorText: '',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
-}
-```
-
-虚拟块排序支持以下 metadata：
-
-| 字段 | 说明 |
-| --- | --- |
-| `displayBeforeBlockId` | 显示在指定块之前。 |
-| `displayAfterBlockId` | 显示在指定块之后。 |
-| `displaySlot: "end"` | 显示在末尾。 |
-
-没有这些字段时，虚拟块会显示在开头。虚拟块的 `id` 不会写入数据库，但应在同一轮显示结果中保持稳定，避免 UI 折叠状态和列表 key 抖动。
-
-对于 `injection` 虚拟块，可以用 `metadata.injectionDetails` 提供结构化详情，UI 会优先展示这些详情：
-
-```js
-metadata: {
-  virtual: true,
-  targetRole: 'system',
-  injectionDetails: [
+return {
+  ...chat,
+  chatBlocks: [
     {
-      title: '世界书条目',
-      source: 'my_plugin',
-      sourceName: 'My Plugin',
-      reason: '关键词命中',
-      content: '注入内容',
-      entryId: 1
-    }
+      role: 'system',
+      llm: { content: '注入给模型的内容' },
+      user: { contentParts: [{ type: 'text', text: '用户视角里展示的说明' }] }
+    },
+    ...chat.chatBlocks
   ]
 }
 ```
+
+没有 `original` 的块不会写入数据库，也不会在原始视角显示。前端会为这类块生成临时 key；插件无需提供数据库 ID。
 
 ## 运行时 API
 
@@ -415,6 +370,7 @@ interface PluginStorageApi {
 interface ChatSession {
   id: number
   title: string
+  pluginData: JsonRecord
   createdAt: string
   updatedAt: string
 }
@@ -424,11 +380,11 @@ interface PluginChatApi {
   getPluginData(): JsonRecord
   setPluginData(value: JsonRecord): Promise<ChatSession | null>
   getBlockPluginData(blockId: number): JsonRecord
-  setBlockPluginData(blockId: number, value: JsonRecord): Promise<ChatBlock | null>
+  setBlockPluginData(blockId: number, value: JsonRecord): Promise<OriginalChatBlock | null>
 }
 ```
 
-插件入口中的 `context.chat`、`state.chat` 和 `getSession()` 都只包含聊天 ID、标题和时间戳，不暴露宿主的完整运行时配置。
+插件入口中的 `context.chat`、`state.chat` 和 `getSession()` 都只包含聊天 ID、标题、插件数据和时间戳，不暴露宿主的完整运行时配置。
 
 `getPluginData()` 读取当前插件在当前聊天中的数据。
 
@@ -509,7 +465,7 @@ const files = await api.storage.list('presets')
 插件可以把工具暴露给 LLM。工具调用由三部分组成：
 
 1. manifest 中声明 `entry.toolCalls`。
-2. 用户在聊天中插入 `tool_definition` 块。
+2. 用户在聊天页的工具调用配置里启用工具组，并按需填写通参。
 3. LLM 调用工具时，运行时执行插件的 handler。
 
 ### manifest 声明
@@ -548,36 +504,33 @@ const files = await api.storage.list('presets')
 | `name` | `string` | 工具调用组名称。 |
 | `label` | `string` | UI 显示名称。 |
 | `handler` | `string` | 工具处理脚本路径。 |
-| `settingsHtml` | `string` | 工具定义块里的通参设置页。 |
-| `prompt` | `string` | 插入工具定义块时写入块正文的默认说明。 |
+| `settingsHtml` | `string` | 工具通参设置页。 |
+| `prompt` | `string` | 工具组说明文本。当前生成运行时不会自动把它作为上下文发送给模型。 |
 | `tools` | `PluginToolSchema[]` | 提供给 LLM 的工具 schema 列表。 |
 
 `tools[].inputSchema` 是 JSON Schema，会传给 AI SDK 的 `jsonSchema()`。工具输出应是可 JSON 序列化的值。
 
-工具名称会作为 AI SDK 的 tools 对象 key。当前没有重复名称检测；同一聊天上下文中如果多个工具定义使用相同 `toolName`，后者可能覆盖前者。建议所有工具名在活跃聊天内保持唯一。
+工具名称会作为 AI SDK 的 tools 对象 key。当前没有重复名称检测；同一聊天上下文中如果多个已配置工具组使用相同 `toolName`，后者可能覆盖前者。建议所有工具名在活跃聊天内保持唯一。
 
-### tool_definition 块
+### 聊天工具配置
 
-工具只有在聊天里存在启用的 `tool_definition` 块时才会暴露给 LLM。该块的 metadata 形如：
+工具只有在当前聊天的 `runtimeConfig.toolDefinitions` 中存在对应配置时才会暴露给 LLM。配置结构形如：
 
 ```json
 {
-  "toolDefinition": {
-    "pluginId": "my_plugin",
-    "toolCallName": "worldbook_edit",
-    "label": "世界书编辑工具组",
-    "commonArgs": {}
-  }
+  "pluginId": "my_plugin",
+  "toolCallName": "worldbook_edit",
+  "commonArgs": {}
 }
 ```
 
-块正文会作为一条 `system` 消息发送给模型；工具 schema 会通过 `toolDefinitions` 传给生成运行时。
+生成时，宿主会根据聊天工具配置和已启用插件收集工具 schema，并把 `commonArgs` 透传给 handler。工具配置本身不会生成聊天块，也不会自动写入 system 消息；如果工具需要模型看到额外说明，可以通过 `chatBlockProcessor` 添加没有 `original` 的 `MixedChatBlock`。
 
-当前 UI 的“上方插入工具 / 下方插入工具”会插入当前聊天可用工具调用组中的第一个。manifest 可以声明多个工具调用组，但当前 UI 没有选择器。已有块如果 metadata 指向其他工具调用组，运行时仍会按 metadata 解析。
+聊天页顶部的“工具调用”按钮会打开配置对话框。manifest 可以声明多个工具调用组，用户可以在该对话框中逐个添加、删除和配置。
 
 ### 工具通参设置页
 
-`toolCalls[].settingsHtml` 会显示在对应 `tool_definition` 块内部。它除了 storage API 外，还能使用：
+`toolCalls[].settingsHtml` 会显示在聊天工具配置对话框中。它除了 storage API 外，还能使用：
 
 ```js
 const args = await window.parentPluginApi.toolSettings.getCommonArgs()
@@ -586,7 +539,7 @@ await window.parentPluginApi.toolSettings.setCommonArgs({
 })
 ```
 
-`commonArgs` 会保存在 `tool_definition` 块的 metadata 中，并在工具调用时传给 handler。适合存放“本工具组绑定哪个文件”“使用哪个 profile”等不应由模型每次决定的参数。
+`commonArgs` 会保存在当前聊天的工具配置中，并在工具调用时传给 handler。适合存放“本工具组绑定哪个文件”“使用哪个 profile”等不应由模型每次决定的参数。
 
 ### handler
 
@@ -630,16 +583,13 @@ handler 没有当前聊天块列表，也没有经过清理的项目快照。需
 
 用户点击生成回复时，流程如下：
 
-1. 收集当前聊天中参与上下文的块。如果是重新生成某个助手块，只收集该块之前的块。
-2. 根据项目级和聊天级启用状态筛选活跃插件。
-3. 按依赖顺序确保插件运行时。
-4. 生成初始 `state.messages`。
-5. 依次运行每个插件的 `initChat` 和 `chatBlockProcessor`。
-6. 把启用的 `tool_definition` 块追加为 system 消息。
-7. 从启用的 `tool_definition` 块收集工具 schema。
-8. 调用 LLM。
+1. 读取当前聊天的 `ProcessingChat` 缓存；如果缓存正在刷新，则等待刷新完成。
+2. 如果是重新生成某个助手块，只使用缓存中位于该块之前的内容。
+3. 从 `ProcessingChat.chatBlocks[].llm` 生成最终 messages；未设置 `llm` 的块会回退到 `original`。
+4. 从聊天级工具配置收集工具 schema。
+5. 调用 LLM。
 
-显示聊天块时也会调用同一套 `preparePluginChatGeneration` 管线。因此处理器应尽量保持幂等、快速，并避免在每次显示刷新时做昂贵写入。
+`chatBlockProcessor` 只会在进入聊天页、实际存储的非 generating 块发生影响 `OriginalChatBlock` 的变化、或插件相关数据变化时运行。进入聊天页的首次运行不会写回 `pluginData`；后续由块或插件数据变化触发的运行会写回 patch。
 
 ## 调试建议
 
@@ -648,7 +598,7 @@ handler 没有当前聊天块列表，也没有经过清理的项目快照。需
 - 在插件页确认插件是否已启用。
 - 在聊天的“更多操作”菜单确认当前聊天是否启用了插件。
 - 使用“查看将要发送的上下文”检查最终 `messages`。
-- 打开聊天块“详情”检查 `metadata`、`contentParts` 和虚拟块结构。
+- 打开聊天块“详情”检查当前视角、`metadata`、`contentParts` 和 source/display 差异。
 - 工具调用结果会显示在助手块的 `tool_call` 片段中，可展开查看 input、output、error 和 extensions。
 - 插件设置写入的数据保存在项目目录的 `pluginData/<pluginId>` 中，可直接检查 JSON 文件。
 - 修改入口脚本后，更新 `versionCode`、重新打开项目或重启应用，可以避免旧运行时缓存干扰。
@@ -666,7 +616,7 @@ handler 没有当前聊天块列表，也没有经过清理的项目快照。需
 - 当前没有第三方插件安装器、签名校验、权限声明或权限授权 UI。
 - `storage.*For` 可以访问其他插件的数据目录，当前没有细粒度权限控制。
 - `chatHtml` manifest 字段当前没有 UI 消费。
-- 多个 `toolCalls` 可以声明，但当前插入工具定义块的 UI 不提供选择器。
+- 多个 `toolCalls` 可以声明；聊天页工具调用对话框会列出当前聊天可用的工具组。
 - 入口脚本如果使用 import，需要预先打包为单文件入口。
 
 开发者应把插件设计为可恢复、可重复执行：处理器不要依赖全局可变状态的执行次数，不要在显示刷新时无条件写入数据，不要假设其他插件一定存在或已启用。

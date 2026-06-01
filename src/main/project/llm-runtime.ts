@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
 import { asRecord } from '../../shared/value-utils'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatBlockTokenUsage,
   ChatContentPart,
   ChatGenerationEvent,
@@ -270,7 +270,7 @@ function upsertToolCallPart(
   return next
 }
 
-function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): ChatBlock[] {
+function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): DbChatBlock[] {
   const blocks = listChatBlocksForChat(chatId)
   if (!regenerateBlockId) return blocks
   const target = blocks.find(block => block.id === regenerateBlockId)
@@ -289,7 +289,7 @@ async function runGeneration(
   instance: LlmInstance,
   provider: LlmProvider,
   messages: ModelMessage[],
-  generationBlock: ChatBlock,
+  generationBlock: DbChatBlock,
   abortController: AbortController,
   toolDefinitions: LlmToolDefinition[]
 ): Promise<void> {

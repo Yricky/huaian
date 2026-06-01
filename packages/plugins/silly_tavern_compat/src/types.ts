@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatBlockTargetRole, JsonRecord } from '@st-forge/plugin-api'
+import type { ChatBlockKind, ChatBlockStatus, ChatBlockTargetRole, ChatContentPart, JsonRecord } from '@st-forge/plugin-api'
 
 export interface CharacterEntry {
   id: number
@@ -56,7 +56,14 @@ export interface InjectionDetail {
   loreBookId?: number
 }
 
-export interface InjectionPreviewBlock extends ChatBlock {
+export interface InjectionPreviewBlock {
+  id: number
+  chatId: number
+  kind: ChatBlockKind
+  enabled: boolean
+  status: ChatBlockStatus
+  orderIndex: number
+  contentParts: ChatContentPart[]
   metadata: JsonRecord & {
     virtual: true
     targetRole: ChatBlockTargetRole

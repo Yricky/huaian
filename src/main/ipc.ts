@@ -1,8 +1,8 @@
 import { app, dialog, ipcMain } from 'electron'
 import type {
   ChatCreatePayload,
-  ChatBlockCreatePayload,
-  ChatBlockUpdatePayload,
+  DbChatBlockCreatePayload,
+  DbChatBlockUpdatePayload,
   ChatGenerationRequest,
   ChatUpdatePayload,
   IpcJsonPayload,
@@ -113,14 +113,14 @@ export function registerIpcHandlers(): void {
     }
     return deleteChat(id)
   })
-  ipcMain.handle('chat:createBlock', (_, payload: IpcJsonPayload<ChatBlockCreatePayload>) => {
+  ipcMain.handle('chat:createBlock', (_, payload: IpcJsonPayload<DbChatBlockCreatePayload>) => {
     const parsed = parseIpcPayload(payload)
     if (hasActiveGeneration(parsed.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再添加聊天块。')
     }
     return createChatBlock(parsed)
   })
-  ipcMain.handle('chat:updateBlock', (_, payload: IpcJsonPayload<ChatBlockUpdatePayload>) => {
+  ipcMain.handle('chat:updateBlock', (_, payload: IpcJsonPayload<DbChatBlockUpdatePayload>) => {
     const parsed = parseIpcPayload(payload)
     const block = getChatBlock(parsed.id)
     if (hasActiveGeneration(block.chatId)) {

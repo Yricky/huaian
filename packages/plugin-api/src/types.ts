@@ -43,6 +43,7 @@ export interface PluginFileEntry {
 export interface ChatSession {
   id: number
   title: string
+  pluginData: JsonRecord
   createdAt: string
   updatedAt: string
 }
@@ -78,21 +79,45 @@ export interface ToolCallContentPart {
   extensions: JsonRecord
 }
 
-export type ChatContentPart = TextContentPart | ReasoningContentPart | ToolCallContentPart
+export type LLMContentPart = TextContentPart | ReasoningContentPart
+export type ChatContentPart = LLMContentPart | ToolCallContentPart
 
-export interface ChatBlock {
+// 从DbChatBlock中拆出来的表示原始聊天块的对象
+export interface OriginalChatBlock {
   id: number
-  chatId: number
-  kind: ChatBlockKind
   enabled: boolean
-  status: ChatBlockStatus
-  orderIndex: number
   contentParts: ChatContentPart[]
   metadata: JsonRecord
-  llmInstanceSnapshot: unknown | null
-  errorText: string
-  createdAt: string
-  updatedAt: string
+}
+
+export interface LLMChatBlock {
+  content?: string | LLMContentPart[]
+}
+
+export interface UIChatBlock {
+  contentParts?: ChatContentPart[]
+}
+
+/**
+ * 整体聊天块处理流程中唯一代表聊天块的实体
+ */
+export interface MixedChatBlock {
+  role: ChatBlockTargetRole
+  //插件不得更改此内容，默认有值
+  original?: OriginalChatBlock
+  //实际发送给llm的内容，若为undefined会回退到original，默认为undefined
+  llm?: LLMChatBlock
+  //给用户展示的内容，若为undefined会回退到original，默认为undefined
+  user?: UIChatBlock
+  // 对聊天块的metadata_json.pluginData对象所做的更改，落库时会写回
+  pluginData: JsonRecord
+}
+
+export interface ProcessingChat {
+  chatSession: ChatSession
+  //对聊天的runtime_config_json.pluginData对象所做的更改，落库时会写回
+  pluginData: JsonRecord
+  chatBlocks: MixedChatBlock[]
 }
 
 export interface ChatGenerationPreviewMessage {
@@ -133,7 +158,7 @@ export interface PluginChatApi {
   getPluginData(): JsonRecord
   setPluginData(value: JsonRecord): Promise<ChatSession | null>
   getBlockPluginData(blockId: number): JsonRecord
-  setBlockPluginData(blockId: number, value: JsonRecord): Promise<ChatBlock | null>
+  setBlockPluginData(blockId: number, value: JsonRecord): Promise<OriginalChatBlock | null>
 }
 
 export interface PluginRuntimeApi {
@@ -151,25 +176,12 @@ export interface PluginRuntimeContext {
   api: PluginRuntimeApi
   plugin: PluginManifest
   chat?: ChatSession
-  blocks?: ChatBlock[]
-}
-
-export interface PluginProcessorState {
-  blocks: ChatBlock[]
-  chat: ChatSession
-  messages: ChatGenerationPreviewMessage[]
-  virtualBlocks: ChatBlock[]
-}
-
-export interface PluginProcessorResult {
-  blocks?: ChatBlock[]
-  displayBlocks?: ChatBlock[]
-  messages?: ChatGenerationPreviewMessage[]
-  virtualBlocks?: ChatBlock[]
+  blocks?: OriginalChatBlock[]
+  processingChat?: ProcessingChat
 }
 
 export interface PluginChatBlockProcessor {
-  process(state: PluginProcessorState): Promise<PluginProcessorResult> | PluginProcessorResult
+  process(chat: ProcessingChat): Promise<ProcessingChat> | ProcessingChat
 }
 
 export interface PluginToolHandler {

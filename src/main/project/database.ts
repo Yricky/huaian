@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatBlockKind,
   ChatBlockStatus,
   ChatContentPart,
@@ -229,7 +229,7 @@ export function rowToChatSession(row: any): ChatSession {
   }
 }
 
-export function rowToChatBlock(row: any): ChatBlock {
+export function rowToChatBlock(row: any): DbChatBlock {
   const llmSnapshot = row.llm_instance_snapshot_json
     ? normalizeLlmInstanceSnapshot(parseJsonColumn(row.llm_instance_snapshot_json))
     : null

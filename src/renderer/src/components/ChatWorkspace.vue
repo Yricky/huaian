@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   MdBook,
   MdCheck,
@@ -12,8 +12,8 @@ import {
   MdVisibility
 } from 'vue-icons-plus/md'
 import type {
-  ChatBlock,
-  ChatBlockCreatePayload,
+  DbChatBlock,
+  DbChatBlockCreatePayload,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatRuntimeConfig,
@@ -21,6 +21,7 @@ import type {
   ChatToolDefinition,
   JsonRecord,
   LlmInstance,
+  ProcessingChat,
   PluginDescriptor
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
@@ -29,7 +30,9 @@ import ChatVirtualList from './ChatVirtualList.vue'
 import PluginFrame from './PluginFrame.vue'
 
 type ChatListItem =
-  { block: ChatBlock; sourceBlock: ChatBlock | null }
+  { block: DbChatBlock; key: string; sourceBlock: DbChatBlock | null }
+
+type ChatViewMode = 'user' | 'llm' | 'raw'
 
 interface ChatVirtualListExpose {
   isNearBottom: (threshold?: number) => boolean
@@ -37,22 +40,22 @@ interface ChatVirtualListExpose {
 }
 
 interface ChatBlockRowExpose {
-  commitEdit: () => ChatBlock | null
+  commitEdit: () => DbChatBlock | null
   startEdit: () => void
 }
 
 const props = defineProps<{
-  blocks: ChatBlock[]
+  blocks: DbChatBlock[]
   chat: ChatSession
-  createChatBlock: (payload: ChatBlockCreatePayload) => Promise<ChatBlock | null>
-  deleteChatBlock: (block: ChatBlock) => Promise<void>
+  createChatBlock: (payload: DbChatBlockCreatePayload) => Promise<DbChatBlock | null>
+  deleteChatBlock: (block: DbChatBlock) => Promise<void>
   frozen: boolean
   llmInstances: LlmInstance[]
   plugins: PluginDescriptor[]
-  prepareChatDisplayBlocks: (chat: ChatSession, blocks: ChatBlock[]) => Promise<ChatBlock[]>
+  processingChat: ProcessingChat | null
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
   saveChat: (chat: ChatSession) => Promise<void>
-  saveChatBlock: (block: ChatBlock) => Promise<void>
+  saveChatBlock: (block: DbChatBlock) => Promise<void>
   startChatGeneration: (payload: ChatGenerationRequest) => Promise<void>
   stopChatGeneration: (chatId: number) => Promise<void>
 }>()
@@ -62,6 +65,7 @@ const shouldFollow = ref(true)
 const titleDraft = ref('')
 const userInputDraft = ref('')
 const sendingUserMessage = ref(false)
+const viewMode = ref<ChatViewMode>('user')
 const menuOpen = ref(false)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
@@ -75,10 +79,7 @@ const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
-const displayBlocks = ref<ChatBlock[]>([])
-const pluginDataRevision = ref(0)
 const blockRowRefs = new Map<number, ChatBlockRowExpose>()
-let displayRefreshVersion = 0
 
 const canGenerateReply = computed(() => Boolean(
   props.chat.runtimeConfig.llmInstanceId && !props.frozen
@@ -88,57 +89,40 @@ const canSendUserMessage = computed(() => (
 ))
 const canUseComposerAction = computed(() => canSendUserMessage.value || canGenerateReply.value)
 const composerActionLabel = computed(() => canSendUserMessage.value ? '发送' : '生成回复')
-const composerActionIcon = computed(() => canSendUserMessage.value ? MdSend : MdSmartToy)
 const selectedLlmInstance = computed(() => {
   const id = props.chat.runtimeConfig.llmInstanceId
   return id === null || id === undefined ? null : props.llmInstances.find(instance => instance.id === id) ?? null
 })
 const activePluginIds = computed(() => new Set(props.chat.runtimeConfig.enabledPluginIds))
 const configuredToolDefinitions = computed(() => props.chat.runtimeConfig.toolDefinitions)
-const showVirtualInjections = computed(() => props.chat.runtimeConfig.showVirtualInjections)
 const toolDefinitionsButtonLabel = computed(() => `工具调用 ${configuredToolDefinitions.value.length}`)
 const replyButtonLabel = computed(() => selectedLlmInstance.value?.name ?? '未选择 LLM')
 const previewMessagesJson = computed(() => formatJson(contextPreviewMessages.value ?? []))
 const sourceBlockById = computed(() => new Map(props.blocks.map(block => [block.id, block])))
-const visibleDisplayBlocks = computed(() => displayBlocks.value.filter(block => (
-  showVirtualInjections.value || !isVirtualInjectionBlock(block)
-)))
-const displaySignature = computed(() => JSON.stringify({
-  chatId: props.chat.id,
-  runtimeConfig: props.chat.runtimeConfig,
-  pluginDataRevision: pluginDataRevision.value,
-  plugins: props.plugins.map(plugin => ({
-    id: plugin.manifest.id,
-    versionCode: plugin.manifest.versionCode,
-    entry: plugin.manifest.entry
-  })),
-  blocks: props.blocks.map(block => ({
-    id: block.id,
-    kind: block.kind,
-    enabled: block.enabled,
-    status: block.status,
-    orderIndex: block.orderIndex,
-    contentParts: block.contentParts,
-    metadata: block.metadata,
-    errorText: block.errorText,
-    updatedAt: block.updatedAt
-  }))
-}))
-const blockAutoFollowSignature = computed(() => visibleDisplayBlocks.value.map(block => JSON.stringify({
-  id: block.id,
-  kind: block.kind,
-  enabled: block.enabled,
-  status: block.status,
-  metadata: { ...block.metadata, uiCollapsed: undefined },
-  contentParts: block.contentParts,
-  errorText: block.errorText
-})).join('\u001f'))
+const processingBlocks = computed(() => props.processingChat?.chatBlocks ?? [])
 const chatListItems = computed<ChatListItem[]>(() => [
-  ...visibleDisplayBlocks.value.map((block): ChatListItem => ({
-    block,
-    sourceBlock: block.metadata.virtual === true ? null : sourceBlockById.value.get(block.id) ?? block
-  }))
+  ...processingBlocks.value.flatMap((mixedBlock, index): ChatListItem[] => {
+    const sourceBlock = typeof mixedBlock.original?.id === 'number'
+      ? sourceBlockById.value.get(mixedBlock.original.id) ?? null
+      : null
+    const block = displayBlockForView(mixedBlock, index, sourceBlock)
+    return block ? [{
+      block,
+      sourceBlock,
+      key: sourceBlock ? `block:${sourceBlock.id}:${viewMode.value}` : `synthetic:${block.id}:${viewMode.value}`
+    }] : []
+  })
 ])
+const blockAutoFollowSignature = computed(() => chatListItems.value.map(item => JSON.stringify({
+  key: item.key,
+  id: item.block.id,
+  kind: item.block.kind,
+  enabled: item.block.enabled,
+  status: item.block.status,
+  metadata: { ...item.block.metadata, uiCollapsed: undefined },
+  contentParts: item.block.contentParts,
+  errorText: item.block.errorText
+})).join('\u001f'))
 
 watch(() => props.chat.id, () => {
   titleDraft.value = props.chat.title
@@ -162,10 +146,6 @@ watch(blockAutoFollowSignature, () => {
     nextTick(() => listRef.value?.scrollToBottom())
   }
 })
-
-watch(displaySignature, () => {
-  void refreshDisplayBlocks()
-}, { immediate: true })
 
 watch(menuOpen, (open) => {
   if (open) {
@@ -194,32 +174,26 @@ watch(replyPanelOpen, (open) => {
 onBeforeUnmount(() => {
   removeMenuListeners()
   removeReplyPanelListeners()
-  window.removeEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
 })
 
 function chatListItemKey(item: ChatListItem) {
-  return blockStateKey(item.block)
+  return item.key
 }
 
-function blockStateKey(block: ChatBlock): string {
-  if (block.metadata.virtual !== true) return `block:${block.id}`
-  return `virtual:${props.chat.id}:${block.id}:${JSON.stringify(block.metadata)}`
+function blockStateKey(block: DbChatBlock): string {
+  return `block:${block.id}`
 }
 
-function isVirtualInjectionBlock(block: ChatBlock): boolean {
-  return block.kind === 'injection' && block.metadata.virtual === true
-}
-
-function defaultBlockCollapsed(block: ChatBlock): boolean {
+function defaultBlockCollapsed(block: DbChatBlock): boolean {
   if (typeof block.metadata.uiCollapsed === 'boolean') return block.metadata.uiCollapsed
   return block.kind === 'injection'
 }
 
-function isBlockCollapsed(block: ChatBlock): boolean {
+function isBlockCollapsed(block: DbChatBlock): boolean {
   return collapsedBlockState.value[blockStateKey(block)] ?? defaultBlockCollapsed(block)
 }
 
-async function setBlockCollapsed(block: ChatBlock, sourceBlock: ChatBlock | null, collapsed: boolean) {
+async function setBlockCollapsed(block: DbChatBlock, sourceBlock: DbChatBlock | null, collapsed: boolean) {
   const key = blockStateKey(block)
   collapsedBlockState.value = {
     ...collapsedBlockState.value,
@@ -252,20 +226,71 @@ function setBlockRowRef(blockId: number, element: unknown) {
   blockRowRefs.delete(blockId)
 }
 
-function handlePluginDataChanged() {
-  pluginDataRevision.value += 1
+function roleKind(role: ProcessingChat['chatBlocks'][number]['role']): DbChatBlock['kind'] {
+  if (role === 'system' || role === 'assistant') return role
+  return 'user'
 }
 
-async function refreshDisplayBlocks() {
-  const version = ++displayRefreshVersion
-  const blocks = await props.prepareChatDisplayBlocks(props.chat, props.blocks)
-  if (version !== displayRefreshVersion) return
-  displayBlocks.value = blocks
+function hasOwn(record: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
 }
 
-onMounted(() => {
-  window.addEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
-})
+function syntheticBlock(
+  mixedBlock: ProcessingChat['chatBlocks'][number],
+  index: number,
+  contentParts: DbChatBlock['contentParts']
+): DbChatBlock {
+  const now = props.chat.updatedAt
+  return {
+    id: -100000 - index,
+    chatId: props.chat.id,
+    kind: roleKind(mixedBlock.role),
+    enabled: true,
+    status: 'idle',
+    orderIndex: index,
+    contentParts,
+    metadata: { synthetic: true },
+    llmInstanceSnapshot: null,
+    errorText: '',
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+function llmContentParts(mixedBlock: ProcessingChat['chatBlocks'][number]): DbChatBlock['contentParts'] | null {
+  if (!mixedBlock.llm || !hasOwn(mixedBlock.llm, 'content')) return null
+  const content = mixedBlock.llm.content
+  if (typeof content === 'string') return [{ type: 'text', text: content }]
+  if (Array.isArray(content)) return content
+  return null
+}
+
+function userContentParts(mixedBlock: ProcessingChat['chatBlocks'][number]): DbChatBlock['contentParts'] | null {
+  if (!mixedBlock.user || !hasOwn(mixedBlock.user, 'contentParts')) return null
+  return Array.isArray(mixedBlock.user.contentParts) ? mixedBlock.user.contentParts : []
+}
+
+function displayBlockForView(
+  mixedBlock: ProcessingChat['chatBlocks'][number],
+  index: number,
+  sourceBlock: DbChatBlock | null
+): DbChatBlock | null {
+  if (viewMode.value === 'raw') return sourceBlock
+
+  if (viewMode.value === 'llm') {
+    const contentParts = mixedBlock.llm ? llmContentParts(mixedBlock) : sourceBlock?.contentParts ?? null
+    if (!contentParts) return null
+    return sourceBlock
+      ? { ...sourceBlock, kind: roleKind(mixedBlock.role), contentParts }
+      : syntheticBlock(mixedBlock, index, contentParts)
+  }
+
+  const contentParts = mixedBlock.user ? userContentParts(mixedBlock) : sourceBlock?.contentParts ?? null
+  if (!contentParts) return null
+  return sourceBlock
+    ? { ...sourceBlock, kind: roleKind(mixedBlock.role), contentParts }
+    : syntheticBlock(mixedBlock, index, contentParts)
+}
 
 function beforeListMutation() {
   shouldFollow.value = listRef.value?.isNearBottom(100) ?? true
@@ -372,9 +397,6 @@ function runtimeConfigWith(patch: Partial<ChatRuntimeConfig>): ChatRuntimeConfig
     pluginData: patch.pluginData === undefined
       ? recordFromJson(props.chat.runtimeConfig.pluginData)
       : recordFromJson(patch.pluginData),
-    showVirtualInjections: patch.showVirtualInjections === undefined
-      ? props.chat.runtimeConfig.showVirtualInjections
-      : patch.showVirtualInjections,
     toolDefinitions: patch.toolDefinitions === undefined
       ? props.chat.runtimeConfig.toolDefinitions.map(definition => ({
           ...definition,
@@ -405,10 +427,6 @@ async function saveToolDefinitions(toolDefinitions: ChatToolDefinition[]) {
   await saveRuntimeConfig(runtimeConfigWith({ toolDefinitions }))
 }
 
-async function toggleShowVirtualInjections() {
-  await saveRuntimeConfig(runtimeConfigWith({ showVirtualInjections: !showVirtualInjections.value }))
-}
-
 function pluginChatHtmlPath(plugin: PluginDescriptor): string {
   return plugin.manifest.entry?.chatHtml ?? ''
 }
@@ -424,7 +442,7 @@ function closePluginChatHtml() {
 }
 
 function handlePluginChatUpdated() {
-  pluginDataRevision.value += 1
+  contextPreviewMessages.value = null
 }
 
 async function selectReplyLlmInstance(llmInstanceId: number | null) {
@@ -441,7 +459,7 @@ async function saveTitle() {
 async function saveEditingBlocks() {
   const editedBlocks = Array.from(blockRowRefs.values())
     .map(row => row.commitEdit())
-    .filter((block): block is ChatBlock => block !== null)
+    .filter((block): block is DbChatBlock => block !== null)
 
   for (const block of editedBlocks) {
     if (isEmptyChatBlock(block)) {
@@ -452,7 +470,7 @@ async function saveEditingBlocks() {
   }
 }
 
-function isEmptyChatBlock(block: ChatBlock): boolean {
+function isEmptyChatBlock(block: DbChatBlock): boolean {
   return block.contentParts.every(part => {
     if (part.type === 'tool_call') return false
     return part.text.trim().length === 0
@@ -525,14 +543,14 @@ function handleComposerEnter(event: KeyboardEvent) {
   if (canSendUserMessage.value) void sendUserMessage()
 }
 
-async function regenerate(block: ChatBlock) {
+async function regenerate(block: DbChatBlock) {
   if (props.frozen) return
   beforeListMutation()
   await saveEditingBlocks()
   await props.startChatGeneration({ chatId: props.chat.id, regenerateBlockId: block.id })
 }
 
-async function removeBlock(block: ChatBlock) {
+async function removeBlock(block: DbChatBlock) {
   if (props.frozen || !window.confirm('删除这个聊天块？')) return
   beforeListMutation()
   await props.deleteChatBlock(block)
@@ -548,6 +566,11 @@ async function removeBlock(block: ChatBlock) {
       </div>
 
       <div class="button-row">
+        <div class="view-switch" role="tablist" aria-label="视角">
+          <button type="button" :class="{ selected: viewMode === 'user' }" @click="viewMode = 'user'">用户</button>
+          <button type="button" :class="{ selected: viewMode === 'llm' }" @click="viewMode = 'llm'">LLM</button>
+          <button type="button" :class="{ selected: viewMode === 'raw' }" @click="viewMode = 'raw'">原始</button>
+        </div>
         <button ref="menuButtonRef" class="toolbar-button" type="button" aria-label="更多操作" data-tooltip="更多操作"
           :disabled="frozen" @click.stop="toggleMenu">
           <MdMoreVert class="toolbar-icon" aria-hidden="true" />
@@ -560,7 +583,8 @@ async function removeBlock(block: ChatBlock) {
       <template #item="{ item: chatItem }">
         <ChatBlockRow :ref="(element) => setBlockRowRef(chatItem.block.id, element)" :block="chatItem.block"
           :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen"
-          :source-block="chatItem.sourceBlock || undefined" :preview-chat-generation="previewChatGeneration"
+          :source-block="chatItem.sourceBlock || undefined"
+          :view-mode="viewMode"
           @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock"
           @delete="removeBlock" @regenerate="regenerate" @stop="stopChatGeneration" />
       </template>
@@ -622,15 +646,6 @@ async function removeBlock(block: ChatBlock) {
         </section>
 
         <section class="popup-section">
-          <button class="choice-row" type="button" :class="{ selected: showVirtualInjections }"
-            :aria-pressed="showVirtualInjections" @click="toggleShowVirtualInjections">
-            <span class="menu-choice-copy">
-              <MdVisibility class="menu-icon" aria-hidden="true" />展示虚拟注入块
-            </span>
-            <span class="setting-check" aria-hidden="true">
-              <MdCheck v-if="showVirtualInjections" class="setting-check-icon" />
-            </span>
-          </button>
           <button type="button" @click="showGenerationPreview">
             <MdVisibility class="menu-icon" aria-hidden="true" />查看将要发送的上下文
           </button>
@@ -740,6 +755,43 @@ async function removeBlock(block: ChatBlock) {
 }
 
 .chat-title-input {
+  font-weight: 600;
+}
+
+.button-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.view-switch {
+  height: 28px;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(48px, auto));
+  overflow: hidden;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #f6f8fb;
+}
+
+.view-switch button {
+  border: 0;
+  border-left: 1px solid #d7dee8;
+  background: transparent;
+  color: #536071;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.view-switch button:first-child {
+  border-left: 0;
+}
+
+.view-switch button.selected {
+  background: #ffffff;
+  color: #253044;
   font-weight: 600;
 }
 

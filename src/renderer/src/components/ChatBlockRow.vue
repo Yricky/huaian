@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicIn
 import {
   MdCheck,
   MdClose,
-  MdCode,
   MdDeleteOutline,
   MdKeyboardArrowDown,
   MdKeyboardArrowUp,
@@ -14,37 +13,31 @@ import {
   MdVisibilityOff
 } from 'vue-icons-plus/md'
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
-import type {
-  ChatBlock,
-  ChatGenerationPreviewMessage,
-  ChatGenerationRequest
-} from '../../../shared/types'
+import type { DbChatBlock } from '../../../shared/types'
 import AssistantBlockBody from './chat-blocks/AssistantBlockBody.vue'
 import InjectionBlockBody from './chat-blocks/InjectionBlockBody.vue'
 import SystemUserBlockBody from './chat-blocks/SystemUserBlockBody.vue'
 import JsonDialog from './JsonDialog.vue'
 
 const props = defineProps<{
-  block: ChatBlock
+  block: DbChatBlock
   collapsed: boolean
   frozen: boolean
-  previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
-  sourceBlock?: ChatBlock
+  sourceBlock?: DbChatBlock
+  viewMode: 'user' | 'llm' | 'raw'
 }>()
 
 const emit = defineEmits<{
-  save: [block: ChatBlock]
-  delete: [block: ChatBlock]
+  save: [block: DbChatBlock]
+  delete: [block: DbChatBlock]
   'collapse-change': [collapsed: boolean]
-  regenerate: [block: ChatBlock]
+  regenerate: [block: DbChatBlock]
   stop: [chatId: number]
 }>()
 
 const editing = ref(false)
 const draft = ref('')
 const detailOpen = ref(false)
-const llmViewOpen = ref(false)
-const llmViewMessages = ref<Array<Omit<ChatGenerationPreviewMessage, 'blockId'>>>([])
 const menuOpen = ref(false)
 const isCollapsed = ref(props.collapsed)
 const editingPartIndex = ref<number | null>(null)
@@ -56,7 +49,7 @@ const menuStyle = ref<Record<string, string>>({})
 const sourceBlock = computed(() => props.sourceBlock ?? props.block)
 const text = computed(() => sourceBlock.value.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
 const displayText = computed(() => props.block.contentParts.filter(part => part.type === 'text').map(part => part.text).join(''))
-const isVirtual = computed(() => props.block.metadata.virtual === true)
+const isSynthetic = computed(() => props.sourceBlock === undefined)
 const numberFormatter = new Intl.NumberFormat()
 const targetRole = computed(() => chatBlockTargetRole(props.block))
 const roleLabel = computed(() => {
@@ -78,12 +71,14 @@ const tokenLabel = computed(() => tokenCount.value === null ? 'Token -' : `${num
 const headerTitle = computed(() => chatBlockTitle(props.block) || roleLabel.value)
 const blockSubMeta = computed(() => [
   chatBlockSummary(props.block),
-  isVirtual.value ? '虚拟注入' : statusLabel.value,
+  isSynthetic.value ? '插件块' : statusLabel.value,
   sentAtLabel.value,
-  isVirtual.value ? '' : tokenLabel.value
+  isSynthetic.value ? '' : tokenLabel.value
 ].filter(Boolean).join(' · '))
-const canEdit = computed(() => !props.frozen && sourceBlock.value.status !== 'generating' && !isVirtual.value)
+const canUseSourceBlock = computed(() => props.viewMode === 'raw' && props.sourceBlock !== undefined)
+const canEdit = computed(() => !props.frozen && canUseSourceBlock.value && sourceBlock.value.status !== 'generating')
 const detailJson = computed(() => ({
+  viewMode: props.viewMode,
   id: props.block.id,
   kind: props.block.kind,
   targetRole: targetRole.value,
@@ -228,8 +223,8 @@ function cancelEdit() {
   }
 }
 
-function editedBlock(): ChatBlock {
-  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
+function editedBlock(): DbChatBlock {
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as DbChatBlock
   const partIndex = editingPartIndex.value ?? firstTextPartIndex()
   if (next.contentParts[partIndex]?.type === 'text') {
     next.contentParts[partIndex] = { type: 'text', text: draft.value }
@@ -239,7 +234,7 @@ function editedBlock(): ChatBlock {
   return next
 }
 
-function commitEdit(): ChatBlock | null {
+function commitEdit(): DbChatBlock | null {
   if (!editing.value) return null
   const next = editedBlock()
   editing.value = false
@@ -263,7 +258,7 @@ function autoSaveEdit() {
   saveEdit()
 }
 
-function isEmptyChatBlock(block: ChatBlock): boolean {
+function isEmptyChatBlock(block: DbChatBlock): boolean {
   return block.contentParts.every(part => {
     if (part.type === 'tool_call') return false
     return part.text.trim().length === 0
@@ -272,18 +267,18 @@ function isEmptyChatBlock(block: ChatBlock): boolean {
 
 function toggleEnabled() {
   if (!canEdit.value) return
-  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as ChatBlock
+  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as DbChatBlock
   next.enabled = !next.enabled
   menuOpen.value = false
   emit('save', next)
 }
 
-function saveBodyBlock(block: ChatBlock) {
+function saveBodyBlock(block: DbChatBlock) {
   emit('save', block)
 }
 
 function regenerate() {
-  if (isVirtual.value) return
+  if (!canUseSourceBlock.value) return
   menuOpen.value = false
   emit('regenerate', sourceBlock.value)
 }
@@ -302,19 +297,6 @@ function remove() {
 function openDetails() {
   menuOpen.value = false
   detailOpen.value = true
-}
-
-async function openLlmView() {
-  menuOpen.value = false
-  const messages = await props.previewChatGeneration({ chatId: sourceBlock.value.chatId })
-  if (!messages) return
-  llmViewMessages.value = messages
-    .filter(message => message.blockId === sourceBlock.value.id)
-    .map(message => ({
-      role: message.role,
-      content: message.content
-    }))
-  llmViewOpen.value = true
 }
 
 function toggleCollapsed() {
@@ -408,28 +390,24 @@ defineExpose({
         <button v-if="block.status === 'generating'" type="button" @click="stop">
           <MdStop class="menu-icon" aria-hidden="true" />停止
         </button>
-        <button v-if="!editing && !isVirtual" type="button" :disabled="!canEdit" @click="toggleEnabled">
+        <button v-if="!editing && canUseSourceBlock" type="button" :disabled="!canEdit" @click="toggleEnabled">
           <component :is="block.enabled ? MdVisibilityOff : MdVisibility" class="menu-icon" aria-hidden="true" />
           {{ block.enabled ? '禁用' : '启用' }}
         </button>
-        <button v-if="block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen"
+        <button v-if="canUseSourceBlock && block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen"
           @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
         </button>
         <button type="button" @click="openDetails">
           <MdVisibility class="menu-icon" aria-hidden="true" />详情
         </button>
-        <button type="button" @click="openLlmView">
-          <MdCode class="menu-icon" aria-hidden="true" />LLM 视角
-        </button>
-        <button v-if="!isVirtual" class="danger-menu-item" type="button" :disabled="!canEdit" @click="remove">
+        <button v-if="canUseSourceBlock" class="danger-menu-item" type="button" :disabled="!canEdit" @click="remove">
           <MdDeleteOutline class="menu-icon" aria-hidden="true" />删除
         </button>
       </div>
     </Teleport>
   </article>
 
-  <JsonDialog v-if="llmViewOpen" title="LLM 视角" :value="llmViewMessages" @close="llmViewOpen = false" />
 </template>
 
 <style scoped>

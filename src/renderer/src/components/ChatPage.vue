@@ -15,7 +15,6 @@ const {
   isSelectedChatGenerating,
   llmInstances,
   plugins,
-  prepareChatDisplayBlocks,
   previewChatGeneration,
   project,
   saveProjectConfig,
@@ -24,6 +23,7 @@ const {
   selectChat,
   selectedChat,
   selectedChatBlocks,
+  selectedProcessingChat,
   startChatGeneration,
   stopChatGeneration
 } = useProjectWorkbench()
@@ -234,7 +234,7 @@ async function deleteContextChat() {
       :frozen="isSelectedChatGenerating"
       :llm-instances="llmInstances"
       :plugins="plugins"
-      :prepare-chat-display-blocks="prepareChatDisplayBlocks"
+      :processing-chat="selectedProcessingChat"
       :preview-chat-generation="previewChatGeneration"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"

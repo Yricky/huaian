@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, type ComponentPublicInstance } from 'vue'
-import type { ChatBlock } from '../../../../shared/types'
+import type { DbChatBlock } from '../../../../shared/types'
 
 interface InjectionDetail {
   title: string
@@ -13,7 +13,7 @@ interface InjectionDetail {
 }
 
 const props = defineProps<{
-  block: ChatBlock
+  block: DbChatBlock
   displayText: string
   editing: boolean
   draft: string

@@ -1,21 +1,26 @@
 import type {
-  ChatBlock,
   ChatBlockKind,
+  ChatBlockStatus,
   ChatContentPart,
   ChatGenerationPreviewMessage,
   JsonRecord,
+  MixedChatBlock,
+  OriginalChatBlock,
+  ProcessingChat,
   PluginManifest,
   PluginToolCallRequest as PluginHandlerToolCallRequest
 } from '@st-forge/plugin-api'
 
 export type {
-  ChatBlock,
   ChatBlockKind,
   ChatBlockStatus,
   ChatBlockTargetRole,
   ChatContentPart,
   ChatGenerationPreviewMessage,
   JsonRecord,
+  MixedChatBlock,
+  OriginalChatBlock,
+  ProcessingChat,
   PluginFileEntry,
   PluginManifest,
   PluginManifestEntry,
@@ -44,7 +49,6 @@ export interface ChatRuntimeConfig {
   llmInstanceId: number | null
   enabledPluginIds: string[]
   pluginData: JsonRecord
-  showVirtualInjections: boolean
   toolDefinitions: ChatToolDefinition[]
 }
 
@@ -62,7 +66,22 @@ export interface ChatSession {
   updatedAt: string
 }
 
-export interface ChatBlockCreatePayload {
+export interface DbChatBlock {
+  id: number
+  chatId: number
+  kind: ChatBlockKind
+  enabled: boolean
+  status: ChatBlockStatus
+  orderIndex: number
+  contentParts: ChatContentPart[]
+  metadata: JsonRecord
+  llmInstanceSnapshot: unknown | null
+  errorText: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DbChatBlockCreatePayload {
   chatId: number
   kind: ChatBlockKind
   enabled?: boolean
@@ -72,11 +91,12 @@ export interface ChatBlockCreatePayload {
   insertPlacement?: 'before' | 'after' | null
 }
 
-export interface ChatBlockUpdatePayload {
+export interface DbChatBlockUpdatePayload {
   id: number
   enabled?: boolean
   contentParts?: ChatContentPart[]
   metadata?: JsonRecord
+  preserveStatus?: boolean
 }
 
 export interface LlmToolDefinition {
@@ -145,7 +165,7 @@ export interface ProjectSnapshot {
   llmProviders: LlmProvider[]
   llmInstances: LlmInstance[]
   chats: ChatSession[]
-  chatBlocks: ChatBlock[]
+  chatBlocks: DbChatBlock[]
 }
 
 export interface RecentProject {
@@ -231,14 +251,14 @@ export interface ChatUpdatePayload {
 }
 
 export interface ChatGenerationStartResult {
-  block: ChatBlock
+  block: DbChatBlock
 }
 
 export type ChatGenerationEvent =
-  | { type: 'started'; chatId: number; block: ChatBlock }
+  | { type: 'started'; chatId: number; block: DbChatBlock }
   | { type: 'delta'; chatId: number; blockId: number; text: string; content: string; contentParts: ChatContentPart[] }
-  | { type: 'finished'; chatId: number; block: ChatBlock }
-  | { type: 'stopped'; chatId: number; block: ChatBlock }
-  | { type: 'error'; chatId: number; block: ChatBlock; error: string }
+  | { type: 'finished'; chatId: number; block: DbChatBlock }
+  | { type: 'stopped'; chatId: number; block: DbChatBlock }
+  | { type: 'error'; chatId: number; block: DbChatBlock; error: string }
 
 export type SidebarView = 'chat' | 'settings' | 'plugins'

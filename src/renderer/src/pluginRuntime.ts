@@ -1,29 +1,33 @@
 import {
-  baseMessagesFromBlocks,
   messageHasContent,
-  type ChatBlock,
+  normalizeChatBlockTargetRole,
+  textFromContentParts,
   type ChatGenerationPreviewMessage,
   type JsonRecord,
+  type LLMContentPart,
+  type MixedChatBlock,
+  type OriginalChatBlock,
+  type ProcessingChat,
   type PluginManifest,
-  type PluginProcessorState,
   type PluginToolCallManifest
 } from '@st-forge/plugin-api'
 import type {
   ChatSession,
   ChatToolDefinition,
+  DbChatBlock,
   LlmToolDefinition,
   PluginDescriptor,
   PluginToolCallRequest,
   ProjectSnapshot
 } from '../../shared/types'
 import { asRecord, cloneJson } from '../../shared/value-utils'
+import { chatBlockTargetRole } from '../../shared/chat-blocks'
 import { invokePluginSandbox } from './pluginSandbox'
 
-export interface PluginChatGenerationBundle {
-  displayBlocks: ChatBlock[]
+export interface PluginChatProcessingBundle {
   messages: ChatGenerationPreviewMessage[]
+  processingChat: ProcessingChat
   toolDefinitions: LlmToolDefinition[]
-  virtualBlocks: ChatBlock[]
 }
 
 let toolRequestUnsubscribe: (() => void) | null = null
@@ -60,54 +64,180 @@ function sandboxRuntime(project: ProjectSnapshot, plugins = activePlugins(projec
   }
 }
 
-function chatForPlugin(chat: ChatSession): PluginProcessorState['chat'] {
+function pluginChatSession(chat: ChatSession): ProcessingChat['chatSession'] {
   return {
     id: chat.id,
     title: chat.title,
+    pluginData: cloneJson(chat.runtimeConfig.pluginData),
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt
   }
 }
 
-export async function ensurePluginRuntime(project: ProjectSnapshot): Promise<void> {
-  await invokePluginSandbox('ensurePluginRuntime', sandboxRuntime(project))
+export function originalFromDbChatBlock(block: DbChatBlock): OriginalChatBlock {
+  return {
+    id: block.id,
+    enabled: block.enabled,
+    contentParts: cloneJson(block.contentParts),
+    metadata: cloneJson(block.metadata)
+  }
 }
 
-export async function preparePluginChatGeneration(
+export function mixedBlockFromDbChatBlock(block: DbChatBlock): MixedChatBlock {
+  return {
+    role: chatBlockTargetRole(block),
+    original: originalFromDbChatBlock(block),
+    pluginData: {}
+  }
+}
+
+export function processingChatFromDbBlocks(chat: ChatSession, blocks: DbChatBlock[]): ProcessingChat {
+  return {
+    chatSession: pluginChatSession(chat),
+    pluginData: {},
+    chatBlocks: blocks.map(mixedBlockFromDbChatBlock)
+  }
+}
+
+export function ensurePluginRuntime(project: ProjectSnapshot): Promise<void> {
+  return invokePluginSandbox('ensurePluginRuntime', sandboxRuntime(project)).then(() => undefined)
+}
+
+function hasOwn(record: JsonRecord, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
+}
+
+function llmContent(value: unknown): string | LLMContentPart[] | undefined {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return undefined
+  return value
+    .map(part => asRecord(part))
+    .filter(part => part.type === 'text' || part.type === 'reasoning')
+    .map(part => (
+      part.type === 'reasoning'
+        ? {
+            type: 'reasoning' as const,
+            text: typeof part.text === 'string' ? part.text : '',
+            sendAsContext: part.sendAsContext === true
+          }
+        : {
+            type: 'text' as const,
+            text: typeof part.text === 'string' ? part.text : ''
+          }
+    ))
+}
+
+function normalizeMixedBlock(value: unknown, canonicalOriginals: Map<number, OriginalChatBlock>): MixedChatBlock {
+  const record = asRecord(value)
+  const rawOriginal = asRecord(record.original)
+  const originalId = typeof rawOriginal.id === 'number' ? rawOriginal.id : null
+  const original = originalId === null
+    ? undefined
+    : cloneJson((canonicalOriginals.get(originalId) ?? rawOriginal) as OriginalChatBlock)
+  const rawLlm = asRecord(record.llm)
+  const rawUser = asRecord(record.user)
+  return {
+    role: normalizeChatBlockTargetRole(record.role),
+    original,
+    llm: hasOwn(record, 'llm')
+      ? (hasOwn(rawLlm, 'content') ? { content: llmContent(rawLlm.content) } : {})
+      : undefined,
+    user: hasOwn(record, 'user')
+      ? (Array.isArray(rawUser.contentParts) ? { contentParts: cloneJson(rawUser.contentParts) } : {})
+      : undefined,
+    pluginData: asRecord(record.pluginData)
+  }
+}
+
+function validateOriginalSequence(blocks: MixedChatBlock[], expectedOriginalIds: number[]): void {
+  const actualOriginalIds = blocks
+    .map(block => block.original?.id)
+    .filter((id): id is number => typeof id === 'number')
+  if (actualOriginalIds.length !== expectedOriginalIds.length) {
+    throw new Error('插件处理结果缺少或新增了带 original 的聊天块。')
+  }
+  for (let index = 0; index < expectedOriginalIds.length; index += 1) {
+    if (actualOriginalIds[index] !== expectedOriginalIds[index]) {
+      throw new Error('插件处理结果改变了 original 聊天块的相对顺序。')
+    }
+  }
+}
+
+function normalizeProcessingChat(
+  value: unknown,
+  previous: ProcessingChat,
+  canonicalOriginals: Map<number, OriginalChatBlock>,
+  expectedOriginalIds: number[]
+): ProcessingChat {
+  const record = asRecord(value)
+  const chatRecord = asRecord(record.chatSession)
+  const blocks = Array.isArray(record.chatBlocks)
+    ? record.chatBlocks.map(block => normalizeMixedBlock(block, canonicalOriginals))
+    : previous.chatBlocks
+  validateOriginalSequence(blocks, expectedOriginalIds)
+  return {
+    chatSession: {
+      ...previous.chatSession,
+      pluginData: asRecord(chatRecord.pluginData ?? previous.chatSession.pluginData)
+    },
+    pluginData: asRecord(record.pluginData),
+    chatBlocks: blocks
+  }
+}
+
+function messageFromMixedBlock(block: MixedChatBlock): ChatGenerationPreviewMessage | null {
+  if (block.llm) {
+    if (!hasOwn(block.llm as JsonRecord, 'content')) return null
+    const content = block.llm.content
+    if (content === undefined) return null
+    return {
+      role: block.role,
+      content,
+      blockId: block.original?.id
+    }
+  }
+
+  if (!block.original?.enabled) return null
+  const content = textFromContentParts(block.original.contentParts).trim()
+  if (!content) return null
+  return {
+    role: block.role,
+    content,
+    blockId: block.original.id
+  }
+}
+
+export function messagesFromProcessingChat(processingChat: ProcessingChat): ChatGenerationPreviewMessage[] {
+  return processingChat.chatBlocks
+    .map(messageFromMixedBlock)
+    .filter((message): message is ChatGenerationPreviewMessage => message !== null)
+    .filter(messageHasContent)
+}
+
+export async function preparePluginChatProcessing(
   project: ProjectSnapshot,
   chat: ChatSession,
-  blocks: ChatBlock[]
-): Promise<PluginChatGenerationBundle> {
+  blocks: DbChatBlock[]
+): Promise<PluginChatProcessingBundle> {
   const plugins = activePlugins(project, chat)
-  const pluginChat = chatForPlugin(chat)
-  const state: PluginProcessorState = {
-    blocks: cloneJson(blocks),
-    chat: pluginChat,
-    messages: baseMessagesFromBlocks(blocks),
-    virtualBlocks: []
-  }
-  const result = asRecord(await invokePluginSandbox('preparePluginChatGeneration', {
+  const processingChat = processingChatFromDbBlocks(chat, blocks)
+  const canonicalOriginals = new Map(processingChat.chatBlocks
+    .map(block => block.original)
+    .filter((original): original is OriginalChatBlock => Boolean(original))
+    .map(original => [original.id, original]))
+  const expectedOriginalIds = blocks.map(block => block.id)
+  const result = await invokePluginSandbox('preparePluginChatProcessing', {
     runtime: sandboxRuntime(project, plugins),
-    blocks,
-    chat: pluginChat,
+    blocks: processingChat.chatBlocks.map(block => block.original).filter(Boolean),
+    chat: processingChat.chatSession,
     hostChat: chat,
-    state
-  }))
-  const resultMessages = Array.isArray(result.messages)
-    ? result.messages as ChatGenerationPreviewMessage[]
-    : state.messages
-  const displayBlocks = Array.isArray(result.displayBlocks)
-    ? result.displayBlocks as ChatBlock[]
-    : state.blocks
-  const virtualBlocks = Array.isArray(result.virtualBlocks)
-    ? result.virtualBlocks as ChatBlock[]
-    : state.virtualBlocks
-  const messages = resultMessages.filter(messageHasContent)
+    processingChat
+  })
+  const normalized = normalizeProcessingChat(result, processingChat, canonicalOriginals, expectedOriginalIds)
   return {
-    displayBlocks,
-    messages,
-    toolDefinitions: toolDefinitionsForChat(plugins, chat.runtimeConfig.toolDefinitions),
-    virtualBlocks
+    messages: messagesFromProcessingChat(normalized),
+    processingChat: normalized,
+    toolDefinitions: toolDefinitionsForChat(plugins, chat.runtimeConfig.toolDefinitions)
   }
 }
 

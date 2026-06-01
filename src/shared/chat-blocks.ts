@@ -2,10 +2,10 @@ import {
   chatBlockTargetRole,
   normalizeChatBlockTargetRole
 } from '@st-forge/plugin-api/chat-blocks'
-import type { ChatBlock, ChatBlockKind, JsonRecord } from './types'
+import type { DbChatBlock, ChatBlockKind, JsonRecord } from './types'
 import { asRecord, asString } from './value-utils'
 
-type ChatBlockDisplayLike = Pick<ChatBlock, 'kind' | 'metadata' | 'status'>
+type ChatBlockDisplayLike = Pick<DbChatBlock, 'kind' | 'metadata' | 'status'>
 
 export interface ChatBlockDisplayOptions {
   userName?: string
@@ -43,7 +43,7 @@ export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDi
   return chatBlockTargetRole(block)
 }
 
-export function chatBlockSummary(block: Pick<ChatBlock, 'kind' | 'metadata'>): string {
+export function chatBlockSummary(block: Pick<DbChatBlock, 'kind' | 'metadata'>): string {
   if (block.kind !== 'injection') return ''
 
   const role = chatBlockTargetRole(block)

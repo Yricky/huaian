@@ -105,7 +105,6 @@ export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
       ? [...new Set(data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean))]
       : defaultPluginProjectConfig().enabledPluginIds,
     pluginData: asRecord(data.pluginData),
-    showVirtualInjections: toBoolean(data.showVirtualInjections, false),
     toolDefinitions: normalizeChatToolDefinitions(data.toolDefinitions)
   }
 }

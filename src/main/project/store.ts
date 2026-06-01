@@ -1,10 +1,10 @@
 import { access, mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type {
-  ChatBlock,
+  DbChatBlock,
   ChatCreatePayload,
-  ChatBlockCreatePayload,
-  ChatBlockUpdatePayload,
+  DbChatBlockCreatePayload,
+  DbChatBlockUpdatePayload,
   ChatContentPart,
   ChatRuntimeConfig,
   ChatSession,
@@ -215,12 +215,12 @@ export function listChats(): ChatSession[] {
   return project.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC, id DESC').all().map(rowToChatSession)
 }
 
-export function listChatBlocks(): ChatBlock[] {
+export function listChatBlocks(): DbChatBlock[] {
   const project = ensureProject()
   return project.db.prepare('SELECT * FROM chat_blocks ORDER BY chat_id ASC, order_index ASC, id ASC').all().map(rowToChatBlock)
 }
 
-export function listChatBlocksForChat(chatId: number): ChatBlock[] {
+export function listChatBlocksForChat(chatId: number): DbChatBlock[] {
   const project = ensureProject()
   return project.db.prepare(`
     SELECT * FROM chat_blocks WHERE chat_id = ? ORDER BY order_index ASC, id ASC
@@ -248,7 +248,7 @@ export function getChat(id: number): ChatSession {
   return rowToChatSession(row)
 }
 
-export function getChatBlock(id: number): ChatBlock {
+export function getChatBlock(id: number): DbChatBlock {
   const project = ensureProject()
   const row = project.db.prepare('SELECT * FROM chat_blocks WHERE id = ?').get(id)
   if (!row) throw new Error('聊天块不存在。')
@@ -281,7 +281,6 @@ function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRunt
     llmInstanceId,
     enabledPluginIds: [...ensureProject().config.plugins.enabledPluginIds],
     pluginData: {},
-    showVirtualInjections: false,
     toolDefinitions: []
   }
 }
@@ -510,7 +509,7 @@ function renumberChatBlocks(chatId: number): void {
   rows.forEach((row, index) => update.run(index + 1, now, row.id))
 }
 
-function chatBlockInsertionOrder(payload: ChatBlockCreatePayload): number {
+function chatBlockInsertionOrder(payload: DbChatBlockCreatePayload): number {
   const project = ensureProject()
   if (payload.insertRelativeBlockId && payload.insertPlacement) {
     const relative = getChatBlock(payload.insertRelativeBlockId)
@@ -532,7 +531,7 @@ function chatBlockInsertionOrder(payload: ChatBlockCreatePayload): number {
   return nextChatBlockOrder(payload.chatId)
 }
 
-export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
+export function createChatBlock(payload: DbChatBlockCreatePayload): DbChatBlock {
   const project = ensureProject()
   getChat(payload.chatId)
   const now = nowIso()
@@ -563,7 +562,7 @@ export function createChatBlock(payload: ChatBlockCreatePayload): ChatBlock {
   return getChatBlock(Number(result.lastInsertRowid))
 }
 
-export function updateChatBlock(payload: ChatBlockUpdatePayload): ChatBlock {
+export function updateChatBlock(payload: DbChatBlockUpdatePayload): DbChatBlock {
   const project = ensureProject()
   const block = getChatBlock(payload.id)
   const now = nowIso()
@@ -578,8 +577,8 @@ export function updateChatBlock(payload: ChatBlockUpdatePayload): ChatBlock {
     payload.enabled === undefined ? (block.enabled ? 1 : 0) : (payload.enabled ? 1 : 0),
     json(payload.contentParts ?? block.contentParts),
     json(metadata),
-    block.status === 'generating' ? block.status : 'idle',
-    block.status === 'generating' ? block.errorText : '',
+    payload.preserveStatus || block.status === 'generating' ? block.status : 'idle',
+    payload.preserveStatus || block.status === 'generating' ? block.errorText : '',
     now,
     payload.id
   )
@@ -596,7 +595,7 @@ export async function deleteChatBlock(id: number): Promise<ProjectSnapshot> {
   return getProjectSnapshot()
 }
 
-export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmInstance): ChatBlock {
+export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmInstance): DbChatBlock {
   const project = ensureProject()
   getChat(chatId)
   const now = nowIso()
@@ -624,7 +623,7 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
   return getChatBlock(Number(result.lastInsertRowid))
 }
 
-export function prepareAssistantBlockForRegeneration(id: number, llmInstance: LlmInstance): ChatBlock {
+export function prepareAssistantBlockForRegeneration(id: number, llmInstance: LlmInstance): DbChatBlock {
   const project = ensureProject()
   const block = getChatBlock(id)
   if (block.kind !== 'assistant') throw new Error('只能重新生成助手块。')
@@ -651,7 +650,7 @@ export function updateAssistantGenerationBlock(
   enabled: boolean,
   errorText = '',
   metadataPatch?: JsonRecord
-): ChatBlock {
+): DbChatBlock {
   const project = ensureProject()
   const block = getChatBlock(id)
   const now = nowIso()

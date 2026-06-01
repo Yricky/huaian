@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, type ComponentPublicInstance } from 'vue'
-import type { ChatBlock, TextContentPart } from '../../../../shared/types'
+import type { DbChatBlock, TextContentPart } from '../../../../shared/types'
 import MarkdownView from '../MarkdownView.vue'
 
 interface VisibleTextPart {
@@ -9,8 +9,8 @@ interface VisibleTextPart {
 }
 
 const props = defineProps<{
-  block: ChatBlock
-  sourceBlock: ChatBlock
+  block: DbChatBlock
+  sourceBlock: DbChatBlock
   canEdit: boolean
   editing: boolean
   editingPartIndex: number | null
