@@ -47,7 +47,7 @@ export interface ChatSession {
   updatedAt: string
 }
 
-export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection' | 'tool_definition'
+export type ChatBlockKind = 'system' | 'user' | 'assistant' | 'injection'
 export type ChatBlockTargetRole = 'system' | 'user' | 'assistant'
 export type ChatBlockStatus = 'idle' | 'generating' | 'stopped' | 'error'
 

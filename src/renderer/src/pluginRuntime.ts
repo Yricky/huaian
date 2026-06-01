@@ -1,7 +1,6 @@
 import {
   baseMessagesFromBlocks,
   messageHasContent,
-  textFromContentParts,
   type ChatBlock,
   type ChatGenerationPreviewMessage,
   type JsonRecord,
@@ -11,12 +10,13 @@ import {
 } from '@st-forge/plugin-api'
 import type {
   ChatSession,
+  ChatToolDefinition,
   LlmToolDefinition,
   PluginDescriptor,
   PluginToolCallRequest,
   ProjectSnapshot
 } from '../../shared/types'
-import { asRecord, asString, cloneJson } from '../../shared/value-utils'
+import { asRecord, cloneJson } from '../../shared/value-utils'
 import { invokePluginSandbox } from './pluginSandbox'
 
 export interface PluginChatGenerationBundle {
@@ -28,26 +28,6 @@ export interface PluginChatGenerationBundle {
 }
 
 let toolRequestUnsubscribe: (() => void) | null = null
-
-function toolDefinitionMetadata(block: ChatBlock): JsonRecord {
-  return asRecord(block.metadata.toolDefinition)
-}
-
-function enabledToolDefinitionBlocks(blocks: ChatBlock[]): ChatBlock[] {
-  return blocks.filter(block => block.enabled && block.kind === 'tool_definition' && asString(toolDefinitionMetadata(block).pluginId))
-}
-
-function appendToolDefinitionMessages(messages: ChatGenerationPreviewMessage[], blocks: ChatBlock[]): ChatGenerationPreviewMessage[] {
-  const existing = new Set(messages.map(message => message.blockId).filter((id): id is number => typeof id === 'number'))
-  const toolMessages = enabledToolDefinitionBlocks(blocks)
-    .filter(block => !existing.has(block.id))
-    .map((block): ChatGenerationPreviewMessage | null => {
-      const text = textFromContentParts(block.contentParts).trim()
-      return text ? { role: 'system', content: text, blockId: block.id } : null
-    })
-    .filter((message): message is ChatGenerationPreviewMessage => message !== null)
-  return [...messages, ...toolMessages]
-}
 
 function activePlugins(project: ProjectSnapshot, chat?: ChatSession): PluginDescriptor[] {
   const projectEnabled = new Set(project.config.plugins.enabledPluginIds)
@@ -131,12 +111,12 @@ export async function preparePluginChatGeneration(
     ...asRecord(result.metadata)
   }
 
-  const messages = appendToolDefinitionMessages(resultMessages, blocks).filter(messageHasContent)
+  const messages = resultMessages.filter(messageHasContent)
   return {
     displayBlocks,
     messages,
     promptMetadata,
-    toolDefinitions: toolDefinitionsForChat(plugins, blocks),
+    toolDefinitions: toolDefinitionsForChat(plugins, chat.runtimeConfig.toolDefinitions),
     virtualBlocks
   }
 }
@@ -145,13 +125,12 @@ function toolCallManifestByName(plugin: PluginManifest, name: string): PluginToo
   return plugin.entry?.toolCalls?.find(toolCall => toolCall.name === name) ?? null
 }
 
-function toolDefinitionsForChat(plugins: PluginDescriptor[], blocks: ChatBlock[]): LlmToolDefinition[] {
+function toolDefinitionsForChat(plugins: PluginDescriptor[], configuredTools: ChatToolDefinition[]): LlmToolDefinition[] {
   const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin.manifest]))
   const definitions: LlmToolDefinition[] = []
-  for (const block of enabledToolDefinitionBlocks(blocks)) {
-    const metadata = toolDefinitionMetadata(block)
-    const pluginId = asString(metadata.pluginId)
-    const toolCallName = asString(metadata.toolCallName)
+  for (const configuredTool of configuredTools) {
+    const pluginId = configuredTool.pluginId
+    const toolCallName = configuredTool.toolCallName
     const plugin = pluginById.get(pluginId)
     const toolCall = plugin ? toolCallManifestByName(plugin, toolCallName) : null
     if (!plugin || !toolCall) continue
@@ -162,7 +141,7 @@ function toolDefinitionsForChat(plugins: PluginDescriptor[], blocks: ChatBlock[]
         toolName: schema.name,
         description: schema.description,
         inputSchema: schema.inputSchema,
-        commonArgs: asRecord(metadata.commonArgs)
+        commonArgs: asRecord(configuredTool.commonArgs)
       })
     }
   }

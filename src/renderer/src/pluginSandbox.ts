@@ -282,10 +282,6 @@ function publicChatSession(chat) {
   };
 }
 
-function toolDefinitionMetadata(block) {
-  return asRecord(block.metadata?.toolDefinition);
-}
-
 function pluginAssetUrl(pluginId, path) {
   const cleanPath = String(path ?? '').replace(/\\\\/g, '/').replace(/^\\/+/, '').replace(/^\\.\\//, '');
   const encodedPath = cleanPath.split('/')

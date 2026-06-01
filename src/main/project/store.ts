@@ -280,7 +280,9 @@ function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRunt
   return {
     llmInstanceId,
     enabledPluginIds: [...ensureProject().config.plugins.enabledPluginIds],
-    pluginData: {}
+    pluginData: {},
+    showVirtualInjections: false,
+    toolDefinitions: []
   }
 }
 

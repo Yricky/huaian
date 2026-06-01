@@ -1,6 +1,7 @@
 import type {
   ChatCreationDefaults,
   ChatRuntimeConfig,
+  ChatToolDefinition,
   JsonRecord,
   PluginProjectConfig,
   ProjectConfig
@@ -103,6 +104,29 @@ export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
     enabledPluginIds: Array.isArray(data.enabledPluginIds)
       ? [...new Set(data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean))]
       : defaultPluginProjectConfig().enabledPluginIds,
-    pluginData: asRecord(data.pluginData)
+    pluginData: asRecord(data.pluginData),
+    showVirtualInjections: toBoolean(data.showVirtualInjections, false),
+    toolDefinitions: normalizeChatToolDefinitions(data.toolDefinitions)
   }
+}
+
+export function normalizeChatToolDefinitions(value: unknown): ChatToolDefinition[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const definitions: ChatToolDefinition[] = []
+  for (const item of value) {
+    const record = asRecord(item)
+    const pluginId = asString(record.pluginId).trim()
+    const toolCallName = asString(record.toolCallName).trim()
+    if (!pluginId || !toolCallName) continue
+    const key = `${pluginId}\u0000${toolCallName}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    definitions.push({
+      pluginId,
+      toolCallName,
+      commonArgs: asRecord(record.commonArgs)
+    })
+  }
+  return definitions
 }

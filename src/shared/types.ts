@@ -44,6 +44,14 @@ export interface ChatRuntimeConfig {
   llmInstanceId: number | null
   enabledPluginIds: string[]
   pluginData: JsonRecord
+  showVirtualInjections: boolean
+  toolDefinitions: ChatToolDefinition[]
+}
+
+export interface ChatToolDefinition {
+  pluginId: string
+  toolCallName: string
+  commonArgs: JsonRecord
 }
 
 export interface ChatSession {

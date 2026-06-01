@@ -37,7 +37,6 @@ export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unkno
 
 export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDisplayOptions = {}): string {
   if (block.kind === 'injection') return '注入内容'
-  if (block.kind === 'tool_definition') return asString(asRecord(block.metadata.toolDefinition).label, '工具调用定义')
   if (block.kind === 'assistant') return 'Assistant'
   if (block.kind === 'user') return options.userName || 'User'
   if (block.kind === 'system') return 'System'
@@ -45,10 +44,6 @@ export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDi
 }
 
 export function chatBlockSummary(block: Pick<ChatBlock, 'kind' | 'metadata'>): string {
-  if (block.kind === 'tool_definition') {
-    const definition = asRecord(block.metadata.toolDefinition)
-    return [asString(definition.pluginId), asString(definition.toolCallName)].filter(Boolean).join(' · ') || '工具定义'
-  }
   if (block.kind !== 'injection') return ''
 
   const role = chatBlockTargetRole(block)

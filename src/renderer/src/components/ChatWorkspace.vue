@@ -4,6 +4,7 @@ import {
   MdBook,
   MdCheck,
   MdClose,
+  MdCode,
   MdMoreVert,
   MdOpenInNew,
   MdSend,
@@ -17,12 +18,13 @@ import type {
   ChatGenerationRequest,
   ChatRuntimeConfig,
   ChatSession,
+  ChatToolDefinition,
   JsonRecord,
   LlmInstance,
-  PluginDescriptor,
-  PluginToolCallManifest
+  PluginDescriptor
 } from '../../../shared/types'
 import ChatBlockRow from './ChatBlockRow.vue'
+import ChatToolDefinitionsDialog from './ChatToolDefinitionsDialog.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
 import PluginFrame from './PluginFrame.vue'
 
@@ -68,6 +70,7 @@ const replyPanelOpen = ref(false)
 const replyButtonRef = ref<HTMLButtonElement | null>(null)
 const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
+const toolDefinitionsDialogOpen = ref(false)
 const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
@@ -91,13 +94,15 @@ const selectedLlmInstance = computed(() => {
   return id === null || id === undefined ? null : props.llmInstances.find(instance => instance.id === id) ?? null
 })
 const activePluginIds = computed(() => new Set(props.chat.runtimeConfig.enabledPluginIds))
-const activePlugins = computed(() => props.plugins.filter(plugin => activePluginIds.value.has(plugin.manifest.id)))
-const availableToolCalls = computed(() => activePlugins.value.flatMap(plugin => (
-  plugin.manifest.entry?.toolCalls?.map(toolCall => ({ plugin, toolCall })) ?? []
-)))
+const configuredToolDefinitions = computed(() => props.chat.runtimeConfig.toolDefinitions)
+const showVirtualInjections = computed(() => props.chat.runtimeConfig.showVirtualInjections)
+const toolDefinitionsButtonLabel = computed(() => `工具调用 ${configuredToolDefinitions.value.length}`)
 const replyButtonLabel = computed(() => selectedLlmInstance.value?.name ?? '未选择 LLM')
 const previewMessagesJson = computed(() => formatJson(contextPreviewMessages.value ?? []))
 const sourceBlockById = computed(() => new Map(props.blocks.map(block => [block.id, block])))
+const visibleDisplayBlocks = computed(() => displayBlocks.value.filter(block => (
+  showVirtualInjections.value || !isVirtualInjectionBlock(block)
+)))
 const displaySignature = computed(() => JSON.stringify({
   chatId: props.chat.id,
   runtimeConfig: props.chat.runtimeConfig,
@@ -119,7 +124,7 @@ const displaySignature = computed(() => JSON.stringify({
     updatedAt: block.updatedAt
   }))
 }))
-const blockAutoFollowSignature = computed(() => displayBlocks.value.map(block => JSON.stringify({
+const blockAutoFollowSignature = computed(() => visibleDisplayBlocks.value.map(block => JSON.stringify({
   id: block.id,
   kind: block.kind,
   enabled: block.enabled,
@@ -129,7 +134,7 @@ const blockAutoFollowSignature = computed(() => displayBlocks.value.map(block =>
   errorText: block.errorText
 })).join('\u001f'))
 const chatListItems = computed<ChatListItem[]>(() => [
-  ...displayBlocks.value.map((block): ChatListItem => ({
+  ...visibleDisplayBlocks.value.map((block): ChatListItem => ({
     block,
     sourceBlock: block.metadata.virtual === true ? null : sourceBlockById.value.get(block.id) ?? block
   }))
@@ -141,6 +146,7 @@ watch(() => props.chat.id, () => {
   blockRowRefs.clear()
   menuOpen.value = false
   replyPanelOpen.value = false
+  toolDefinitionsDialogOpen.value = false
   chatHtmlPlugin.value = null
   contextPreviewMessages.value = null
   shouldFollow.value = true
@@ -198,6 +204,10 @@ function chatListItemKey(item: ChatListItem) {
 function blockStateKey(block: ChatBlock): string {
   if (block.metadata.virtual !== true) return `block:${block.id}`
   return `virtual:${props.chat.id}:${block.id}:${JSON.stringify(block.metadata)}`
+}
+
+function isVirtualInjectionBlock(block: ChatBlock): boolean {
+  return block.kind === 'injection' && block.metadata.virtual === true
 }
 
 function defaultBlockCollapsed(block: ChatBlock): boolean {
@@ -361,7 +371,19 @@ function runtimeConfigWith(patch: Partial<ChatRuntimeConfig>): ChatRuntimeConfig
       : [...patch.enabledPluginIds],
     pluginData: patch.pluginData === undefined
       ? recordFromJson(props.chat.runtimeConfig.pluginData)
-      : recordFromJson(patch.pluginData)
+      : recordFromJson(patch.pluginData),
+    showVirtualInjections: patch.showVirtualInjections === undefined
+      ? props.chat.runtimeConfig.showVirtualInjections
+      : patch.showVirtualInjections,
+    toolDefinitions: patch.toolDefinitions === undefined
+      ? props.chat.runtimeConfig.toolDefinitions.map(definition => ({
+          ...definition,
+          commonArgs: recordFromJson(definition.commonArgs)
+        }))
+      : patch.toolDefinitions.map(definition => ({
+          ...definition,
+          commonArgs: recordFromJson(definition.commonArgs)
+        }))
   }
 }
 
@@ -377,6 +399,14 @@ async function toggleChatPlugin(pluginId: string) {
   if (current.has(pluginId)) current.delete(pluginId)
   else current.add(pluginId)
   await saveRuntimeConfig(runtimeConfigWith({ enabledPluginIds: [...current] }))
+}
+
+async function saveToolDefinitions(toolDefinitions: ChatToolDefinition[]) {
+  await saveRuntimeConfig(runtimeConfigWith({ toolDefinitions }))
+}
+
+async function toggleShowVirtualInjections() {
+  await saveRuntimeConfig(runtimeConfigWith({ showVirtualInjections: !showVirtualInjections.value }))
 }
 
 function pluginChatHtmlPath(plugin: PluginDescriptor): string {
@@ -405,37 +435,6 @@ async function saveTitle() {
   await props.saveChat({
     ...props.chat,
     title: titleDraft.value.trim() || '新聊天'
-  })
-}
-
-function toolDefinitionPrompt(toolCall: PluginToolCallManifest): string {
-  return toolCall.prompt?.trim() || `你可以使用 ${toolCall.label || toolCall.name}。`
-}
-
-async function insertToolDefinitionBlock(relativeBlock: ChatBlock, placement: 'before' | 'after') {
-  if (props.frozen) return
-  const selected = availableToolCalls.value[0]
-  if (!selected) {
-    window.alert('当前聊天没有启用可插入的工具调用插件。')
-    return
-  }
-  beforeListMutation()
-  await saveEditingBlocks()
-  await props.createChatBlock({
-    chatId: props.chat.id,
-    kind: 'tool_definition',
-    enabled: true,
-    contentParts: [{ type: 'text', text: toolDefinitionPrompt(selected.toolCall) }],
-    metadata: {
-      toolDefinition: {
-        pluginId: selected.plugin.manifest.id,
-        toolCallName: selected.toolCall.name,
-        label: selected.toolCall.label || selected.toolCall.name,
-        commonArgs: {}
-      }
-    },
-    insertRelativeBlockId: relativeBlock.id,
-    insertPlacement: placement
   })
 }
 
@@ -560,11 +559,10 @@ async function removeBlock(block: ChatBlock) {
       :estimated-item-height="180" :buffer-size="6">
       <template #item="{ item: chatItem }">
         <ChatBlockRow :ref="(element) => setBlockRowRef(chatItem.block.id, element)" :block="chatItem.block"
-          :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen" :plugins="plugins"
+          :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen"
           :source-block="chatItem.sourceBlock || undefined" :preview-chat-generation="previewChatGeneration"
           @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock"
-          @delete="removeBlock" @regenerate="regenerate" @stop="stopChatGeneration"
-          @insert-tool-definition="insertToolDefinitionBlock" />
+          @delete="removeBlock" @regenerate="regenerate" @stop="stopChatGeneration" />
       </template>
     </ChatVirtualList>
 
@@ -581,6 +579,12 @@ async function removeBlock(block: ChatBlock) {
                 <MdSmartToy class="model-pill-symbol" />
               </span>
               <span class="model-pill-label">{{ replyButtonLabel }}</span>
+            </button>
+            <button class="model-pill tool-pill" type="button" @click.stop="toolDefinitionsDialogOpen = true">
+              <span class="model-pill-icon" aria-hidden="true">
+                <MdCode class="model-pill-symbol" />
+              </span>
+              <span class="model-pill-label">{{ toolDefinitionsButtonLabel }}</span>
             </button>
           </div>
 
@@ -618,12 +622,31 @@ async function removeBlock(block: ChatBlock) {
         </section>
 
         <section class="popup-section">
+          <button class="choice-row" type="button" :class="{ selected: showVirtualInjections }"
+            :aria-pressed="showVirtualInjections" @click="toggleShowVirtualInjections">
+            <span class="menu-choice-copy">
+              <MdVisibility class="menu-icon" aria-hidden="true" />展示虚拟注入块
+            </span>
+            <span class="setting-check" aria-hidden="true">
+              <MdCheck v-if="showVirtualInjections" class="setting-check-icon" />
+            </span>
+          </button>
           <button type="button" @click="showGenerationPreview">
             <MdVisibility class="menu-icon" aria-hidden="true" />查看将要发送的上下文
           </button>
         </section>
       </div>
     </Teleport>
+
+    <ChatToolDefinitionsDialog
+      v-if="toolDefinitionsDialogOpen"
+      :active-plugin-ids="chat.runtimeConfig.enabledPluginIds"
+      :can-edit="!frozen"
+      :plugins="plugins"
+      :tool-definitions="configuredToolDefinitions"
+      @close="toolDefinitionsDialogOpen = false"
+      @update:tool-definitions="saveToolDefinitions"
+    />
 
     <Teleport to="body">
       <div v-if="replyPanelOpen" ref="replyPanelRef" class="reply-panel" :style="replyPanelStyle" @click.stop>
@@ -784,6 +807,7 @@ async function removeBlock(block: ChatBlock) {
 
 .composer-left {
   justify-content: flex-start;
+  gap: 6px;
 }
 
 .composer-right {
@@ -992,6 +1016,13 @@ async function removeBlock(block: ChatBlock) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.menu-choice-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .setting-check {

@@ -15,7 +15,6 @@ export function normalizeChatBlockTargetRole(value: unknown): ChatBlockTargetRol
 
 export function chatBlockTargetRole(block: ChatBlockLike): ChatBlockTargetRole {
   if (block.kind === 'user' || block.kind === 'assistant' || block.kind === 'system') return block.kind
-  if (block.kind === 'tool_definition') return 'system'
   return normalizeChatBlockTargetRole(block.metadata.targetRole)
 }
 

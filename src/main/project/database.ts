@@ -184,8 +184,7 @@ function normalizeBlockKind(value: unknown): ChatBlockKind {
     value === 'system' ||
     value === 'user' ||
     value === 'assistant' ||
-    value === 'injection' ||
-    value === 'tool_definition'
+    value === 'injection'
   ) ? value : 'user'
 }
 

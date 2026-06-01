@@ -103,49 +103,11 @@ function blockHasSentReasoning(block: RuntimeBlock): boolean {
 }
 
 function blockRole(block: RuntimeBlock): 'system' | 'user' | 'assistant' {
-  if (block.kind === 'tool_definition') return 'system'
   return chatBlockTargetRole(block)
 }
 
-function numberFromMetadata(value: unknown): number | null {
-  const number = Number(value)
-  return Number.isInteger(number) ? number : null
-}
-
-function stringFromMetadata(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
-function toolDefinitionRecord(block: RuntimeBlock): JsonRecord {
-  return asRecord(block.metadata.toolDefinition)
-}
-
-function toolDefinitionGroup(block: RuntimeBlock): string {
-  return stringFromMetadata(toolDefinitionRecord(block).group)
-}
-
-function toolDefinitionLoreBookId(block: RuntimeBlock): number | null {
-  return numberFromMetadata(toolDefinitionRecord(block).loreBookId)
-}
-
-function activeLoreBookToolDefinitionIds(blocks: RuntimeBlock[], loreBooks: LoreBook[]): Set<number> {
-  const loreBookIds = new Set(loreBooks.map(book => book.id))
-  const active = [...blocks]
-    .filter(block => block.enabled && block.kind === 'tool_definition')
-    .filter(block => toolDefinitionGroup(block) === 'lorebook_edit')
-    .filter(block => {
-      const loreBookId = toolDefinitionLoreBookId(block)
-      return loreBookId !== null && loreBookIds.has(loreBookId)
-    })
-    .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
-    .at(-1)
-  return active ? new Set([active.id]) : new Set()
-}
-
-function shouldSendBlock(block: RuntimeBlock, activeToolDefinitionIds: Set<number>): boolean {
-  if (!block.enabled) return false
-  if (block.kind === 'tool_definition') return activeToolDefinitionIds.has(block.id)
-  return true
+function shouldSendBlock(block: RuntimeBlock): boolean {
+  return block.enabled
 }
 
 function roleFromExtension(value: unknown): ChatBlockTargetRole {
@@ -431,12 +393,11 @@ function regexPromptText(
 
 function realBlockMessage(
   block: RuntimeBlock,
-  activeToolDefinitionIds: Set<number>,
   character: CharacterEntry | null,
   regexEnabled: boolean,
   depth: number
 ): ChatGenerationPreviewMessage | null {
-  if (!shouldSendBlock(block, activeToolDefinitionIds)) return null
+  if (!shouldSendBlock(block)) return null
   const role = blockRole(block)
   const placement = regexPlacementForBlock(block)
   const text = regexPromptText(blockText(block), placement, character, regexEnabled, depth).trim()
@@ -469,7 +430,6 @@ function realBlockMessage(
 }
 
 function realBlockScanLine(block: RuntimeBlock, character: CharacterEntry | null): string {
-  if (block.kind === 'tool_definition') return ''
   const text = blockText(block).trim()
   if (!text) return ''
   const role = blockRole(block)
@@ -587,10 +547,9 @@ function virtualBlock(
 export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuildResult {
   const character = input.characters.find(item => item.id === input.chat.runtimeConfig.characterId) ?? null
   const regexEnabled = input.chat.runtimeConfig.characterRegexScriptsEnabled !== false
-  const activeToolDefinitionIds = activeLoreBookToolDefinitionIds(input.blocks, input.loreBooks)
   const loreBookIds = activeLoreBookIds(input.chat.runtimeConfig, character)
   const loreEntries = entriesForLoreBooks(input.worldEntries, loreBookIds)
-  const enabledRealBlocks = input.blocks.filter(block => shouldSendBlock(block, activeToolDefinitionIds))
+  const enabledRealBlocks = input.blocks.filter(shouldSendBlock)
   const scanMessages = enabledRealBlocks.map(block => realBlockScanLine(block, character)).filter(Boolean).reverse()
   const activated = activateWorldEntries(loreEntries, scanMessages, character, regexEnabled)
 
@@ -664,7 +623,6 @@ export function buildSillyTavernLikePrompt(input: PromptBuildInput): PromptBuild
       block,
       message: realBlockMessage(
         block,
-        activeToolDefinitionIds,
         character,
         regexEnabled,
         regexDepthByBlockId.get(block.id) ?? 0
