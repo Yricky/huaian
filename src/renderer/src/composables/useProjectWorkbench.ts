@@ -446,8 +446,7 @@ export function createProjectWorkbench() {
     return {
       ...payload,
       messages: bundle.messages,
-      toolDefinitions: bundle.toolDefinitions,
-      promptMetadata: bundle.promptMetadata
+      toolDefinitions: bundle.toolDefinitions
     }
   }
 

@@ -166,7 +166,6 @@ export interface PluginProcessorResult {
   displayBlocks?: ChatBlock[]
   messages?: ChatGenerationPreviewMessage[]
   virtualBlocks?: ChatBlock[]
-  metadata?: JsonRecord
 }
 
 export interface PluginChatBlockProcessor {

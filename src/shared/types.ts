@@ -93,7 +93,6 @@ export interface ChatGenerationRequest {
   regenerateBlockId?: number | null
   messages?: ChatGenerationPreviewMessage[]
   toolDefinitions?: LlmToolDefinition[]
-  promptMetadata?: JsonRecord
 }
 
 export interface PluginToolCallRequest extends PluginHandlerToolCallRequest {

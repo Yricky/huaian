@@ -21,7 +21,6 @@ import type {
 import {
   createAssistantGenerationBlock,
   getChat,
-  getChatBlock,
   listChatBlocksForChat,
   prepareAssistantBlockForRegeneration,
   updateAssistantGenerationBlock
@@ -485,18 +484,7 @@ export async function startChatGeneration(
   const generationBlock = request.regenerateBlockId
     ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance)
     : createAssistantGenerationBlock(chat.id, instance)
-  updateAssistantGenerationBlock(
-    generationBlock.id,
-    generationBlock.contentParts,
-    generationBlock.status,
-    generationBlock.enabled,
-    generationBlock.errorText,
-    {
-      ...generationBlock.metadata,
-      pluginPrompt: asRecord(request.promptMetadata)
-    }
-  )
-  const currentGenerationBlock = getChatBlock(generationBlock.id)
+  const currentGenerationBlock = generationBlock
   const abortController = new AbortController()
 
   activeGenerations.set(chat.id, {

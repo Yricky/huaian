@@ -22,7 +22,6 @@ import { invokePluginSandbox } from './pluginSandbox'
 export interface PluginChatGenerationBundle {
   displayBlocks: ChatBlock[]
   messages: ChatGenerationPreviewMessage[]
-  promptMetadata: JsonRecord
   toolDefinitions: LlmToolDefinition[]
   virtualBlocks: ChatBlock[]
 }
@@ -87,14 +86,11 @@ export async function preparePluginChatGeneration(
     messages: baseMessagesFromBlocks(blocks),
     virtualBlocks: []
   }
-  const metadata: JsonRecord = { plugins: plugins.map(plugin => plugin.manifest.id) }
-
   const result = asRecord(await invokePluginSandbox('preparePluginChatGeneration', {
     runtime: sandboxRuntime(project, plugins),
     blocks,
     chat: pluginChat,
     hostChat: chat,
-    metadata,
     state
   }))
   const resultMessages = Array.isArray(result.messages)
@@ -106,16 +102,10 @@ export async function preparePluginChatGeneration(
   const virtualBlocks = Array.isArray(result.virtualBlocks)
     ? result.virtualBlocks as ChatBlock[]
     : state.virtualBlocks
-  const promptMetadata = {
-    ...metadata,
-    ...asRecord(result.metadata)
-  }
-
   const messages = resultMessages.filter(messageHasContent)
   return {
     displayBlocks,
     messages,
-    promptMetadata,
     toolDefinitions: toolDefinitionsForChat(plugins, chat.runtimeConfig.toolDefinitions),
     virtualBlocks
   }

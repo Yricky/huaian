@@ -470,7 +470,6 @@ async function preparePluginChatGeneration(input) {
   const chat = input.chat;
   const hostChat = input.hostChat ?? input.chat;
   const state = cloneJson(input.state);
-  const metadata = { ...asRecord(input.metadata) };
   pluginScopes.chat = {};
 
   for (const descriptor of activePlugins) {
@@ -503,13 +502,11 @@ async function preparePluginChatGeneration(input) {
         state.blocks = mergeVirtualBlocks(state.blocks, state.virtualBlocks);
       }
     }
-    Object.assign(metadata, asRecord(result.metadata));
   }
 
   return {
     displayBlocks: Array.isArray(state.blocks) ? state.blocks : [],
     messages: Array.isArray(state.messages) ? state.messages : [],
-    metadata,
     virtualBlocks: Array.isArray(state.virtualBlocks) ? state.virtualBlocks : []
   };
 }

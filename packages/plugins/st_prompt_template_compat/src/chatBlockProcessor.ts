@@ -204,8 +204,7 @@ export default function chatBlockProcessor(context: PluginRuntimeContext) {
       })))
       return {
         blocks,
-        messages,
-        metadata: { promptTemplateCompat: { enabled: true } }
+        messages
       }
     }
   }

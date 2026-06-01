@@ -259,7 +259,6 @@ export default function chatBlockProcessor(context) {
 | `displayBlocks` | `ChatBlock[]` | 当前实现中等同于替换 `state.blocks`，会影响后续插件和最终显示。 |
 | `messages` | `ChatGenerationPreviewMessage[]` | 替换最终发送给 LLM 的消息。 |
 | `virtualBlocks` | `ChatBlock[]` | 设置虚拟块。如果没有同时返回 `blocks` 或 `displayBlocks`，运行时会把虚拟块合并到 `state.blocks`。 |
-| `metadata` | `JsonRecord` | 合并到生成请求的插件元数据中，生成完成后保存在助手块 `metadata.pluginPrompt`。 |
 
 如果插件只改变 UI 显示，不改变 `messages`，LLM 看到的上下文不会随显示块自动变化。需要影响模型输入时，必须返回 `messages`。
 
@@ -639,7 +638,6 @@ handler 没有当前聊天块列表，也没有经过清理的项目快照。需
 6. 把启用的 `tool_definition` 块追加为 system 消息。
 7. 从启用的 `tool_definition` 块收集工具 schema。
 8. 调用 LLM。
-9. 生成完成后，把插件 metadata 写入助手块 `metadata.pluginPrompt`。
 
 显示聊天块时也会调用同一套 `preparePluginChatGeneration` 管线。因此处理器应尽量保持幂等、快速，并避免在每次显示刷新时做昂贵写入。
 

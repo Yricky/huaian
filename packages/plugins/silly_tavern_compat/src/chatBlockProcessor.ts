@@ -19,13 +19,7 @@ export default function chatBlockProcessor(context: PluginRuntimeContext) {
       return {
         blocks: mergeVirtualBlocks(state.blocks, prompt.virtualBlocks),
         messages: prompt.messages,
-        virtualBlocks: prompt.virtualBlocks,
-        metadata: {
-          sillyTavernCompat: {
-            characterId: data.runtimeConfig.characterId,
-            loreBookIds: data.runtimeConfig.loreBookIds
-          }
-        }
+        virtualBlocks: prompt.virtualBlocks
       }
     }
   }
