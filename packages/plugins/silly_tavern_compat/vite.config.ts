@@ -17,34 +17,19 @@ const pageEntries: Record<string, { input: string; name: string }> = {
   chatHtml: { input: 'src/pages/chat.html', name: 'chat' }
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function inlinePageAssets(): Plugin {
+function flattenPageHtml(): Plugin {
   return {
-    name: 'st-forge-inline-page-assets',
+    name: 'st-forge-flatten-page-html',
     enforce: 'post',
     generateBundle(_, bundle) {
       for (const [fileName, file] of Object.entries(bundle)) {
         if (file.type !== 'asset' || !fileName.endsWith('.html')) continue
-        let html = String(file.source)
-        for (const [assetName, asset] of Object.entries(bundle)) {
-          if (asset.type === 'chunk') {
-            const pattern = new RegExp(`<script[^>]*src=["'][^"']*${escapeRegExp(asset.fileName)}["'][^>]*></script>`, 'g')
-            html = html.replace(pattern, () => `<script type="module">\n${asset.code}\n</script>`)
-            delete bundle[assetName]
-          } else if (asset.type === 'asset' && assetName.endsWith('.css')) {
-            const pattern = new RegExp(`<link[^>]*href=["'][^"']*${escapeRegExp(asset.fileName)}["'][^>]*>`, 'g')
-            html = html.replace(pattern, () => `<style>\n${String(asset.source)}\n</style>`)
-            delete bundle[assetName]
-          }
-        }
-        file.source = html
+        const html = String(file.source)
         const outputName = fileName.endsWith('/settings.html') ? 'settings.html'
           : fileName.endsWith('/chat.html') ? 'chat.html'
             : fileName
         if (outputName !== fileName) {
+          file.source = html.replace(/((?:\.\.\/)+)assets\//g, './assets/')
           file.fileName = outputName
         }
       }
@@ -77,7 +62,7 @@ export default defineConfig(({ mode }) => {
     return {
       ...common,
       base: './',
-      plugins: [vue(), inlinePageAssets()],
+      plugins: [vue(), flattenPageHtml()],
       build: {
         emptyOutDir: false,
         minify: 'esbuild',
@@ -87,7 +72,7 @@ export default defineConfig(({ mode }) => {
             [pageEntry.name]: resolve(packageDir, pageEntry.input)
           },
           output: {
-            assetFileNames: 'assets/[name][extname]',
+            assetFileNames: 'assets/[name]-[hash][extname]',
             chunkFileNames: 'assets/[name]-[hash].js',
             entryFileNames: 'assets/[name]-[hash].js'
           }

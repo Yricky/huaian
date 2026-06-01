@@ -83,6 +83,9 @@ const canGenerateReply = computed(() => Boolean(
 const canSendUserMessage = computed(() => (
   userInputDraft.value.trim().length > 0 && !props.frozen && !sendingUserMessage.value
 ))
+const canUseComposerAction = computed(() => canSendUserMessage.value || canGenerateReply.value)
+const composerActionLabel = computed(() => canSendUserMessage.value ? '发送' : '生成回复')
+const composerActionIcon = computed(() => canSendUserMessage.value ? MdSend : MdSmartToy)
 const selectedLlmInstance = computed(() => {
   const id = props.chat.runtimeConfig.llmInstanceId
   return id === null || id === undefined ? null : props.llmInstances.find(instance => instance.id === id) ?? null
@@ -506,10 +509,21 @@ async function sendUserMessage() {
   }
 }
 
+async function submitComposerAction() {
+  if (canSendUserMessage.value) {
+    await sendUserMessage()
+    return
+  }
+
+  if (canGenerateReply.value) {
+    await generateReply()
+  }
+}
+
 function handleComposerEnter(event: KeyboardEvent) {
   if (event.isComposing) return
   event.preventDefault()
-  void sendUserMessage()
+  if (canSendUserMessage.value) void sendUserMessage()
 }
 
 async function regenerate(block: ChatBlock) {
@@ -545,45 +559,35 @@ async function removeBlock(block: ChatBlock) {
     <ChatVirtualList ref="listRef" class="chat-block-list" :items="chatListItems" :item-key="chatListItemKey"
       :estimated-item-height="180" :buffer-size="6">
       <template #item="{ item: chatItem }">
-        <ChatBlockRow :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
-          :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen"
-          :plugins="plugins"
-          :source-block="chatItem.sourceBlock || undefined"
-          :preview-chat-generation="previewChatGeneration"
-          @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock" @delete="removeBlock"
-          @regenerate="regenerate" @stop="stopChatGeneration" @insert-tool-definition="insertToolDefinitionBlock" />
+        <ChatBlockRow :ref="(element) => setBlockRowRef(chatItem.block.id, element)" :block="chatItem.block"
+          :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen" :plugins="plugins"
+          :source-block="chatItem.sourceBlock || undefined" :preview-chat-generation="previewChatGeneration"
+          @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock"
+          @delete="removeBlock" @regenerate="regenerate" @stop="stopChatGeneration"
+          @insert-tool-definition="insertToolDefinitionBlock" />
       </template>
     </ChatVirtualList>
 
     <footer class="chat-composer">
-      <form class="composer-form" @submit.prevent="sendUserMessage">
-        <textarea
-          ref="composerTextareaRef"
-          v-model="userInputDraft"
-          class="composer-input"
-          rows="2"
-          placeholder="输入用户内容"
-          :disabled="frozen || sendingUserMessage"
-          @keydown.enter.exact="handleComposerEnter"
-        />
+      <form class="composer-form" @submit.prevent="submitComposerAction">
+        <textarea ref="composerTextareaRef" v-model="userInputDraft" class="composer-input" rows="2"
+          placeholder="输入用户内容" :disabled="frozen || sendingUserMessage" @keydown.enter.exact="handleComposerEnter" />
 
         <div class="composer-controls">
           <div class="composer-left">
-            <div class="md3-pill-combo composer-llm-combo">
-              <button ref="replyButtonRef" class="md3-pill-combo-trigger config-trigger" type="button" :disabled="frozen"
-                @click.stop="toggleReplyPanel">
-                <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel }}</span>
-              </button>
-              <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
-                @click="generateReply">
-                生成回复
-              </button>
-            </div>
+            <button ref="replyButtonRef" class="model-pill" type="button" :disabled="frozen"
+              @click.stop="toggleReplyPanel">
+              <span class="model-pill-icon" aria-hidden="true">
+                <MdSmartToy class="model-pill-symbol" />
+              </span>
+              <span class="model-pill-label">{{ replyButtonLabel }}</span>
+            </button>
           </div>
 
           <div class="composer-right">
-            <button class="send-button" type="submit" :disabled="!canSendUserMessage" aria-label="发送" data-tooltip="发送">
-              <MdSend class="send-icon" aria-hidden="true" />
+            <button class="composer-action-button" type="submit" :disabled="!canUseComposerAction"
+              :aria-label="composerActionLabel" :data-tooltip="composerActionLabel">
+              <MdSend size="16" />
             </button>
           </div>
         </div>
@@ -596,31 +600,18 @@ async function removeBlock(block: ChatBlock) {
           <div class="popup-section-title">
             <MdBook class="menu-icon" aria-hidden="true" />插件
           </div>
-          <div
-            v-for="plugin in plugins"
-            :key="plugin.manifest.id"
-            class="setting-row"
-            :class="{ selected: activePluginIds.has(plugin.manifest.id) }"
-          >
-            <button
-              class="setting-row-main"
-              type="button"
-              :aria-pressed="activePluginIds.has(plugin.manifest.id)"
-              @click="toggleChatPlugin(plugin.manifest.id)"
-            >
+          <div v-for="plugin in plugins" :key="plugin.manifest.id" class="setting-row"
+            :class="{ selected: activePluginIds.has(plugin.manifest.id) }">
+            <button class="setting-row-main" type="button" :aria-pressed="activePluginIds.has(plugin.manifest.id)"
+              @click="toggleChatPlugin(plugin.manifest.id)">
               <span class="setting-row-text">{{ plugin.manifest.name || plugin.manifest.id }}</span>
               <span class="setting-check" aria-hidden="true">
                 <MdCheck v-if="activePluginIds.has(plugin.manifest.id)" class="setting-check-icon" />
               </span>
             </button>
-            <button
-              v-if="activePluginIds.has(plugin.manifest.id) && pluginChatHtmlPath(plugin)"
-              class="setting-row-action"
-              type="button"
-              aria-label="打开插件页面"
-              data-tooltip="打开插件页面"
-              @click.stop="openPluginChatHtml(plugin)"
-            >
+            <button v-if="activePluginIds.has(plugin.manifest.id) && pluginChatHtmlPath(plugin)"
+              class="setting-row-action" type="button" aria-label="打开插件页面" data-tooltip="打开插件页面"
+              @click.stop="openPluginChatHtml(plugin)">
               <MdOpenInNew class="setting-row-action-icon" aria-hidden="true" />
             </button>
           </div>
@@ -654,7 +645,8 @@ async function removeBlock(block: ChatBlock) {
     </Teleport>
 
     <Teleport to="body">
-      <div v-if="chatHtmlPlugin" class="plugin-chat-dialog" role="dialog" aria-modal="true" @click.self="closePluginChatHtml">
+      <div v-if="chatHtmlPlugin" class="plugin-chat-dialog" role="dialog" aria-modal="true"
+        @click.self="closePluginChatHtml">
         <section class="plugin-chat-panel">
           <header class="plugin-chat-header">
             <div>
@@ -666,12 +658,8 @@ async function removeBlock(block: ChatBlock) {
             </button>
           </header>
           <div class="plugin-chat-body">
-            <PluginFrame
-              :chat="chat"
-              :html-path="pluginChatHtmlPath(chatHtmlPlugin)"
-              :plugin-id="chatHtmlPlugin.manifest.id"
-              @update:chat="handlePluginChatUpdated"
-            />
+            <PluginFrame :chat="chat" :html-path="pluginChatHtmlPath(chatHtmlPlugin)"
+              :plugin-id="chatHtmlPlugin.manifest.id" @update:chat="handlePluginChatUpdated" />
           </div>
         </section>
       </div>
@@ -741,7 +729,6 @@ async function removeBlock(block: ChatBlock) {
 
 .chat-composer {
   min-width: 0;
-  border-top: 1px solid #dfe6ef;
   background: #ffffff;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
 }
@@ -749,29 +736,31 @@ async function removeBlock(block: ChatBlock) {
 .composer-form {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  grid-template-rows: minmax(70px, 1fr) auto;
+  gap: 6px;
+  min-height: 122px;
+  overflow: hidden;
+  border: 1px solid #dddddd;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 4px;
 }
 
 .composer-input {
   width: 100%;
   min-width: 0;
-  min-height: 54px;
-  max-height: 136px;
+  min-height: 70px;
+  max-height: 150px;
   resize: none;
   overflow: auto;
-  border: 1px solid #cfd8e4;
-  border-radius: 8px;
-  background: #fbfcfd;
+  border: 0;
+  background: transparent;
   color: #263242;
-  padding: 10px 12px;
-  line-height: 1.45;
+  padding: 2 4px;
 }
 
 .composer-input:focus {
-  outline: 2px solid #9fc1f6;
-  outline-offset: 0;
-  border-color: #6d9de3;
-  background: #ffffff;
+  outline: none;
 }
 
 .composer-input:disabled {
@@ -784,7 +773,6 @@ async function removeBlock(block: ChatBlock) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
 }
 
 .composer-left,
@@ -802,106 +790,78 @@ async function removeBlock(block: ChatBlock) {
   justify-content: flex-end;
 }
 
-.composer-llm-combo {
-  max-width: min(560px, 100%);
-}
-
-.composer-llm-combo .config-trigger {
-  flex: 1 1 auto;
-}
-
-.md3-pill-combo-trigger {
+.model-pill {
   min-width: 0;
-  min-height: 40px;
+  max-width: min(320px, 100%);
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
   border: 0;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 0;
-  white-space: nowrap;
+  border-radius: 14px;
+  background: #f5f5f5;
+  color: #1f242b;
+  padding: 0 8px 0 0;
+  font-size: 13px;
 }
 
-.md3-pill-combo {
-  min-width: 0;
-  min-height: 40px;
-  display: inline-flex;
-  align-items: stretch;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #eef5ff;
-  color: #174f99;
-  box-shadow: inset 0 0 0 1px rgba(47, 111, 202, 0.12);
+.model-pill:hover:not(:disabled) {
+  background: #ececec;
 }
 
-.md3-pill-combo-trigger {
-  min-width: 0;
-  background: transparent;
-  color: inherit;
-  padding: 0 14px 0 16px;
-}
-
-.config-trigger {
-  max-width: min(420px, 48vw);
-  gap: 4px;
-  overflow: hidden;
-  border-right: 1px solid rgba(47, 111, 202, 0.14);
-  text-overflow: ellipsis;
-}
-
-.md3-pill-combo-trigger.trailing {
-  padding: 0 18px 0 14px;
-}
-
-.md3-pill-combo-trigger:hover:not(:disabled) {
-  background: rgba(47, 111, 202, 0.08);
-}
-
-.md3-pill-combo-trigger:disabled {
+.model-pill:disabled {
   cursor: default;
   opacity: 0.5;
 }
 
-.button-icon {
-  width: 18px;
-  height: 18px;
+.model-pill-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
   flex-shrink: 0;
-  margin-right: 4px;
-  vertical-align: -4px;
+  place-items: center;
+  border-radius: 50%;
+  background: #c8c8c8;
+  color: #ffffff;
 }
 
-.button-label {
+.model-pill-symbol {
+  width: 12px;
+  height: 12px;
+}
+
+.model-pill-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.send-button {
+.composer-action-button {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: #216f54;
+  background: #c8c8c8;
   color: #ffffff;
-  padding: 0;
+  padding: 6px;
   transition: background 140ms ease, opacity 140ms ease;
 }
 
-.send-button:hover:not(:disabled) {
-  background: #185b45;
+.composer-action-button:hover:not(:disabled) {
+  background: #b6b6b6;
 }
 
-.send-button:disabled {
+.composer-action-button:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.58;
 }
 
-.send-button::after {
+.composer-action-button::after {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
@@ -921,20 +881,15 @@ async function removeBlock(block: ChatBlock) {
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
-.send-button:hover::after,
-.send-button:focus-visible::after {
+.composer-action-button:hover::after,
+.composer-action-button:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
 }
 
-.send-button:focus-visible {
+.composer-action-button:focus-visible {
   outline: 2px solid #446bd7;
   outline-offset: 2px;
-}
-
-.send-icon {
-  width: 20px;
-  height: 20px;
 }
 
 .workspace-menu,
@@ -1178,16 +1133,8 @@ async function removeBlock(block: ChatBlock) {
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
-  .composer-controls {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .composer-llm-combo {
-    width: 100%;
-  }
-
-  .config-trigger {
-    max-width: none;
+  .model-pill {
+    max-width: 100%;
   }
 }
 </style>
