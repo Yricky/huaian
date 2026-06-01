@@ -2,10 +2,11 @@ import { protocol } from 'electron'
 import { readFile, realpath } from 'fs/promises'
 import { extname, isAbsolute, relative, resolve } from 'path'
 import { getCurrentProject } from './project/state'
-import { pluginAssetPath } from './project/plugins'
+import { pluginAssetPath, pluginAssetRoot } from './project/plugins'
 
 export const ASSET_PROTOCOL = 'st-forge-asset'
-export const PLUGIN_PROTOCOL = 'st-forge-plugin'
+export const PLUGIN_PROTOCOL = 'huaianext'
+export const LEGACY_PLUGIN_PROTOCOL = 'st-forge-plugin'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.apng': 'image/apng',
@@ -13,15 +14,37 @@ const CONTENT_TYPES: Record<string, string> = {
   '.avif': 'image/avif',
   '.gif': 'image/gif',
   '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
   '.js': 'text/javascript; charset=utf-8',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
   '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.otf': 'font/otf',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
-  '.webp': 'image/webp'
+  '.wasm': 'application/wasm',
+  '.webm': 'video/webm',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
 }
+
+const PLUGIN_CONTENT_SECURITY_POLICY = [
+  "default-src 'self' 'unsafe-inline' data:",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  `font-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}:`,
+  `media-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}:`,
+  `connect-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  "worker-src 'self' blob:"
+].join('; ')
 
 function notFound(): Response {
   return new Response('Not found', { status: 404 })
@@ -37,6 +60,28 @@ function decodeAssetPath(url: string): string | null {
     const pathSegments = parsed.pathname.split('/').filter(Boolean)
     const segments = parsed.hostname ? [parsed.hostname, ...pathSegments] : pathSegments
     return segments.map(segment => decodeURIComponent(segment)).join('/')
+  } catch {
+    return null
+  }
+}
+
+function decodePluginAssetUrl(url: string): { pluginId: string, path: string } | null {
+  try {
+    const parsed = new URL(url)
+    const pathSegments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
+
+    if (parsed.protocol === `${PLUGIN_PROTOCOL}:` && parsed.hostname) {
+      return {
+        pluginId: decodeURIComponent(parsed.hostname),
+        path: pathSegments.join('/')
+      }
+    }
+
+    const segments = parsed.hostname
+      ? [decodeURIComponent(parsed.hostname), ...pathSegments]
+      : pathSegments
+    const [pluginId, ...pathParts] = segments
+    return pluginId ? { pluginId, path: pathParts.join('/') } : null
   } catch {
     return null
   }
@@ -60,6 +105,15 @@ export function registerAssetProtocolSchemes(): void {
     },
     {
       scheme: PLUGIN_PROTOCOL,
+      privileges: {
+        corsEnabled: true,
+        secure: true,
+        standard: true,
+        supportFetchAPI: true
+      }
+    },
+    {
+      scheme: LEGACY_PLUGIN_PROTOCOL,
       privileges: {
         corsEnabled: true,
         secure: true,
@@ -99,25 +153,33 @@ export function registerAssetProtocol(): void {
     }
   })
 
-  protocol.handle(PLUGIN_PROTOCOL, async request => {
+  const handlePluginAssetRequest = async (request: Request) => {
     const project = getCurrentProject()
-    const pluginPath = decodeAssetPath(request.url)
-    if (!project || !pluginPath) return notFound()
-    const [pluginId, ...pathParts] = pluginPath.split('/').filter(Boolean)
-    if (!pluginId || pluginId === 'base') return notFound()
+    const asset = decodePluginAssetUrl(request.url)
+    if (!project || !asset?.pluginId) return notFound()
 
     try {
-      const filePath = pluginAssetPath(pluginId, pathParts.join('/'))
+      const requestedPath = pluginAssetPath(asset.pluginId, asset.path)
+      const [filePath, realPluginRoot] = await Promise.all([
+        realpath(requestedPath),
+        realpath(pluginAssetRoot(asset.pluginId))
+      ])
+      if (!isInDirectory(filePath, realPluginRoot)) return notFound()
+
       const bytes = await readFile(filePath)
       return new Response(new Uint8Array(bytes), {
         headers: {
+          'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'no-store',
-          'Content-Security-Policy': "default-src 'self' 'unsafe-inline' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: st-forge-plugin: st-forge-asset:;",
+          'Content-Security-Policy': PLUGIN_CONTENT_SECURITY_POLICY,
           'Content-Type': contentTypeForPath(filePath)
         }
       })
     } catch {
       return notFound()
     }
-  })
+  }
+
+  protocol.handle(PLUGIN_PROTOCOL, handlePluginAssetRequest)
+  protocol.handle(LEGACY_PLUGIN_PROTOCOL, handlePluginAssetRequest)
 }

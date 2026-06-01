@@ -23,10 +23,12 @@ const {
   fetchSelectedLlmProviderModels,
   llmInstances,
   llmProviders,
+  project,
   providerSnapshot,
   restoreProviderFromSelectedInstance,
   saveLlmInstance,
   saveLlmProvider,
+  saveProjectConfig,
   selectLlmInstance,
   selectLlmProvider,
   selectedLlmInstance,
@@ -34,7 +36,7 @@ const {
   showToast
 } = useProjectWorkbench()
 
-type SettingsTab = 'provider' | 'instance'
+type SettingsTab = 'general' | 'provider' | 'instance'
 
 const settingsTab = ref<SettingsTab>('provider')
 const providerDraft = ref<LlmProvider | null>(null)
@@ -47,6 +49,7 @@ const instanceDirty = ref(false)
 
 const providerTitle = computed(() => providerDraft.value?.name || '提供商')
 const instanceTitle = computed(() => instanceDraft.value?.name || 'LLM 实例')
+const debugMode = computed(() => Boolean(project.value?.config.debugMode))
 const instanceBoundProvider = computed(() => {
   const id = instanceDraft.value?.providerId
   return id === null || id === undefined ? null : llmProviders.value.find(provider => provider.id === id) ?? null
@@ -138,6 +141,11 @@ async function saveInstanceDraft() {
 async function createProviderForEditing() {
   settingsTab.value = 'provider'
   await createLlmProvider()
+}
+
+async function setDebugMode(value: boolean) {
+  const ok = await saveProjectConfig({ debugMode: value })
+  if (ok) showToast(value ? '调试模式已开启' : '调试模式已关闭', 'success')
 }
 
 function editLlmProvider(provider: LlmProvider) {
@@ -270,6 +278,9 @@ function switchTab(tab: SettingsTab) {
   <section class="settings-page">
     <aside class="settings-list-pane">
       <nav class="settings-tabs">
+        <button class="settings-tab" :class="{ active: settingsTab === 'general' }" @click="switchTab('general')">
+          通用
+        </button>
         <button class="settings-tab" :class="{ active: settingsTab === 'provider' }" @click="switchTab('provider')">
           提供商
           <span v-if="providerDirty" class="dirty-dot" aria-label="有未保存更改" />
@@ -279,6 +290,18 @@ function switchTab(tab: SettingsTab) {
           <span v-if="instanceDirty" class="dirty-dot" aria-label="有未保存更改" />
         </button>
       </nav>
+
+      <template v-if="settingsTab === 'general'">
+        <div class="pane-header">
+          <h2>通用</h2>
+        </div>
+        <div class="settings-list">
+          <div class="settings-list-item selected">
+            <strong>调试</strong>
+            <span>{{ debugMode ? '已开启' : '已关闭' }}</span>
+          </div>
+        </div>
+      </template>
 
       <template v-if="settingsTab === 'provider'">
         <div class="pane-header">
@@ -320,6 +343,26 @@ function switchTab(tab: SettingsTab) {
     </aside>
 
     <main class="settings-editor">
+      <section v-if="settingsTab === 'general'" class="settings-section">
+        <div class="pane-header">
+          <h2>项目设置</h2>
+        </div>
+
+        <div class="settings-form">
+          <label class="switch-row">
+            <span>
+              <strong>调试模式</strong>
+              <small>插件 iframe URL 标签</small>
+            </span>
+            <input
+              type="checkbox"
+              :checked="debugMode"
+              @change="setDebugMode(($event.target as HTMLInputElement).checked)"
+            />
+          </label>
+        </div>
+      </section>
+
       <section v-if="settingsTab === 'provider'" class="settings-section">
         <div class="pane-header">
           <h2>{{ providerTitle }}</h2>
@@ -554,6 +597,39 @@ function switchTab(tab: SettingsTab) {
 .settings-form {
   display: grid;
   gap: 10px;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #d9e0e9;
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 10px 12px;
+}
+
+.switch-row span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.switch-row strong {
+  color: #243041;
+  font-size: 13px;
+}
+
+.switch-row small {
+  color: #637083;
+  font-size: 12px;
+}
+
+.switch-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2f6fca;
 }
 
 .form-grid {

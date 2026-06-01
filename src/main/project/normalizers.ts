@@ -13,6 +13,7 @@ export function defaultProjectConfig(): ProjectConfig {
   return {
     schemaVersion: 1,
     chatCreateDefaults: defaultChatCreationDefaults(),
+    debugMode: false,
     plugins: defaultPluginProjectConfig()
   }
 }
@@ -90,6 +91,7 @@ export function normalizeProjectConfig(value: unknown): ProjectConfig {
   return {
     schemaVersion: toNumber(data.schemaVersion, 1),
     chatCreateDefaults: normalizeChatCreationDefaults(data.chatCreateDefaults),
+    debugMode: toBoolean(data.debugMode, false),
     plugins: normalizePluginProjectConfig(data.plugins)
   }
 }

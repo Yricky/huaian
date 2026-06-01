@@ -266,11 +266,12 @@ function toolDefinitionMetadata(block) {
 }
 
 function pluginAssetUrl(pluginId, path) {
-  const cleanPath = String(path ?? '').replace(/\\\\/g, '/').replace(/^\\/+/, '');
-  const encoded = [pluginId, ...cleanPath.split('/').filter(Boolean)]
+  const cleanPath = String(path ?? '').replace(/\\\\/g, '/').replace(/^\\/+/, '').replace(/^\\.\\//, '');
+  const encodedPath = cleanPath.split('/')
+    .filter(part => part && part !== '.')
     .map(part => encodeURIComponent(part))
     .join('/');
-  return 'st-forge-plugin:///' + encoded;
+  return 'huaianext://' + encodeURIComponent(pluginId) + '/' + encodedPath;
 }
 
 function mergeVirtualBlocks(blocks, virtualBlocks) {

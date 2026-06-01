@@ -311,3 +311,7 @@ export async function listPluginDataFiles(pluginId: string, path = ''): Promise<
 export function pluginAssetPath(pluginId: string, path: string): string {
   return safeChildPath(pluginRoot(pluginId), path)
 }
+
+export function pluginAssetRoot(pluginId: string): string {
+  return pluginRoot(pluginId)
+}

@@ -382,7 +382,7 @@ interface PluginRuntimeApi {
 const url = context.api.assetUrl('images/avatar.png')
 ```
 
-返回 URL 使用 `st-forge-plugin:///` 协议，只能定位当前插件目录内的文件。插件设置页 HTML 会自动注入 `<base>`，通常可以直接使用相对路径引用同目录资源。
+返回 URL 使用 `huaianext://<pluginId>/` 协议，只能定位当前插件目录内的文件。插件设置页 HTML 会自动注入 `<base href="huaianext://<pluginId>/">`，因此页面可以直接用相对路径或根路径引用插件目录中的 CSS、JS、图片、字体、JSON 等静态资源。
 
 ### storage
 
@@ -466,9 +466,17 @@ interface PluginScopes {
 设置页是一个独立 iframe：
 
 - 宿主会读取插件目录中的 HTML 文件。
-- 宿主会向 HTML 注入 `<base>`，方便使用相对路径加载插件静态资源。
+- 宿主会向 HTML 注入 `<base href="huaianext://<pluginId>/">`，方便使用相对路径加载插件静态资源。
 - 宿主会注入 `window.parentPluginApi`。
 - iframe 使用 sandbox，只允许脚本运行，不能直接访问 Electron、Node 或父窗口 DOM。
+
+这意味着设置页和工具设置页不需要打包成单个 HTML 文件。只要最终文件位于 `plugins/<pluginId>` 下，HTML 可以像普通前端项目一样拆分引用：
+
+```html
+<link rel="stylesheet" href="./assets/settings.css">
+<script type="module" src="./src/settings.js"></script>
+<img src="/images/logo.png" alt="">
+```
 
 设置页可用 API：
 

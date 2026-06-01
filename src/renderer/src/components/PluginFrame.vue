@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatSession, JsonRecord } from '../../../shared/types'
 import { asRecord, cloneJson } from '../../../shared/value-utils'
+import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
 const props = defineProps<{
   chat?: ChatSession
@@ -16,9 +17,12 @@ const emit = defineEmits<{
 }>()
 
 const frameId = Math.random().toString(36).slice(2)
+const { project } = useProjectWorkbench()
 const frameSrc = ref('')
 const currentChat = ref<ChatSession | null>(null)
 const currentCommonArgs = computed(() => asRecord(props.commonArgs))
+const debugMode = computed(() => Boolean(project.value?.config.debugMode))
+const debugFrameUrl = computed(() => window.electronAPI.pluginAssetUrl(props.pluginId, props.htmlPath))
 let frameObjectUrl = ''
 let mounted = false
 let loadToken = 0
@@ -78,7 +82,7 @@ function bridgeScript(): string {
 }
 
 function withBridge(html: string): string {
-  const base = `<base href="${window.electronAPI.pluginAssetUrl(props.pluginId, './')}">`
+  const base = `<base href="${window.electronAPI.pluginAssetUrl(props.pluginId, '')}">`
   const injected = `${base}${bridgeScript()}`
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head([^>]*)>/i, `<head$1>${injected}`)
   return `${injected}${html}`
@@ -244,10 +248,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <iframe class="plugin-frame" :data-plugin-frame="frameId" sandbox="allow-scripts allow-downloads" :src="frameSrc" />
+  <div class="plugin-frame-shell">
+    <iframe class="plugin-frame" :data-plugin-frame="frameId" sandbox="allow-scripts allow-downloads" :src="frameSrc" />
+    <span v-if="debugMode" class="plugin-frame-debug-label">{{ debugFrameUrl }}</span>
+  </div>
 </template>
 
 <style scoped>
+.plugin-frame-shell {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .plugin-frame {
   display: block;
   width: 100%;
@@ -256,5 +271,25 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   border: 0px;
   background: #ffffff;
+}
+
+.plugin-frame-debug-label {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  max-width: min(100%, 680px);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 4px 8px;
+  background: #d71920;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -6,7 +6,7 @@ import {
   MdClose,
   MdMoreVert,
   MdOpenInNew,
-  MdPostAdd,
+  MdSend,
   MdSmartToy,
   MdVisibility
 } from 'vue-icons-plus/md'
@@ -27,8 +27,7 @@ import ChatVirtualList from './ChatVirtualList.vue'
 import PluginFrame from './PluginFrame.vue'
 
 type ChatListItem =
-  | { type: 'block'; block: ChatBlock; sourceBlock: ChatBlock | null }
-  | { type: 'actions'; id: string }
+  { block: ChatBlock; sourceBlock: ChatBlock | null }
 
 interface ChatVirtualListExpose {
   isNearBottom: (threshold?: number) => boolean
@@ -59,6 +58,8 @@ const props = defineProps<{
 const listRef = ref<ChatVirtualListExpose | null>(null)
 const shouldFollow = ref(true)
 const titleDraft = ref('')
+const userInputDraft = ref('')
+const sendingUserMessage = ref(false)
 const menuOpen = ref(false)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
@@ -67,6 +68,7 @@ const replyPanelOpen = ref(false)
 const replyButtonRef = ref<HTMLButtonElement | null>(null)
 const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
+const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
 const collapsedBlockState = ref<Record<string, boolean>>({})
@@ -77,6 +79,9 @@ let displayRefreshVersion = 0
 
 const canGenerateReply = computed(() => Boolean(
   props.chat.runtimeConfig.llmInstanceId && !props.frozen
+))
+const canSendUserMessage = computed(() => (
+  userInputDraft.value.trim().length > 0 && !props.frozen && !sendingUserMessage.value
 ))
 const selectedLlmInstance = computed(() => {
   const id = props.chat.runtimeConfig.llmInstanceId
@@ -122,15 +127,14 @@ const blockAutoFollowSignature = computed(() => displayBlocks.value.map(block =>
 })).join('\u001f'))
 const chatListItems = computed<ChatListItem[]>(() => [
   ...displayBlocks.value.map((block): ChatListItem => ({
-    type: 'block',
     block,
     sourceBlock: block.metadata.virtual === true ? null : sourceBlockById.value.get(block.id) ?? block
-  })),
-  { type: 'actions', id: `chat-actions-${props.chat.id}` }
+  }))
 ])
 
 watch(() => props.chat.id, () => {
   titleDraft.value = props.chat.title
+  userInputDraft.value = ''
   blockRowRefs.clear()
   menuOpen.value = false
   replyPanelOpen.value = false
@@ -185,7 +189,7 @@ onBeforeUnmount(() => {
 })
 
 function chatListItemKey(item: ChatListItem) {
-  return item.type === 'block' ? blockStateKey(item.block) : item.id
+  return blockStateKey(item.block)
 }
 
 function blockStateKey(block: ChatBlock): string {
@@ -318,9 +322,9 @@ function updateReplyPanelPosition() {
   if (!button) return
 
   const rect = button.getBoundingClientRect()
-  const width = 420
   const gap = 8
   const margin = 8
+  const width = Math.min(420, window.innerWidth - margin * 2)
   const height = replyPanelRef.value?.offsetHeight ?? 360
   const left = Math.min(
     window.innerWidth - width - margin,
@@ -401,23 +405,6 @@ async function saveTitle() {
   })
 }
 
-async function addUserBlockForEditing() {
-  if (props.frozen) return
-  beforeListMutation()
-  const block = await props.createChatBlock({
-    chatId: props.chat.id,
-    kind: 'user',
-    enabled: true,
-    contentParts: [{ type: 'text', text: '' }],
-    metadata: {}
-  })
-  if (!block) return
-  await nextTick()
-  listRef.value?.scrollToBottom()
-  await nextTick()
-  blockRowRefs.get(block.id)?.startEdit()
-}
-
 function toolDefinitionPrompt(toolCall: PluginToolCallManifest): string {
   return toolCall.prompt?.trim() || `你可以使用 ${toolCall.label || toolCall.name}。`
 }
@@ -486,6 +473,45 @@ async function generateReply() {
   await props.startChatGeneration({ chatId: props.chat.id })
 }
 
+async function sendUserMessage() {
+  if (!canSendUserMessage.value) return
+  const text = userInputDraft.value.trim()
+  if (!text) return
+
+  sendingUserMessage.value = true
+  try {
+    replyPanelOpen.value = false
+    shouldFollow.value = true
+    await saveEditingBlocks()
+
+    const block = await props.createChatBlock({
+      chatId: props.chat.id,
+      kind: 'user',
+      enabled: true,
+      contentParts: [{ type: 'text', text }],
+      metadata: {}
+    })
+
+    if (!block) return
+
+    userInputDraft.value = ''
+    await nextTick()
+    listRef.value?.scrollToBottom()
+
+    if (props.chat.runtimeConfig.llmInstanceId) {
+      await props.startChatGeneration({ chatId: props.chat.id })
+    }
+  } finally {
+    sendingUserMessage.value = false
+  }
+}
+
+function handleComposerEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  void sendUserMessage()
+}
+
 async function regenerate(block: ChatBlock) {
   if (props.frozen) return
   beforeListMutation()
@@ -519,31 +545,50 @@ async function removeBlock(block: ChatBlock) {
     <ChatVirtualList ref="listRef" class="chat-block-list" :items="chatListItems" :item-key="chatListItemKey"
       :estimated-item-height="180" :buffer-size="6">
       <template #item="{ item: chatItem }">
-        <ChatBlockRow v-if="chatItem.type === 'block'" :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
+        <ChatBlockRow :ref="(element) => setBlockRowRef(chatItem.block.id, element)"
           :block="chatItem.block" :collapsed="isBlockCollapsed(chatItem.block)" :frozen="frozen"
           :plugins="plugins"
           :source-block="chatItem.sourceBlock || undefined"
           :preview-chat-generation="previewChatGeneration"
           @collapse-change="setBlockCollapsed(chatItem.block, chatItem.sourceBlock, $event)" @save="saveChatBlock" @delete="removeBlock"
           @regenerate="regenerate" @stop="stopChatGeneration" @insert-tool-definition="insertToolDefinitionBlock" />
-        <div v-else class="chat-action-strip">
-          <button class="md3-pill-button input-pill" type="button" :disabled="frozen" @click="addUserBlockForEditing">
-            <MdPostAdd class="button-icon" aria-hidden="true" />输入用户内容
-          </button>
+      </template>
+    </ChatVirtualList>
 
-          <div class="md3-pill-combo">
-            <button ref="replyButtonRef" class="md3-pill-combo-trigger config-trigger" type="button" :disabled="frozen"
-              @click.stop="toggleReplyPanel">
-              <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel }}</span>
-            </button>
-            <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
-              @click="generateReply">
-              生成回复
+    <footer class="chat-composer">
+      <form class="composer-form" @submit.prevent="sendUserMessage">
+        <textarea
+          ref="composerTextareaRef"
+          v-model="userInputDraft"
+          class="composer-input"
+          rows="2"
+          placeholder="输入用户内容"
+          :disabled="frozen || sendingUserMessage"
+          @keydown.enter.exact="handleComposerEnter"
+        />
+
+        <div class="composer-controls">
+          <div class="composer-left">
+            <div class="md3-pill-combo composer-llm-combo">
+              <button ref="replyButtonRef" class="md3-pill-combo-trigger config-trigger" type="button" :disabled="frozen"
+                @click.stop="toggleReplyPanel">
+                <MdSmartToy class="button-icon" aria-hidden="true" /><span class="button-label">{{ replyButtonLabel }}</span>
+              </button>
+              <button class="md3-pill-combo-trigger trailing" type="button" :disabled="!canGenerateReply"
+                @click="generateReply">
+                生成回复
+              </button>
+            </div>
+          </div>
+
+          <div class="composer-right">
+            <button class="send-button" type="submit" :disabled="!canSendUserMessage" aria-label="发送" data-tooltip="发送">
+              <MdSend class="send-icon" aria-hidden="true" />
             </button>
           </div>
         </div>
-      </template>
-    </ChatVirtualList>
+      </form>
+    </footer>
 
     <Teleport to="body">
       <div v-if="menuOpen" ref="menuRef" class="workspace-menu" :style="menuStyle" @click.stop>
@@ -663,7 +708,7 @@ async function removeBlock(block: ChatBlock) {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   overflow: hidden;
 }
@@ -694,19 +739,77 @@ async function removeBlock(block: ChatBlock) {
   overflow-y: hidden;
 }
 
-.chat-action-strip {
+.chat-composer {
   min-width: 0;
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  border-bottom: 1px solid #edf0f4;
+  border-top: 1px solid #dfe6ef;
   background: #ffffff;
-  padding: 14px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
-.md3-pill-button,
+.composer-form {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.composer-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  max-height: 136px;
+  resize: none;
+  overflow: auto;
+  border: 1px solid #cfd8e4;
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: #263242;
+  padding: 10px 12px;
+  line-height: 1.45;
+}
+
+.composer-input:focus {
+  outline: 2px solid #9fc1f6;
+  outline-offset: 0;
+  border-color: #6d9de3;
+  background: #ffffff;
+}
+
+.composer-input:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.composer-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-left,
+.composer-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.composer-left {
+  justify-content: flex-start;
+}
+
+.composer-right {
+  justify-content: flex-end;
+}
+
+.composer-llm-combo {
+  max-width: min(560px, 100%);
+}
+
+.composer-llm-combo .config-trigger {
+  flex: 1 1 auto;
+}
+
 .md3-pill-combo-trigger {
   min-width: 0;
   min-height: 40px;
@@ -718,21 +821,6 @@ async function removeBlock(block: ChatBlock) {
   font-weight: 600;
   padding: 0;
   white-space: nowrap;
-}
-
-.md3-pill-button {
-  border-radius: 999px;
-  padding: 0 18px 0 16px;
-  box-shadow: inset 0 0 0 1px rgba(24, 86, 63, 0.1);
-}
-
-.input-pill {
-  background: #e7f4ef;
-  color: #0f513a;
-}
-
-.input-pill:hover:not(:disabled) {
-  background: #dcefe7;
 }
 
 .md3-pill-combo {
@@ -770,7 +858,6 @@ async function removeBlock(block: ChatBlock) {
   background: rgba(47, 111, 202, 0.08);
 }
 
-.md3-pill-button:disabled,
 .md3-pill-combo-trigger:disabled {
   cursor: default;
   opacity: 0.5;
@@ -789,6 +876,65 @@ async function removeBlock(block: ChatBlock) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.send-button {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #216f54;
+  color: #ffffff;
+  padding: 0;
+  transition: background 140ms ease, opacity 140ms ease;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #185b45;
+}
+
+.send-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.send-button::after {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  pointer-events: none;
+  content: attr(data-tooltip);
+  opacity: 0;
+  transform: translateY(2px);
+  border-radius: 4px;
+  background: #30343a;
+  padding: 5px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.send-button:hover::after,
+.send-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.send-button:focus-visible {
+  outline: 2px solid #446bd7;
+  outline-offset: 2px;
+}
+
+.send-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .workspace-menu,
@@ -1025,5 +1171,23 @@ async function removeBlock(block: ChatBlock) {
   font: 12px/1.55 "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 760px) {
+  .chat-composer {
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .composer-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .composer-llm-combo {
+    width: 100%;
+  }
+
+  .config-trigger {
+    max-width: none;
+  }
 }
 </style>

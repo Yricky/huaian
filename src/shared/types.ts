@@ -59,11 +59,13 @@ export interface ChatBlockTokenUsage {
 export interface ProjectConfig {
   schemaVersion: number
   chatCreateDefaults: ChatCreationDefaults
+  debugMode: boolean
   plugins: PluginProjectConfig
 }
 
 export interface ProjectConfigUpdatePayload {
   chatCreateDefaults?: ChatCreationDefaults
+  debugMode?: boolean
   plugins?: PluginProjectConfig
 }
 

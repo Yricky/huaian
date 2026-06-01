@@ -79,11 +79,12 @@ const electronAPI = {
   deletePluginDataFile: (pluginId: string, path: string): Promise<void> =>
     ipcRenderer.invoke('plugin:deleteDataFile', pluginId, path),
   pluginAssetUrl: (pluginId: string, path: string): string => {
-    const cleanPath = path.replace(/\\/g, '/').replace(/^\/+/, '')
-    const encoded = [pluginId, ...cleanPath.split('/').filter(Boolean)]
+    const cleanPath = path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
+    const encodedPath = cleanPath.split('/')
+      .filter(part => part && part !== '.')
       .map(part => encodeURIComponent(part))
       .join('/')
-    return `st-forge-plugin:///${encoded}`
+    return `huaianext://${encodeURIComponent(pluginId)}/${encodedPath}`
   },
   onPluginToolCallRequest: (callback: (request: PluginToolCallRequest) => void): (() => void) => {
     const listener = (_: IpcRendererEvent, request: PluginToolCallRequest) => callback(request)
