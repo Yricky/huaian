@@ -4,16 +4,18 @@ import {
   textFromContentParts,
   type ChatBlock,
   type ChatGenerationPreviewMessage,
-  type ChatSession,
   type JsonRecord,
-  type LlmToolDefinition,
-  type PluginDescriptor,
   type PluginManifest,
   type PluginProcessorState,
-  type PluginToolCallManifest,
-  type PluginToolCallRequest
+  type PluginToolCallManifest
 } from '@st-forge/plugin-api'
-import type { ProjectSnapshot } from '../../shared/types'
+import type {
+  ChatSession,
+  LlmToolDefinition,
+  PluginDescriptor,
+  PluginToolCallRequest,
+  ProjectSnapshot
+} from '../../shared/types'
 import { asRecord, asString, cloneJson } from '../../shared/value-utils'
 import { invokePluginSandbox } from './pluginSandbox'
 
@@ -74,19 +76,18 @@ function pluginRuntimeSignature(project: ProjectSnapshot): string {
 function sandboxRuntime(project: ProjectSnapshot, plugins = activePlugins(project)): JsonRecord {
   return {
     signature: pluginRuntimeSignature(project),
-    projectPath: project.path,
     allPlugins: project.plugins,
     activePlugins: plugins
   }
 }
 
-function projectForPlugin(project: ProjectSnapshot): ProjectSnapshot {
-  const sanitized = cloneJson(project)
-  sanitized.llmProviders = sanitized.llmProviders.map(provider => ({
-    ...provider,
-    apiKey: ''
-  }))
-  return sanitized
+function chatForPlugin(chat: ChatSession): PluginProcessorState['chat'] {
+  return {
+    id: chat.id,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt
+  }
 }
 
 export async function ensurePluginRuntime(project: ProjectSnapshot): Promise<void> {
@@ -99,12 +100,11 @@ export async function preparePluginChatGeneration(
   blocks: ChatBlock[]
 ): Promise<PluginChatGenerationBundle> {
   const plugins = activePlugins(project, chat)
-  const pluginProject = projectForPlugin(project)
+  const pluginChat = chatForPlugin(chat)
   const state: PluginProcessorState = {
     blocks: cloneJson(blocks),
-    chat,
+    chat: pluginChat,
     messages: baseMessagesFromBlocks(blocks),
-    project: pluginProject,
     virtualBlocks: []
   }
   const metadata: JsonRecord = { plugins: plugins.map(plugin => plugin.manifest.id) }
@@ -112,9 +112,9 @@ export async function preparePluginChatGeneration(
   const result = asRecord(await invokePluginSandbox('preparePluginChatGeneration', {
     runtime: sandboxRuntime(project, plugins),
     blocks,
-    chat,
+    chat: pluginChat,
+    hostChat: chat,
     metadata,
-    project: pluginProject,
     state
   }))
   const resultMessages = Array.isArray(result.messages)

@@ -220,9 +220,6 @@ export default function initChat(context) {
 - `context.plugin`
 - `context.chat`
 - `context.blocks`
-- `context.project`
-
-其中 `context.project` 是项目快照的副本，LLM provider 的 `apiKey` 会被清空。
 
 ### chatBlockProcessor
 
@@ -252,7 +249,6 @@ export default function chatBlockProcessor(context) {
 | `blocks` | `ChatBlock[]` | 当前聊天块列表。 |
 | `chat` | `ChatSession` | 当前聊天。 |
 | `messages` | `ChatGenerationPreviewMessage[]` | 当前将发送给 LLM 的消息。初始值由基础聊天块转换而来。 |
-| `project` | `ProjectSnapshot` | 已清空 API Key 的项目快照。 |
 | `virtualBlocks` | `ChatBlock[]` | 当前虚拟块列表。 |
 
 `process` 可以返回：
@@ -417,7 +413,15 @@ interface PluginStorageApi {
 聊天数据 API：
 
 ```ts
+interface ChatSession {
+  id: number
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
 interface PluginChatApi {
+  getSession(): ChatSession | null
   getPluginData(): JsonRecord
   setPluginData(value: JsonRecord): Promise<ChatSession | null>
   getBlockPluginData(blockId: number): JsonRecord
@@ -425,7 +429,9 @@ interface PluginChatApi {
 }
 ```
 
-`getPluginData()` 读取当前聊天的 `chat.runtimeConfig.pluginData[pluginId]`。
+插件入口中的 `context.chat`、`state.chat` 和 `getSession()` 都只包含聊天 ID、标题和时间戳，不暴露宿主的完整运行时配置。
+
+`getPluginData()` 读取当前插件在当前聊天中的数据。
 
 `setPluginData(value)` 会把值写回当前聊天，并触发项目快照刷新。
 
@@ -449,13 +455,9 @@ interface PluginScopes {
 `myAppPlugins.global` 包含：
 
 - `base.plugins`：项目中全部插件 manifest 的 `Map`。
-- `base.projectPath`：当前项目路径。
 - 每个已初始化插件的 `initGlobal` 返回值，键为插件 ID。
 
-`myAppPlugins.chat` 包含：
-
-- `base.chatblocks`：当前输入聊天块。
-- 当前处理轮中每个插件的 `initChat` 返回值，键为插件 ID。
+`myAppPlugins.chat` 包含当前处理轮中每个插件的 `initChat` 返回值，键为插件 ID。
 
 依赖其他插件时，应在 `dependencies` 中声明依赖，并在读取共享 API 时做类型检查。插件缺失、禁用或版本不兼容时，应给出清晰错误。
 
@@ -608,9 +610,7 @@ export default function handler(context, myAppPlugins) {
 
 ```ts
 interface PluginToolCallRequest {
-  requestId: string
   chatId: number
-  pluginId: string
   toolCallName: string
   toolName: string
   input: Record<string, unknown>

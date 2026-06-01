@@ -1,9 +1,8 @@
 import {
-  chatBlockMetadataForStorage,
   chatBlockTargetRole,
   normalizeChatBlockTargetRole
 } from '@st-forge/plugin-api/chat-blocks'
-import type { ChatBlock, JsonRecord } from './types'
+import type { ChatBlock, ChatBlockKind, JsonRecord } from './types'
 import { asRecord, asString } from './value-utils'
 
 type ChatBlockDisplayLike = Pick<ChatBlock, 'kind' | 'metadata' | 'status'>
@@ -24,7 +23,17 @@ function metadataRecords(value: unknown): JsonRecord[] {
     : []
 }
 
-export { chatBlockMetadataForStorage, chatBlockTargetRole, normalizeChatBlockTargetRole }
+export { chatBlockTargetRole, normalizeChatBlockTargetRole }
+
+export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unknown): JsonRecord {
+  const next = { ...asRecord(metadata) }
+  if (kind === 'injection') {
+    next.targetRole = normalizeChatBlockTargetRole(next.targetRole)
+  } else {
+    delete next.targetRole
+  }
+  return next
+}
 
 export function chatBlockTitle(block: ChatBlockDisplayLike, options: ChatBlockDisplayOptions = {}): string {
   if (block.kind === 'injection') return '注入内容'

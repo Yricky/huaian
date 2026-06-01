@@ -5,7 +5,7 @@ import { buildSillyTavernLikePrompt } from './st-prompt-builder'
 export default function chatBlockProcessor(context: PluginRuntimeContext) {
   return {
     async process(state: PluginProcessorState) {
-      const data = await loadSillyTavernCompatData(context.api.storage, state.chat)
+      const data = await loadSillyTavernCompatData(context.api.storage, state.chat, context.api.chat.getPluginData())
       const prompt = buildSillyTavernLikePrompt({
         chat: {
           ...state.chat,

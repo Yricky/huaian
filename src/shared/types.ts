@@ -1,44 +1,106 @@
 import type {
   ChatBlock,
+  ChatBlockKind,
   ChatContentPart,
-  ChatCreationDefaults,
-  ChatRuntimeConfig,
-  ChatSession,
+  ChatGenerationPreviewMessage,
   JsonRecord,
-  PluginDescriptor,
-  PluginProjectConfig
+  PluginManifest,
+  PluginToolCallRequest as PluginHandlerToolCallRequest
 } from '@st-forge/plugin-api'
 
 export type {
   ChatBlock,
-  ChatBlockCreatePayload,
   ChatBlockKind,
   ChatBlockStatus,
   ChatBlockTargetRole,
-  ChatBlockUpdatePayload,
   ChatContentPart,
-  ChatCreationDefaults,
   ChatGenerationPreviewMessage,
-  ChatGenerationRequest,
-  ChatRuntimeConfig,
-  ChatSession,
-  IpcJsonPayload,
   JsonRecord,
-  LlmToolDefinition,
-  PluginDescriptor,
   PluginFileEntry,
   PluginManifest,
   PluginManifestEntry,
-  PluginProjectConfig,
   PluginToolCallManifest,
-  PluginToolCallRequest,
-  PluginToolCallResponse,
   PluginToolSchema,
   ReasoningContentPart,
   TextContentPart,
   ToolCallContentPart,
   ToolCallContentPartStatus
 } from '@st-forge/plugin-api'
+
+export interface PluginDescriptor {
+  manifest: PluginManifest
+  source: 'project'
+}
+
+export interface PluginProjectConfig {
+  enabledPluginIds: string[]
+}
+
+export interface ChatCreationDefaults {
+  enabledPluginIds: string[]
+}
+
+export interface ChatRuntimeConfig {
+  llmInstanceId: number | null
+  enabledPluginIds: string[]
+  pluginData: JsonRecord
+}
+
+export interface ChatSession {
+  id: number
+  title: string
+  runtimeConfig: ChatRuntimeConfig
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChatBlockCreatePayload {
+  chatId: number
+  kind: ChatBlockKind
+  enabled?: boolean
+  contentParts: ChatContentPart[]
+  metadata?: JsonRecord
+  insertRelativeBlockId?: number | null
+  insertPlacement?: 'before' | 'after' | null
+}
+
+export interface ChatBlockUpdatePayload {
+  id: number
+  enabled?: boolean
+  contentParts?: ChatContentPart[]
+  metadata?: JsonRecord
+}
+
+export interface LlmToolDefinition {
+  pluginId: string
+  toolCallName: string
+  toolName: string
+  description: string
+  inputSchema: JsonRecord
+  commonArgs: JsonRecord
+}
+
+export interface ChatGenerationRequest {
+  chatId: number
+  regenerateBlockId?: number | null
+  messages?: ChatGenerationPreviewMessage[]
+  toolDefinitions?: LlmToolDefinition[]
+  promptMetadata?: JsonRecord
+}
+
+export interface PluginToolCallRequest extends PluginHandlerToolCallRequest {
+  requestId: string
+  pluginId: string
+}
+
+export interface PluginToolCallResponse {
+  requestId: string
+  ok: boolean
+  output?: unknown
+  error?: string
+}
+
+export type IpcJsonPayload<T> = T | string
 
 export interface ChatBlockTokenUsage {
   inputTokens?: number | null

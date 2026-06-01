@@ -33,11 +33,6 @@ export interface PluginManifest {
   entry?: PluginManifestEntry
 }
 
-export interface PluginDescriptor {
-  manifest: PluginManifest
-  source: 'project'
-}
-
 export interface PluginFileEntry {
   name: string
   path: string
@@ -45,24 +40,9 @@ export interface PluginFileEntry {
   size?: number
 }
 
-export interface PluginProjectConfig {
-  enabledPluginIds: string[]
-}
-
-export interface ChatCreationDefaults {
-  enabledPluginIds: string[]
-}
-
-export interface ChatRuntimeConfig {
-  llmInstanceId: number | null
-  enabledPluginIds: string[]
-  pluginData: JsonRecord
-}
-
 export interface ChatSession {
   id: number
   title: string
-  runtimeConfig: ChatRuntimeConfig
   createdAt: string
   updatedAt: string
 }
@@ -115,61 +95,18 @@ export interface ChatBlock {
   updatedAt: string
 }
 
-export interface ChatBlockCreatePayload {
-  chatId: number
-  kind: ChatBlockKind
-  enabled?: boolean
-  contentParts: ChatContentPart[]
-  metadata?: JsonRecord
-  insertRelativeBlockId?: number | null
-  insertPlacement?: 'before' | 'after' | null
-}
-
-export interface ChatBlockUpdatePayload {
-  id: number
-  enabled?: boolean
-  contentParts?: ChatContentPart[]
-  metadata?: JsonRecord
-}
-
-export interface ChatGenerationRequest {
-  chatId: number
-  regenerateBlockId?: number | null
-  messages?: ChatGenerationPreviewMessage[]
-  toolDefinitions?: LlmToolDefinition[]
-  promptMetadata?: JsonRecord
-}
-
 export interface ChatGenerationPreviewMessage {
   role: 'system' | 'user' | 'assistant'
   content: string | ChatContentPart[]
   blockId?: number
 }
 
-export interface LlmToolDefinition {
-  pluginId: string
-  toolCallName: string
-  toolName: string
-  description: string
-  inputSchema: JsonRecord
-  commonArgs: JsonRecord
-}
-
 export interface PluginToolCallRequest {
-  requestId: string
   chatId: number
-  pluginId: string
   toolCallName: string
   toolName: string
   input: JsonRecord
   commonArgs: JsonRecord
-}
-
-export interface PluginToolCallResponse {
-  requestId: string
-  ok: boolean
-  output?: unknown
-  error?: string
 }
 
 export interface PluginStorageApi {
@@ -215,14 +152,12 @@ export interface PluginRuntimeContext {
   plugin: PluginManifest
   chat?: ChatSession
   blocks?: ChatBlock[]
-  project?: unknown
 }
 
 export interface PluginProcessorState {
   blocks: ChatBlock[]
   chat: ChatSession
   messages: ChatGenerationPreviewMessage[]
-  project: unknown
   virtualBlocks: ChatBlock[]
 }
 
@@ -241,5 +176,3 @@ export interface PluginChatBlockProcessor {
 export interface PluginToolHandler {
   handle(request: PluginToolCallRequest): Promise<unknown> | unknown
 }
-
-export type IpcJsonPayload<T> = T | string

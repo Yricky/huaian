@@ -80,13 +80,9 @@ function scopedVariableOptions(options: unknown, scope: VariableScopeName): Json
     : { ...record, defaults, scope }
 }
 
-function chatPluginData(state: PluginProcessorState, pluginId: string): JsonRecord {
-  return asRecord(asRecord(state.chat.runtimeConfig.pluginData)[pluginId])
-}
-
-function variableScopes(config: JsonRecord, state: PluginProcessorState, pluginId: string): VariableScopes {
+function variableScopes(config: JsonRecord, pluginData: JsonRecord): VariableScopes {
   const global = asRecord(config.globalVariables)
-  const local = asRecord(chatPluginData(state, pluginId)[VARIABLE_SCOPE_KEY])
+  const local = asRecord(pluginData[VARIABLE_SCOPE_KEY])
   return {
     global,
     local,
@@ -196,7 +192,7 @@ export default function chatBlockProcessor(context: PluginRuntimeContext) {
         globalVariables: {}
       }))
       if (config.enabled === false || config.renderMessages === false) return {}
-      const scopes = variableScopes(config, state, context.plugin.id)
+      const scopes = variableScopes(config, context.api.chat.getPluginData())
       const messages = await Promise.all(state.messages.map((message, messageIndex) => (
         renderMessageContent(message, scopes, {
           chatId: state.chat.id,

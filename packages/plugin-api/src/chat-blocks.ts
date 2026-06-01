@@ -1,10 +1,8 @@
 import type {
   ChatBlock,
-  ChatBlockKind,
   ChatBlockTargetRole,
   ChatContentPart,
-  ChatGenerationPreviewMessage,
-  JsonRecord
+  ChatGenerationPreviewMessage
 } from './types'
 import { asRecord } from './value-utils'
 
@@ -19,16 +17,6 @@ export function chatBlockTargetRole(block: ChatBlockLike): ChatBlockTargetRole {
   if (block.kind === 'user' || block.kind === 'assistant' || block.kind === 'system') return block.kind
   if (block.kind === 'tool_definition') return 'system'
   return normalizeChatBlockTargetRole(block.metadata.targetRole)
-}
-
-export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unknown): JsonRecord {
-  const next = { ...asRecord(metadata) }
-  if (kind === 'injection') {
-    next.targetRole = normalizeChatBlockTargetRole(next.targetRole)
-  } else {
-    delete next.targetRole
-  }
-  return next
 }
 
 export function textFromContentParts(parts: ChatContentPart[]): string {

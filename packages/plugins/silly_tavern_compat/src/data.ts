@@ -1,4 +1,4 @@
-import type { ChatRuntimeConfig, ChatSession, JsonRecord, PluginStorageApi } from '@st-forge/plugin-api'
+import type { ChatSession, JsonRecord, PluginStorageApi } from '@st-forge/plugin-api'
 import { asRecord, asString, cloneJson } from '@st-forge/plugin-api'
 import type { CharacterEntry, LoreBook, PluginFileRecord, WorldEntry } from './types'
 
@@ -9,7 +9,7 @@ const DEFAULT_ROLE = 0
 const WORLD_INFO_POSITION_BEFORE = 0
 const WORLD_INFO_POSITION_AFTER = 1
 
-export type SillyTavernRuntimeConfig = ChatRuntimeConfig & {
+export interface SillyTavernRuntimeConfig {
   characterId: number | null
   loreBookIds: number[]
   characterRegexScriptsEnabled: boolean
@@ -226,12 +226,12 @@ export async function loadJsonRecords(storage: PluginStorageApi, directory: stri
   return records.filter((record): record is PluginFileRecord => record !== null)
 }
 
-export async function loadSillyTavernCompatData(storage: PluginStorageApi, chat: ChatSession) {
+export async function loadSillyTavernCompatData(storage: PluginStorageApi, chat: ChatSession, configValue: JsonRecord) {
   const [characterRecords, worldBookRecords] = await Promise.all([
     loadJsonRecords(storage, 'characters'),
     loadJsonRecords(storage, 'worldbooks')
   ])
-  const config = asRecord(asRecord(chat.runtimeConfig.pluginData).silly_tavern_compat)
+  const config = asRecord(configValue)
   const characterFile = asString(config.characterFile)
   const worldBookFiles = Array.isArray(config.worldBookFiles) ? config.worldBookFiles.map(String) : []
   const characters = characterRecords.map((record, index) => normalizeCharacter(record, index + 1))
@@ -282,7 +282,6 @@ export async function loadSillyTavernCompatData(storage: PluginStorageApi, chat:
     })
     .filter(id => id > 0)
   const runtimeConfig: SillyTavernRuntimeConfig = {
-    ...chat.runtimeConfig,
     characterId: characters.some(character => character.id === characterId) ? characterId : characters[0]?.id ?? null,
     loreBookIds: selectedWorldBookIds,
     characterRegexScriptsEnabled: true,
