@@ -1,4 +1,5 @@
-import type { HaExtApi, HaExtApiInstallOptions, JsonRecord, PluginFileEntry } from './types'
+import { PLUGIN_FRAME_API_METHODS } from './types'
+import type { HaExtApi, HaExtApiInstallOptions, JsonRecord, PluginFileEntry, PluginFrameApiMethod } from './types'
 
 const CLIENT_SOURCE = 'ha-ext-api-client'
 const HOST_SOURCE = 'ha-ext-api-host'
@@ -75,7 +76,7 @@ export function createHaExtApiClient(options: InstallOptions = {}): HaExtApi {
     resolvePortWaiters(apiPort)
   }
 
-  function call(method: string, args: unknown[]): Promise<unknown> {
+  function call(method: PluginFrameApiMethod, args: unknown[]): Promise<unknown> {
     const id = ++nextId
     return waitForPort().then(port => {
       port.postMessage({
@@ -102,53 +103,65 @@ export function createHaExtApiClient(options: InstallOptions = {}): HaExtApi {
       return `ha-ext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
     },
     storage: {
-      list: (path?: string) => call('storage.list', [path || '']) as Promise<PluginFileEntry[]>,
+      list: (path?: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_LIST, [path || '']) as Promise<PluginFileEntry[]>,
       listFor: (targetPluginId: string, path?: string) => (
-        call('storage.listFor', [targetPluginId, path || '']) as Promise<PluginFileEntry[]>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_LIST_FOR, [targetPluginId, path || '']) as Promise<PluginFileEntry[]>
       ),
-      readText: (path: string) => call('storage.readText', [path]) as Promise<string>,
+      readText: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT, [path]) as Promise<string>,
       readTextFor: (targetPluginId: string, path: string) => (
-        call('storage.readTextFor', [targetPluginId, path]) as Promise<string>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT_FOR, [targetPluginId, path]) as Promise<string>
       ),
-      readBase64: (path: string) => call('storage.readBase64', [path]) as Promise<string>,
+      readBase64: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64, [path]) as Promise<string>,
       readBase64For: (targetPluginId: string, path: string) => (
-        call('storage.readBase64For', [targetPluginId, path]) as Promise<string>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64_FOR, [targetPluginId, path]) as Promise<string>
       ),
-      writeText: (path: string, content: string) => call('storage.writeText', [path, content]) as Promise<void>,
+      writeText: (path: string, content: string) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT, [path, content]) as Promise<void>
+      ),
       writeTextFor: (targetPluginId: string, path: string, content: string) => (
-        call('storage.writeTextFor', [targetPluginId, path, content]) as Promise<void>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT_FOR, [targetPluginId, path, content]) as Promise<void>
       ),
-      writeBase64: (path: string, content: string) => call('storage.writeBase64', [path, content]) as Promise<void>,
+      writeBase64: (path: string, content: string) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64, [path, content]) as Promise<void>
+      ),
       writeBase64For: (targetPluginId: string, path: string, content: string) => (
-        call('storage.writeBase64For', [targetPluginId, path, content]) as Promise<void>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64_FOR, [targetPluginId, path, content]) as Promise<void>
       ),
-      delete: (path: string) => call('storage.delete', [path]) as Promise<void>,
+      delete: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_DELETE, [path]) as Promise<void>,
       deleteFor: (targetPluginId: string, path: string) => (
-        call('storage.deleteFor', [targetPluginId, path]) as Promise<void>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_DELETE_FOR, [targetPluginId, path]) as Promise<void>
       ),
-      readJson: (path: string, fallback?: unknown) => call('storage.readJson', [path, fallback]),
+      readJson: (path: string, fallback?: unknown) => call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_JSON, [path, fallback]),
       readJsonFor: (targetPluginId: string, path: string, fallback?: unknown) => (
-        call('storage.readJsonFor', [targetPluginId, path, fallback])
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_JSON_FOR, [targetPluginId, path, fallback])
       ),
-      writeJson: (path: string, value: unknown) => call('storage.writeJson', [path, value]) as Promise<void>,
+      writeJson: (path: string, value: unknown) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_JSON, [path, value]) as Promise<void>
+      ),
       writeJsonFor: (targetPluginId: string, path: string, value: unknown) => (
-        call('storage.writeJsonFor', [targetPluginId, path, value]) as Promise<void>
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_JSON_FOR, [targetPluginId, path, value]) as Promise<void>
       )
     }
   }
 
   if (options.chat) {
     api.chat = {
-      getSession: () => call('chat.getSession', []) as ReturnType<NonNullable<HaExtApi['chat']>['getSession']>,
-      getPluginData: () => call('chat.getPluginData', []) as Promise<JsonRecord>,
-      setPluginData: (value: JsonRecord) => call('chat.setPluginData', [value]) as Promise<JsonRecord>
+      getSession: () => (
+        call(PLUGIN_FRAME_API_METHODS.CHAT_GET_SESSION, []) as ReturnType<NonNullable<HaExtApi['chat']>['getSession']>
+      ),
+      getPluginData: () => call(PLUGIN_FRAME_API_METHODS.CHAT_GET_PLUGIN_DATA, []) as Promise<JsonRecord>,
+      setPluginData: (value: JsonRecord) => (
+        call(PLUGIN_FRAME_API_METHODS.CHAT_SET_PLUGIN_DATA, [value]) as Promise<JsonRecord>
+      )
     }
   }
 
   if (options.toolSettings) {
     api.toolSettings = {
-      getCommonArgs: () => call('toolSettings.getCommonArgs', []) as Promise<JsonRecord>,
-      setCommonArgs: (value: JsonRecord) => call('toolSettings.setCommonArgs', [value]) as Promise<JsonRecord>
+      getCommonArgs: () => call(PLUGIN_FRAME_API_METHODS.TOOL_SETTINGS_GET_COMMON_ARGS, []) as Promise<JsonRecord>,
+      setCommonArgs: (value: JsonRecord) => (
+        call(PLUGIN_FRAME_API_METHODS.TOOL_SETTINGS_SET_COMMON_ARGS, [value]) as Promise<JsonRecord>
+      )
     }
   }
 

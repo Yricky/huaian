@@ -4,9 +4,9 @@ import type {
   ChatContentPart,
   ChatGenerationPreviewMessage,
   JsonRecord,
-  MixedChatBlock,
   OriginalChatBlock,
   ProcessingChat,
+  PluginFrameApiMethod,
   PluginGlobalExport,
   PluginManifest,
   PluginToolCallDefinition,
@@ -29,6 +29,7 @@ export type {
   OriginalChatBlock,
   ProcessingChat,
   PluginFileEntry,
+  PluginFrameApiMethod,
   PluginGlobalExport,
   PluginGlobalRegistry,
   PluginManifest,
@@ -42,6 +43,8 @@ export type {
   ToolCallContentPart,
   ToolCallContentPartStatus
 } from '@huaian/plugin-api'
+
+export { PLUGIN_FRAME_API_METHODS } from '@huaian/plugin-api'
 
 export interface PluginDescriptor {
   manifest: PluginManifest
@@ -414,29 +417,6 @@ export type PluginWorkerHostCallMethod =
   | 'frame.toolSettings.getCommonArgs'
   | 'frame.toolSettings.setCommonArgs'
 
-export type PluginFrameApiMethod =
-  | 'storage.list'
-  | 'storage.listFor'
-  | 'storage.readText'
-  | 'storage.readTextFor'
-  | 'storage.readBase64'
-  | 'storage.readBase64For'
-  | 'storage.writeText'
-  | 'storage.writeTextFor'
-  | 'storage.writeBase64'
-  | 'storage.writeBase64For'
-  | 'storage.delete'
-  | 'storage.deleteFor'
-  | 'storage.readJson'
-  | 'storage.readJsonFor'
-  | 'storage.writeJson'
-  | 'storage.writeJsonFor'
-  | 'chat.getSession'
-  | 'chat.getPluginData'
-  | 'chat.setPluginData'
-  | 'toolSettings.getCommonArgs'
-  | 'toolSettings.setCommonArgs'
-
 export interface PluginFrameCapabilities {
   chat?: boolean
   toolSettings?: boolean
@@ -444,50 +424,50 @@ export interface PluginFrameCapabilities {
 
 export type PluginHostToWorkerMessage =
   | {
-      source: 'ha-ext-worker-host'
-      type: 'invoke'
-      id: number
-      method: PluginRuntimeWorkerMethod
-      args: PluginRuntimeWorkerArgs<PluginRuntimeWorkerMethod>
-    }
+    source: 'ha-ext-worker-host'
+    type: 'invoke'
+    id: number
+    method: PluginRuntimeWorkerMethod
+    args: PluginRuntimeWorkerArgs<PluginRuntimeWorkerMethod>
+  }
   | {
-      source: 'ha-ext-worker-host'
-      type: 'host-response'
-      id: number
-      ok: boolean
-      value: JsonRecordValue
-      error: string
-    }
+    source: 'ha-ext-worker-host'
+    type: 'host-response'
+    id: number
+    ok: boolean
+    value: JsonRecordValue
+    error: string
+  }
   | {
-      source: 'ha-ext-worker-host'
-      type: 'connect-frame'
-      frameId: string
-      pluginId: string
-      capabilities: PluginFrameCapabilities
-    }
+    source: 'ha-ext-worker-host'
+    type: 'connect-frame'
+    frameId: string
+    pluginId: string
+    capabilities: PluginFrameCapabilities
+  }
   | {
-      source: 'ha-ext-worker-host'
-      type: 'disconnect-frame'
-      frameId: string
-    }
+    source: 'ha-ext-worker-host'
+    type: 'disconnect-frame'
+    frameId: string
+  }
 
 export type PluginWorkerToHostMessage =
   | { source: 'ha-ext-worker'; type: 'ready' }
   | {
-      source: 'ha-ext-worker'
-      type: 'host-call'
-      id: number
-      method: PluginWorkerHostCallMethod
-      args: JsonRecord
-    }
+    source: 'ha-ext-worker'
+    type: 'host-call'
+    id: number
+    method: PluginWorkerHostCallMethod
+    args: JsonRecord
+  }
   | {
-      source: 'ha-ext-worker'
-      type: 'response'
-      id: number
-      ok: boolean
-      value: JsonRecordValue
-      error: string
-    }
+    source: 'ha-ext-worker'
+    type: 'response'
+    id: number
+    ok: boolean
+    value: JsonRecordValue
+    error: string
+  }
 
 export type MessageWithoutSource<T> = T extends { source: string } ? Omit<T, 'source'> : never
 export type PluginHostToWorkerPayload = MessageWithoutSource<PluginHostToWorkerMessage>
@@ -495,20 +475,20 @@ export type PluginWorkerToHostPayload = MessageWithoutSource<PluginWorkerToHostM
 
 export type PluginFrameHostMessage =
   | {
-      source: 'ha-ext-api-host'
-      type: 'connect'
-      frameId: string
-      pluginId: string
-      capabilities: PluginFrameCapabilities
-    }
+    source: 'ha-ext-api-host'
+    type: 'connect'
+    frameId: string
+    pluginId: string
+    capabilities: PluginFrameCapabilities
+  }
   | {
-      source: 'ha-ext-api-host'
-      type: 'response'
-      id: number
-      ok: boolean
-      value: JsonRecordValue
-      error: string
-    }
+    source: 'ha-ext-api-host'
+    type: 'response'
+    id: number
+    ok: boolean
+    value: JsonRecordValue
+    error: string
+  }
 
 export interface PluginFrameClientCallMessage {
   source: 'ha-ext-api-client'

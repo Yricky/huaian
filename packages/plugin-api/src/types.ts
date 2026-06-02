@@ -170,6 +170,33 @@ export interface HaExtApiInstallOptions {
   toolSettings?: boolean
 }
 
+export const PLUGIN_FRAME_API_METHODS = {
+  STORAGE_LIST: 'storage.list',
+  STORAGE_LIST_FOR: 'storage.listFor',
+  STORAGE_READ_TEXT: 'storage.readText',
+  STORAGE_READ_TEXT_FOR: 'storage.readTextFor',
+  STORAGE_READ_BASE64: 'storage.readBase64',
+  STORAGE_READ_BASE64_FOR: 'storage.readBase64For',
+  STORAGE_WRITE_TEXT: 'storage.writeText',
+  STORAGE_WRITE_TEXT_FOR: 'storage.writeTextFor',
+  STORAGE_WRITE_BASE64: 'storage.writeBase64',
+  STORAGE_WRITE_BASE64_FOR: 'storage.writeBase64For',
+  STORAGE_DELETE: 'storage.delete',
+  STORAGE_DELETE_FOR: 'storage.deleteFor',
+  STORAGE_READ_JSON: 'storage.readJson',
+  STORAGE_READ_JSON_FOR: 'storage.readJsonFor',
+  STORAGE_WRITE_JSON: 'storage.writeJson',
+  STORAGE_WRITE_JSON_FOR: 'storage.writeJsonFor',
+  CHAT_GET_SESSION: 'chat.getSession',
+  CHAT_GET_PLUGIN_DATA: 'chat.getPluginData',
+  CHAT_SET_PLUGIN_DATA: 'chat.setPluginData',
+  TOOL_SETTINGS_GET_COMMON_ARGS: 'toolSettings.getCommonArgs',
+  TOOL_SETTINGS_SET_COMMON_ARGS: 'toolSettings.setCommonArgs'
+} as const
+
+export type PluginFrameApiMethod =
+  (typeof PLUGIN_FRAME_API_METHODS)[keyof typeof PLUGIN_FRAME_API_METHODS]
+
 export interface PluginRuntimeContext {
   haExtApi: HaExtApi
   plugin: PluginManifest

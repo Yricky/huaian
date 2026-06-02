@@ -22,6 +22,7 @@ import type {
   PluginToolCallDefinition,
   ProcessingChat
 } from '../../../shared/types'
+import { PLUGIN_FRAME_API_METHODS } from '../../../shared/types'
 import { asRecord, asString } from '../../../shared/value-utils'
 
 const HOST_SOURCE = 'ha-ext-worker-host'
@@ -220,20 +221,6 @@ function toolHandlerByName(pluginId: string, toolCallName: string): NonNullable<
   return null
 }
 
-function normalizePluginGlobalExport(value: JsonRecordValue, pluginId: string): PluginGlobalExport {
-  const record = asRecord(value)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`插件 ${pluginId} 的 initGlobal 必须返回对象。`)
-  }
-  return {
-    settingsHtml: asString(record.settingsHtml) || undefined,
-    chatHtml: asString(record.chatHtml) || undefined,
-    chatBlockProcessor: record.chatBlockProcessor as PluginGlobalExport['chatBlockProcessor'],
-    toolCalls: asRecord(record.toolCalls) as PluginGlobalExport['toolCalls'],
-    exports: asRecord(record.exports)
-  }
-}
-
 function isModuleScript(code: string): boolean {
   return /^\s*import\s/m.test(code) || /\bexport\s+(default|\{|\*)/.test(code)
 }
@@ -273,10 +260,10 @@ async function ensurePluginRuntime(input: PluginRuntimeWorkerArgs<'ensurePluginR
     const plugin = descriptor.manifest
     const initGlobal = plugin.entry?.initGlobal
     const context: PluginRuntimeContext = { haExtApi: haExtApiForPlugin(plugin.id), plugin }
-    const globalExport = initGlobal
+    const globalExport: PluginGlobalExport = initGlobal
       ? await executePluginScript(plugin, initGlobal, context, pluginRegistry)
       : { exports: {} }
-    pluginGlobals[plugin.id] = normalizePluginGlobalExport(globalExport, plugin.id)
+    pluginGlobals[plugin.id] = globalExport
   }
   loadedProjectSignature = signature
 }
@@ -377,48 +364,48 @@ async function handlePluginToolCallRequest(
 async function callFrameMethod(frameId: string, method: PluginFrameApiMethod, args: JsonRecordValue[]): Promise<JsonRecordValue> {
   const frame = frames.get(frameId)
   if (!frame) throw new Error('插件页面上下文不存在。')
-  if (method === 'storage.list') return callHost('storage.list', { pluginId: frame.pluginId, path: String(args[0] ?? '') })
-  if (method === 'storage.listFor') return callHost('storage.list', { pluginId: String(args[0]), path: String(args[1] ?? '') })
-  if (method === 'storage.readText') return callHost('storage.readText', { pluginId: frame.pluginId, path: String(args[0]) })
-  if (method === 'storage.readTextFor') return callHost('storage.readText', { pluginId: String(args[0]), path: String(args[1]) })
-  if (method === 'storage.readBase64') return callHost('storage.readBase64', { pluginId: frame.pluginId, path: String(args[0]) })
-  if (method === 'storage.readBase64For') return callHost('storage.readBase64', { pluginId: String(args[0]), path: String(args[1]) })
-  if (method === 'storage.writeText') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_LIST) return callHost('storage.list', { pluginId: frame.pluginId, path: String(args[0] ?? '') })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_LIST_FOR) return callHost('storage.list', { pluginId: String(args[0]), path: String(args[1] ?? '') })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT) return callHost('storage.readText', { pluginId: frame.pluginId, path: String(args[0]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT_FOR) return callHost('storage.readText', { pluginId: String(args[0]), path: String(args[1]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64) return callHost('storage.readBase64', { pluginId: frame.pluginId, path: String(args[0]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64_FOR) return callHost('storage.readBase64', { pluginId: String(args[0]), path: String(args[1]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT) {
     return callHost('storage.writeText', { pluginId: frame.pluginId, path: String(args[0]), content: String(args[1] ?? '') })
   }
-  if (method === 'storage.writeTextFor') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT_FOR) {
     return callHost('storage.writeText', { pluginId: String(args[0]), path: String(args[1]), content: String(args[2] ?? '') })
   }
-  if (method === 'storage.writeBase64') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64) {
     return callHost('storage.writeBase64', { pluginId: frame.pluginId, path: String(args[0]), content: String(args[1] ?? '') })
   }
-  if (method === 'storage.writeBase64For') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64_FOR) {
     return callHost('storage.writeBase64', { pluginId: String(args[0]), path: String(args[1]), content: String(args[2] ?? '') })
   }
-  if (method === 'storage.delete') return callHost('storage.delete', { pluginId: frame.pluginId, path: String(args[0]) })
-  if (method === 'storage.deleteFor') return callHost('storage.delete', { pluginId: String(args[0]), path: String(args[1]) })
-  if (method === 'storage.readJson') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_DELETE) return callHost('storage.delete', { pluginId: frame.pluginId, path: String(args[0]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_DELETE_FOR) return callHost('storage.delete', { pluginId: String(args[0]), path: String(args[1]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_JSON) {
     try {
       return JSON.parse(String(await callHost('storage.readText', { pluginId: frame.pluginId, path: String(args[0]) })))
     } catch {
       return args[1] ?? {}
     }
   }
-  if (method === 'storage.readJsonFor') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_JSON_FOR) {
     try {
       return JSON.parse(String(await callHost('storage.readText', { pluginId: String(args[0]), path: String(args[1]) })))
     } catch {
       return args[2] ?? {}
     }
   }
-  if (method === 'storage.writeJson') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_JSON) {
     return callHost('storage.writeText', {
       pluginId: frame.pluginId,
       path: String(args[0]),
       content: `${JSON.stringify(args[1] ?? {}, null, 2)}\n`
     })
   }
-  if (method === 'storage.writeJsonFor') {
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_JSON_FOR) {
     return callHost('storage.writeText', {
       pluginId: String(args[0]),
       path: String(args[1]),
@@ -428,15 +415,15 @@ async function callFrameMethod(frameId: string, method: PluginFrameApiMethod, ar
 
   if (method.startsWith('chat.')) {
     if (!frame.capabilities.chat) throw new Error('当前插件页面没有聊天 API。')
-    if (method === 'chat.getSession') return callHost('frame.chat.getSession', { frameId })
-    if (method === 'chat.getPluginData') return callHost('frame.chat.getPluginData', { frameId })
-    if (method === 'chat.setPluginData') return callHost('frame.chat.setPluginData', { frameId, value: asRecord(args[0]) })
+    if (method === PLUGIN_FRAME_API_METHODS.CHAT_GET_SESSION) return callHost('frame.chat.getSession', { frameId })
+    if (method === PLUGIN_FRAME_API_METHODS.CHAT_GET_PLUGIN_DATA) return callHost('frame.chat.getPluginData', { frameId })
+    if (method === PLUGIN_FRAME_API_METHODS.CHAT_SET_PLUGIN_DATA) return callHost('frame.chat.setPluginData', { frameId, value: asRecord(args[0]) })
   }
 
   if (method.startsWith('toolSettings.')) {
     if (!frame.capabilities.toolSettings) throw new Error('当前插件页面没有工具设置 API。')
-    if (method === 'toolSettings.getCommonArgs') return callHost('frame.toolSettings.getCommonArgs', { frameId })
-    if (method === 'toolSettings.setCommonArgs') {
+    if (method === PLUGIN_FRAME_API_METHODS.TOOL_SETTINGS_GET_COMMON_ARGS) return callHost('frame.toolSettings.getCommonArgs', { frameId })
+    if (method === PLUGIN_FRAME_API_METHODS.TOOL_SETTINGS_SET_COMMON_ARGS) {
       return callHost('frame.toolSettings.setCommonArgs', { frameId, value: asRecord(args[0]) })
     }
   }
