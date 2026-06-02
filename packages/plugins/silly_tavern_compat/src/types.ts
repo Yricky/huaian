@@ -1,4 +1,4 @@
-import type { ChatBlockKind, ChatBlockStatus, ChatBlockTargetRole, ChatContentPart, JsonRecord } from '@st-forge/plugin-api'
+import type { ChatBlockKind, ChatBlockStatus, ChatBlockTargetRole, ChatContentPart, JsonRecord } from '@huaian/plugin-api'
 
 export interface CharacterEntry {
   id: number

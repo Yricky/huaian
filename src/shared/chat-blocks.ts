@@ -1,7 +1,7 @@
 import {
   chatBlockTargetRole,
   normalizeChatBlockTargetRole
-} from '@st-forge/plugin-api/chat-blocks'
+} from '@huaian/plugin-api/chat-blocks'
 import type { DbChatBlock, ChatBlockKind, JsonRecord } from './types'
 import { asRecord, asString } from './value-utils'
 

@@ -11,7 +11,7 @@ import {
   type ProcessingChat,
   type PluginManifest,
   type PluginToolCallManifest
-} from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
 import type {
   ChatSession,
   ChatToolDefinition,

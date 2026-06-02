@@ -1,4 +1,4 @@
-import type { PluginGlobalExport, PluginGlobalRegistry, PluginRuntimeContext } from '@st-forge/plugin-api'
+import type { PluginGlobalExport, PluginGlobalRegistry, PluginRuntimeContext } from '@huaian/plugin-api'
 import handler from './handler'
 
 export default function initGlobal(context: PluginRuntimeContext, plugins: PluginGlobalRegistry): PluginGlobalExport {

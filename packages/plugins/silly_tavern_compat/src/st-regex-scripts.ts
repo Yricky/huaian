@@ -1,4 +1,4 @@
-import { asBoolean, asNumberOrNull, asRecord, asString, type JsonRecord } from '@st-forge/plugin-api'
+import { asBoolean, asNumberOrNull, asRecord, asString, type JsonRecord } from '@huaian/plugin-api'
 import type { CharacterEntry } from './types'
 
 export const REGEX_PLACEMENT = {

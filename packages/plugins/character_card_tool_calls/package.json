@@ -1,5 +1,5 @@
 {
-  "name": "@st-forge/plugin-character-card-tool-calls",
+  "name": "@huaian/plugin-character-card-tool-calls",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,9 +7,9 @@
     "build": "vite build --mode initGlobal && vite build --mode toolSettingsHtml"
   },
   "dependencies": {
-    "@st-forge/plugin-api": "workspace:*"
+    "@huaian/plugin-api": "workspace:*"
   },
-  "stForgePlugin": {
+  "huaianPlugin": {
     "source": "plugin",
     "entries": {
       "initGlobal": "src/initGlobal.ts"

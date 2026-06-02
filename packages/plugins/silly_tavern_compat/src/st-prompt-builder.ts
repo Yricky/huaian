@@ -4,9 +4,9 @@ import type {
   ChatContentPart,
   ChatGenerationPreviewMessage,
   JsonRecord
-} from '@st-forge/plugin-api'
-import { chatBlockTargetRole } from '@st-forge/plugin-api'
-import { asBoolean, asNumber, asRecord, asString } from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
+import { chatBlockTargetRole } from '@huaian/plugin-api'
+import { asBoolean, asNumber, asRecord, asString } from '@huaian/plugin-api'
 import type {
   CharacterEntry,
   InjectionDetail,

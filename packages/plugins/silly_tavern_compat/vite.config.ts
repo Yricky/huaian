@@ -17,7 +17,7 @@ const pageEntries: Record<string, { input: string; name: string }> = {
 
 function flattenPageHtml(): Plugin {
   return {
-    name: 'st-forge-flatten-page-html',
+    name: 'huaian-flatten-page-html',
     enforce: 'post',
     generateBundle(_, bundle) {
       for (const [fileName, file] of Object.entries(bundle)) {
@@ -47,11 +47,11 @@ export default defineConfig(({ mode }) => {
     publicDir: resolve(packageDir, 'plugin'),
     resolve: {
       alias: [
-        { find: '@st-forge/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
-        { find: '@st-forge/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
-        { find: '@st-forge/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
-        { find: '@st-forge/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
-        { find: '@st-forge/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
+        { find: '@huaian/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
+        { find: '@huaian/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
+        { find: '@huaian/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
+        { find: '@huaian/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
+        { find: '@huaian/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
       ]
     },
     root: packageDir

@@ -1,5 +1,5 @@
-import { installHaExtApi } from '@st-forge/plugin-api/client'
-import type { JsonRecord } from '@st-forge/plugin-api'
+import { installHaExtApi } from '@huaian/plugin-api/client'
+import type { JsonRecord } from '@huaian/plugin-api'
 import './settings.css'
 
 const api = installHaExtApi()

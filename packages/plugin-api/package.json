@@ -1,5 +1,5 @@
 {
-  "name": "@st-forge/plugin-api",
+  "name": "@huaian/plugin-api",
   "version": "1.0.0",
   "private": true,
   "exports": {

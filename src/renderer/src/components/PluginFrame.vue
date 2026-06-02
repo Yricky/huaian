@@ -37,11 +37,11 @@ function pluginFrame(): HTMLIFrameElement | null {
 }
 
 function dispatchPluginDataChanged(pluginId: string): void {
-  window.dispatchEvent(new CustomEvent('st-forge-plugin-data-changed', { detail: { pluginId } }))
+  window.dispatchEvent(new CustomEvent('huaian-plugin-data-changed', { detail: { pluginId } }))
 }
 
 function dispatchProjectSnapshotChanged(): void {
-  window.dispatchEvent(new CustomEvent('st-forge-project-snapshot-changed'))
+  window.dispatchEvent(new CustomEvent('huaian-project-snapshot-changed'))
 }
 
 async function setChatPluginData(value: JsonRecord): Promise<JsonRecord> {

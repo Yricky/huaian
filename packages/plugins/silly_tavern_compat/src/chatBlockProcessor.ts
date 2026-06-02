@@ -5,8 +5,8 @@ import type {
   MixedChatBlock,
   ProcessingChat,
   PluginRuntimeContext
-} from '@st-forge/plugin-api'
-import { asRecord } from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
+import { asRecord } from '@huaian/plugin-api'
 import { loadSillyTavernCompatData } from './data'
 import { buildSillyTavernLikePrompt, type RuntimeBlock } from './st-prompt-builder'
 

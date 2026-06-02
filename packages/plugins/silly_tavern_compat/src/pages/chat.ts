@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import { installHaExtApi } from '@st-forge/plugin-api/client'
+import { installHaExtApi } from '@huaian/plugin-api/client'
 
 installHaExtApi({ chat: true })
 void import('./ChatPage.vue').then(({ default: ChatPage }) => {

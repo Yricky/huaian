@@ -9,7 +9,7 @@ import type {
   ProcessingChat,
   PluginManifest,
   PluginToolCallRequest as PluginHandlerToolCallRequest
-} from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
 
 export type {
   ChatBlockKind,
@@ -38,7 +38,7 @@ export type {
   TextContentPart,
   ToolCallContentPart,
   ToolCallContentPartStatus
-} from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
 
 export interface PluginDescriptor {
   manifest: PluginManifest

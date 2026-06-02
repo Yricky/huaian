@@ -1,4 +1,4 @@
-import type { HaExtApi, JsonRecord, PluginFileEntry } from '@st-forge/plugin-api'
+import type { HaExtApi, JsonRecord, PluginFileEntry } from '@huaian/plugin-api'
 
 export type { JsonRecord, PluginFileEntry }
 

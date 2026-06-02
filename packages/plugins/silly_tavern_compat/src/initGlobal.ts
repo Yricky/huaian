@@ -1,4 +1,4 @@
-import type { PluginGlobalExport, PluginRuntimeContext } from '@st-forge/plugin-api'
+import type { PluginGlobalExport, PluginRuntimeContext } from '@huaian/plugin-api'
 import { applyToolInput, entryTitle, normalizeWorldEntry } from './data'
 import { testWorldEntryActivations } from './st-prompt-builder'
 import chatBlockProcessor from './chatBlockProcessor'

@@ -6,8 +6,8 @@ import {
   type MixedChatBlock,
   type ProcessingChat,
   type PluginRuntimeContext
-} from '@st-forge/plugin-api'
-import { asRecord, textFromContentParts } from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
+import { asRecord, textFromContentParts } from '@huaian/plugin-api'
 
 const DEFAULT_USER_NAME = 'User'
 const VARIABLE_SCOPE_KEY = 'variables'

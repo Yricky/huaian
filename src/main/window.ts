@@ -17,7 +17,7 @@ export function createWindow(): void {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
-    mainWindow.webContents.openDevTools({ mode: 'detach', title: 'ST Forge Devtool' })
+    mainWindow.webContents.openDevTools({ mode: 'detach', title: 'Huaian Devtool' })
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }

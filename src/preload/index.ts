@@ -84,7 +84,7 @@ const electronAPI = {
       .filter(part => part && part !== '.')
       .map(part => encodeURIComponent(part))
       .join('/')
-    return `huaianext://${encodeURIComponent(pluginId)}/${encodedPath}`
+    return `ha-ext://${encodeURIComponent(pluginId)}/${encodedPath}`
   },
   onPluginToolCallRequest: (callback: (request: PluginToolCallRequest) => void): (() => void) => {
     const listener = (_: IpcRendererEvent, request: PluginToolCallRequest) => callback(request)

@@ -811,14 +811,14 @@ export function createProjectWorkbench() {
     void loadProject()
     startPluginToolBridge(() => project.value)
     unsubscribeGenerationEvents = window.electronAPI.onChatGenerationEvent(handleGenerationEvent)
-    window.addEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
-    window.addEventListener('st-forge-project-snapshot-changed', handleProjectSnapshotChanged)
+    window.addEventListener('huaian-plugin-data-changed', handlePluginDataChanged)
+    window.addEventListener('huaian-project-snapshot-changed', handleProjectSnapshotChanged)
   })
 
   onBeforeUnmount(() => {
     unsubscribeGenerationEvents?.()
-    window.removeEventListener('st-forge-plugin-data-changed', handlePluginDataChanged)
-    window.removeEventListener('st-forge-project-snapshot-changed', handleProjectSnapshotChanged)
+    window.removeEventListener('huaian-plugin-data-changed', handlePluginDataChanged)
+    window.removeEventListener('huaian-project-snapshot-changed', handleProjectSnapshotChanged)
   })
 
   return {

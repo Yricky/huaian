@@ -129,8 +129,8 @@ async function createZip(sourceDir) {
 
 async function readPluginPackage(packageDir) {
   const packageJson = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'))
-  const staticDir = resolve(packageDir, packageJson.stForgePlugin?.source ?? 'plugin')
-  const outDir = resolve(packageDir, packageJson.stForgePlugin?.out ?? 'out')
+  const staticDir = resolve(packageDir, packageJson.huaianPlugin?.source ?? 'plugin')
+  const outDir = resolve(packageDir, packageJson.huaianPlugin?.out ?? 'out')
   const manifest = await readPluginManifest(staticDir)
   if (!manifest.id) throw new Error(`插件包缺少 id：${packageDir}`)
   if (!packageJson.name) throw new Error(`插件包缺少 package name：${packageDir}`)

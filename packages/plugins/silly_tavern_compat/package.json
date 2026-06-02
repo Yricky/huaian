@@ -1,5 +1,5 @@
 {
-  "name": "@st-forge/plugin-silly-tavern-compat",
+  "name": "@huaian/plugin-silly-tavern-compat",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,10 +7,10 @@
     "build": "vite build --mode initGlobal && vite build --mode settingsHtml && vite build --mode chatHtml"
   },
   "dependencies": {
-    "@st-forge/plugin-api": "workspace:*",
+    "@huaian/plugin-api": "workspace:*",
     "vue": "^3.5.27"
   },
-  "stForgePlugin": {
+  "huaianPlugin": {
     "source": "plugin",
     "entries": {
       "initGlobal": "src/initGlobal.ts"

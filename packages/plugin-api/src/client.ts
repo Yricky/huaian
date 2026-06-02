@@ -2,7 +2,7 @@ import type { HaExtApi, HaExtApiInstallOptions, JsonRecord, PluginFileEntry } fr
 
 const CLIENT_SOURCE = 'ha-ext-api-client'
 const HOST_SOURCE = 'ha-ext-api-host'
-const PLUGIN_PROTOCOL = 'huaianext:'
+const PLUGIN_PROTOCOL = 'ha-ext:'
 
 interface PendingCall {
   reject: (error: Error) => void
@@ -99,7 +99,7 @@ export function createHaExtApiClient(options: InstallOptions = {}): HaExtApi {
 
   const api: HaExtApi = {
     assetUrl(path: string): string {
-      return `huaianext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
+      return `ha-ext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
     },
     storage: {
       list: (path?: string) => call('storage.list', [path || '']) as Promise<PluginFileEntry[]>,

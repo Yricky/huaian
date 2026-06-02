@@ -1,10 +1,10 @@
-# ST-Forge 插件开发文档
+# Huaian 插件开发文档
 
 本文描述当前插件系统已经实现的接口。旧的 `initChat`、独立 `chatBlockProcessor` 入口、工具 `handler` 文件入口、`window.parentPluginApi`、可见 iframe 的 preload/Node 能力都已经移除，不再兼容。
 
 ## 插件模型
 
-ST-Forge 的插件是项目级资源：
+Huaian 的插件是项目级资源：
 
 - `plugins/<pluginId>`：插件目录，包含 `plugin.json`、入口脚本、页面 HTML、CSS、图片等资源。
 - `pluginData/<pluginId>`：插件数据目录，插件通过 `haExtApi.storage` 读写这里的数据。
@@ -80,7 +80,7 @@ ST-Forge 的插件是项目级资源：
 ES module：
 
 ```ts
-import type { PluginGlobalExport, PluginRuntimeContext } from '@st-forge/plugin-api'
+import type { PluginGlobalExport, PluginRuntimeContext } from '@huaian/plugin-api'
 
 export default function initGlobal(context: PluginRuntimeContext): PluginGlobalExport {
   return {
@@ -154,7 +154,7 @@ export default function initGlobal(context, plugins) {
 }
 ```
 
-跨插件访问本轮不是权限边界：`plugins.get()`、`haExtApi.storage.*For()` 和显式构造 `huaianext://<pluginId>/...` 当前都不会额外按调用方插件限制目标插件。
+跨插件访问本轮不是权限边界：`plugins.get()`、`haExtApi.storage.*For()` 和显式构造 `ha-ext://<pluginId>/...` 当前都不会额外按调用方插件限制目标插件。
 
 ## haExtApi
 
@@ -171,7 +171,7 @@ interface HaExtApi {
 }
 ```
 
-`assetUrl(path)` 返回当前插件资源 URL，例如 `huaianext://my_plugin/icon.png`。可见 iframe 本身也直接以 `huaianext://<pluginId>/<path>` 加载插件页面资源。
+`assetUrl(path)` 返回当前插件资源 URL，例如 `ha-ext://my_plugin/icon.png`。可见 iframe 本身也直接以 `ha-ext://<pluginId>/<path>` 加载插件页面资源。
 
 `storage` 方法：
 
@@ -202,10 +202,10 @@ Worker 上下文只暴露 `assetUrl` 和 `storage`。`chat` 只在聊天页插�
 
 ## 可见插件页面
 
-可见插件页面不会自动注入脚本。页面代码需要从 `@st-forge/plugin-api/client` 安装客户端：
+可见插件页面不会自动注入脚本。页面代码需要从 `@huaian/plugin-api/client` 安装客户端：
 
 ```ts
-import { installHaExtApi } from '@st-forge/plugin-api/client'
+import { installHaExtApi } from '@huaian/plugin-api/client'
 
 const api = installHaExtApi()
 ```
@@ -213,7 +213,7 @@ const api = installHaExtApi()
 聊天页插件：
 
 ```ts
-import { installHaExtApi } from '@st-forge/plugin-api/client'
+import { installHaExtApi } from '@huaian/plugin-api/client'
 
 const api = installHaExtApi({ chat: true })
 const pluginData = await api.chat!.getPluginData()
@@ -223,7 +223,7 @@ await api.chat!.setPluginData({ ...pluginData, enabled: true })
 工具设置页：
 
 ```ts
-import { installHaExtApi } from '@st-forge/plugin-api/client'
+import { installHaExtApi } from '@huaian/plugin-api/client'
 
 const api = installHaExtApi({ toolSettings: true })
 const commonArgs = await api.toolSettings!.getCommonArgs()
@@ -258,7 +258,7 @@ interface HaExtToolSettingsApi {
 聊天处理器现在由 `initGlobal` 返回，不再是独立入口文件：
 
 ```ts
-import type { PluginGlobalExport, PluginRuntimeContext } from '@st-forge/plugin-api'
+import type { PluginGlobalExport, PluginRuntimeContext } from '@huaian/plugin-api'
 
 export default function initGlobal(context: PluginRuntimeContext): PluginGlobalExport {
   return {
@@ -288,7 +288,7 @@ export default function initGlobal(context: PluginRuntimeContext): PluginGlobalE
 manifest 只声明工具组和 schema，不再声明 `handler` 文件。工具实现由 `initGlobal` 返回的 `toolCalls` 对象提供。`toolCalls` 的 key 必须与 manifest 中的 `entry.toolCalls[].name` 一致。
 
 ```ts
-import type { PluginGlobalExport, PluginRuntimeContext } from '@st-forge/plugin-api'
+import type { PluginGlobalExport, PluginRuntimeContext } from '@huaian/plugin-api'
 
 export default function initGlobal(context: PluginRuntimeContext): PluginGlobalExport {
   return {
@@ -344,12 +344,12 @@ export default definePluginBuild({
 })
 ```
 
-页面构建时也应把 `@st-forge/plugin-api/client` 打进页面脚本里；不要依赖宿主自动注入。
+页面构建时也应把 `@huaian/plugin-api/client` 打进页面脚本里；不要依赖宿主自动注入。
 
 ## 安全边界
 
-可见插件 iframe 使用 `huaianext://<pluginId>/...` 直接加载插件资源，主进程会把文件访问限制在对应插件目录内，并为页面响应设置插件 CSP。iframe 不具备 Node、preload 或 Electron IPC 能力，只能通过页面安装的 `haExtApi` 与 Worker 通信。
+可见插件 iframe 使用 `ha-ext://<pluginId>/...` 直接加载插件资源，主进程会把文件访问限制在对应插件目录内，并为页面响应设置插件 CSP。iframe 不具备 Node、preload 或 Electron IPC 能力，只能通过页面安装的 `haExtApi` 与 Worker 通信。
 
 Worker 里的插件代码也不能直接访问 Node 或 Electron。它通过宿主转发访问插件文件、插件数据目录，以及可见页面对应的 `chat`/`toolSettings` 能力。
 
-当前仍允许显式跨插件访问：`storage.*For()`、`plugins.get()` 和构造其他插件的 `huaianext://` URL 不会被调用方插件 ID 拦截。后续如果要收紧权限，需要在这些入口统一加访问控制。
+当前仍允许显式跨插件访问：`storage.*For()`、`plugins.get()` 和构造其他插件的 `ha-ext://` URL 不会被调用方插件 ID 拦截。后续如果要收紧权限，需要在这些入口统一加访问控制。

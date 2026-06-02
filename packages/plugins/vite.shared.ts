@@ -2,7 +2,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 
-interface StForgePluginViteOptions {
+interface HuaianPluginViteOptions {
   browserEjs?: boolean
   entries: Record<string, string>
   pages?: Record<string, { input: string; name: string }>
@@ -10,7 +10,7 @@ interface StForgePluginViteOptions {
 
 function flattenPageHtml(): Plugin {
   return {
-    name: 'st-forge-flatten-page-html',
+    name: 'huaian-flatten-page-html',
     enforce: 'post',
     generateBundle(_, bundle) {
       for (const [fileName, file] of Object.entries(bundle)) {
@@ -24,16 +24,16 @@ function flattenPageHtml(): Plugin {
   }
 }
 
-export function defineStForgePluginConfig(importMetaUrl: string, options: StForgePluginViteOptions) {
+export function defineHuaianPluginConfig(importMetaUrl: string, options: HuaianPluginViteOptions) {
     const packageDir = dirname(fileURLToPath(importMetaUrl))
     const pluginApiRoot = resolve(packageDir, '../../plugin-api/src')
     const entryNames = Object.keys(options.entries)
       const alias = [
-        { find: '@st-forge/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
-        { find: '@st-forge/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
-        { find: '@st-forge/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
-        { find: '@st-forge/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
-        { find: '@st-forge/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
+        { find: '@huaian/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
+        { find: '@huaian/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
+        { find: '@huaian/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
+        { find: '@huaian/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
+        { find: '@huaian/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
   ]
   if (options.browserEjs) {
     alias.unshift({ find: 'ejs', replacement: resolve(packageDir, 'node_modules/ejs/ejs.min.js') })

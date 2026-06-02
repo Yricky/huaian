@@ -18,9 +18,9 @@ let resizeFrame: number | null = null
 let lastWidth = 0
 
 function ensureStyle() {
-  if (document.getElementById('st-forge-streaming-markdown-style')) return
+  if (document.getElementById('huaian-streaming-markdown-style')) return
   const style = document.createElement('style')
-  style.id = 'st-forge-streaming-markdown-style'
+  style.id = 'huaian-streaming-markdown-style'
   style.textContent = getDefaultStyleSheet('sm')
   document.head.append(style)
 }

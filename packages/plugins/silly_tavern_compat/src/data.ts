@@ -1,5 +1,5 @@
-import type { ChatSession, JsonRecord, PluginStorageApi } from '@st-forge/plugin-api'
-import { asRecord, asString, cloneJson } from '@st-forge/plugin-api'
+import type { ChatSession, JsonRecord, PluginStorageApi } from '@huaian/plugin-api'
+import { asRecord, asString, cloneJson } from '@huaian/plugin-api'
 import type { CharacterEntry, LoreBook, PluginFileRecord, WorldEntry } from './types'
 
 const DEFAULT_DEPTH = 4

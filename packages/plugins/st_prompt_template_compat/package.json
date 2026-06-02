@@ -1,5 +1,5 @@
 {
-  "name": "@st-forge/plugin-st-prompt-template-compat",
+  "name": "@huaian/plugin-st-prompt-template-compat",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,10 +7,10 @@
     "build": "vite build --mode initGlobal && vite build --mode settingsHtml"
   },
   "dependencies": {
-    "@st-forge/plugin-api": "workspace:*",
+    "@huaian/plugin-api": "workspace:*",
     "ejs": "^6.0.1"
   },
-  "stForgePlugin": {
+  "huaianPlugin": {
     "source": "plugin",
     "entries": {
       "initGlobal": "src/initGlobal.ts"

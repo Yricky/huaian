@@ -83,7 +83,7 @@ function cleanAssetPath(path: string): string {
 }
 
 function pluginAssetUrl(pluginId: string, path: string): string {
-  return `huaianext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
+  return `ha-ext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
 }
 
 function storageApi(pluginId: string): PluginStorageApi {

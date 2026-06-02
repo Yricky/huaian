@@ -1,6 +1,6 @@
-import { defineStForgePluginConfig } from '../vite.shared'
+import { defineHuaianPluginConfig } from '../vite.shared'
 
-export default defineStForgePluginConfig(import.meta.url, {
+export default defineHuaianPluginConfig(import.meta.url, {
   browserEjs: true,
   entries: {
     initGlobal: 'src/initGlobal.ts'

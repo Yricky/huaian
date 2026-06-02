@@ -23,7 +23,7 @@ importers:
       '@faker-js/faker':
         specifier: ^10.4.0
         version: 10.4.0
-      '@st-forge/plugin-api':
+      '@huaian/plugin-api':
         specifier: workspace:*
         version: link:packages/plugin-api
       ai:
@@ -95,13 +95,13 @@ importers:
 
   packages/plugins/character_card_tool_calls:
     dependencies:
-      '@st-forge/plugin-api':
+      '@huaian/plugin-api':
         specifier: workspace:*
         version: link:../../plugin-api
 
   packages/plugins/silly_tavern_compat:
     dependencies:
-      '@st-forge/plugin-api':
+      '@huaian/plugin-api':
         specifier: workspace:*
         version: link:../../plugin-api
       vue:
@@ -110,7 +110,7 @@ importers:
 
   packages/plugins/st_prompt_template_compat:
     dependencies:
-      '@st-forge/plugin-api':
+      '@huaian/plugin-api':
         specifier: workspace:*
         version: link:../../plugin-api
       ejs:

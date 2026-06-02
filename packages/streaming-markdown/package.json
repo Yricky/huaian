@@ -1,5 +1,5 @@
 {
-  "name": "@st-forge/streaming-markdown",
+  "name": "@huaian/streaming-markdown",
   "version": "0.1.0",
   "description": "A pretext-powered streaming Markdown renderer for LLM responses.",
   "type": "module",

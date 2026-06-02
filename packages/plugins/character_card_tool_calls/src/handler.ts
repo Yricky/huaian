@@ -4,8 +4,8 @@ import type {
   PluginRuntimeContext,
   PluginToolCallRequest,
   PluginToolHandler
-} from '@st-forge/plugin-api'
-import { asRecord, asString } from '@st-forge/plugin-api'
+} from '@huaian/plugin-api'
+import { asRecord, asString } from '@huaian/plugin-api'
 
 interface SillyTavernCompatApi {
   applyToolInput(entry: JsonRecord, input: JsonRecord): JsonRecord

@@ -4,8 +4,8 @@ import { extname, isAbsolute, relative, resolve } from 'path'
 import { getCurrentProject } from './project/state'
 import { pluginAssetPath, pluginAssetRoot } from './project/plugins'
 
-export const ASSET_PROTOCOL = 'st-forge-asset'
-export const PLUGIN_PROTOCOL = 'huaianext'
+export const ASSET_PROTOCOL = 'ha-asset'
+export const PLUGIN_PROTOCOL = 'ha-ext'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.apng': 'image/apng',

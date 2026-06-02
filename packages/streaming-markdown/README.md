@@ -1,11 +1,11 @@
-# @st-forge/streaming-markdown
+# @huaian/streaming-markdown
 
 A framework-neutral DOM renderer for LLM-style streaming Markdown. It uses a small streaming-aware Markdown parser and `@chenglou/pretext` for manual line layout, so text remains selectable while line wrapping does not depend on browser reflow.
 
 ## Install
 
 ```sh
-pnpm add @st-forge/streaming-markdown
+pnpm add @huaian/streaming-markdown
 ```
 
 ## API
@@ -15,7 +15,7 @@ import {
   createStreamingMarkdownRenderer,
   getDefaultStyleSheet,
   getDefaultThemeVars,
-} from '@st-forge/streaming-markdown'
+} from '@huaian/streaming-markdown'
 
 const style = document.createElement('style')
 style.textContent = getDefaultStyleSheet()
@@ -117,8 +117,8 @@ The default root class is `sm-root`; block classes include `sm-paragraph`, `sm-h
 ## Scripts
 
 ```sh
-pnpm --filter @st-forge/streaming-markdown dev
-pnpm --filter @st-forge/streaming-markdown build
-pnpm --filter @st-forge/streaming-markdown test
-pnpm --filter @st-forge/streaming-markdown bench
+pnpm --filter @huaian/streaming-markdown dev
+pnpm --filter @huaian/streaming-markdown build
+pnpm --filter @huaian/streaming-markdown test
+pnpm --filter @huaian/streaming-markdown bench
 ```
