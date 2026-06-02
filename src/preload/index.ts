@@ -28,6 +28,15 @@ import type {
   RecentProject
 } from '../shared/types'
 
+const PLUGIN_PROTOCOL = 'huaianext:'
+const PLUGIN_FRAME_SOURCE = 'st-forge-plugin-frame'
+const PLUGIN_HOST_SOURCE = 'st-forge-plugin-host'
+
+interface PendingPluginFrameCall {
+  reject: (error: Error) => void
+  resolve: (value: unknown) => void
+}
+
 const electronAPI = {
   getProject: (): Promise<ProjectSnapshot> => ipcRenderer.invoke('project:get'),
   listRecentProjects: (): Promise<RecentProject[]> => ipcRenderer.invoke('project:listRecent'),
@@ -103,10 +112,84 @@ const electronAPI = {
   quit: (): Promise<void> => ipcRenderer.invoke('app:quit')
 }
 
-contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+function createParentPluginApi() {
+  const frameId = window.name
+  let nextId = 0
+  const pending = new Map<number, PendingPluginFrameCall>()
+
+  window.addEventListener('message', event => {
+    const data = event.data || {}
+    if (data.source !== PLUGIN_HOST_SOURCE || data.frameId !== frameId) return
+    const item = pending.get(data.id)
+    if (!item) return
+    pending.delete(data.id)
+    if (data.ok) {
+      item.resolve(data.value)
+    } else {
+      item.reject(new Error(data.error || 'Plugin API call failed'))
+    }
+  })
+
+  function call(method: string, args: unknown[]): Promise<unknown> {
+    const id = ++nextId
+    window.parent.postMessage({
+      source: PLUGIN_FRAME_SOURCE,
+      frameId,
+      id,
+      method,
+      args
+    }, '*')
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+  }
+
+  return {
+    storage: {
+      list: (path?: string) => call('storage.list', [path || '']),
+      listFor: (pluginId: string, path?: string) => call('storage.listFor', [pluginId, path || '']),
+      readText: (path: string) => call('storage.readText', [path]),
+      readTextFor: (pluginId: string, path: string) => call('storage.readTextFor', [pluginId, path]),
+      readBase64: (path: string) => call('storage.readBase64', [path]),
+      readBase64For: (pluginId: string, path: string) => call('storage.readBase64For', [pluginId, path]),
+      writeText: (path: string, content: string) => call('storage.writeText', [path, content]),
+      writeTextFor: (pluginId: string, path: string, content: string) => (
+        call('storage.writeTextFor', [pluginId, path, content])
+      ),
+      writeBase64: (path: string, content: string) => call('storage.writeBase64', [path, content]),
+      writeBase64For: (pluginId: string, path: string, content: string) => (
+        call('storage.writeBase64For', [pluginId, path, content])
+      ),
+      delete: (path: string) => call('storage.delete', [path]),
+      deleteFor: (pluginId: string, path: string) => call('storage.deleteFor', [pluginId, path]),
+      readJson: (path: string, fallback?: unknown) => call('storage.readJson', [path, fallback]),
+      readJsonFor: (pluginId: string, path: string, fallback?: unknown) => (
+        call('storage.readJsonFor', [pluginId, path, fallback])
+      ),
+      writeJson: (path: string, value: unknown) => call('storage.writeJson', [path, value]),
+      writeJsonFor: (pluginId: string, path: string, value: unknown) => (
+        call('storage.writeJsonFor', [pluginId, path, value])
+      )
+    },
+    chat: {
+      getSession: () => call('chat.getSession', []),
+      getPluginData: () => call('chat.getPluginData', []),
+      setPluginData: (value: unknown) => call('chat.setPluginData', [value])
+    },
+    toolSettings: {
+      getCommonArgs: () => call('toolSettings.getCommonArgs', []),
+      setCommonArgs: (value: unknown) => call('toolSettings.setCommonArgs', [value])
+    }
+  }
+}
+
+if (window.top === window) {
+  contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+} else if (window.location.protocol === PLUGIN_PROTOCOL) {
+  contextBridge.exposeInMainWorld('parentPluginApi', createParentPluginApi())
+}
 
 declare global {
   interface Window {
     electronAPI: typeof electronAPI
+    parentPluginApi: ReturnType<typeof createParentPluginApi>
   }
 }

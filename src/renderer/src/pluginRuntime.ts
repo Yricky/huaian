@@ -2,6 +2,7 @@ import {
   messageHasContent,
   normalizeChatBlockTargetRole,
   textFromContentParts,
+  type ChatContentPart,
   type ChatGenerationPreviewMessage,
   type JsonRecord,
   type LLMContentPart,
@@ -127,6 +128,46 @@ function llmContent(value: unknown): string | LLMContentPart[] | undefined {
     ))
 }
 
+function normalizeChatContentPart(value: unknown): ChatContentPart | null {
+  const part = asRecord(value)
+  if (part.type === 'text') {
+    return {
+      type: 'text',
+      text: typeof part.text === 'string' ? part.text : ''
+    }
+  }
+  if (part.type === 'reasoning') {
+    return {
+      type: 'reasoning',
+      text: typeof part.text === 'string' ? part.text : '',
+      sendAsContext: part.sendAsContext === true
+    }
+  }
+  if (part.type === 'tool_call') {
+    return {
+      type: 'tool_call',
+      toolCallId: typeof part.toolCallId === 'string' ? part.toolCallId : '',
+      toolName: typeof part.toolName === 'string' ? part.toolName : '',
+      status: part.status === 'pending' || part.status === 'success' || part.status === 'error' ? part.status : 'pending',
+      input: asRecord(part.input),
+      output: part.output,
+      error: typeof part.error === 'string' ? part.error : '',
+      sendAsContext: part.sendAsContext === true,
+      createdAt: typeof part.createdAt === 'string' ? part.createdAt : new Date(0).toISOString(),
+      updatedAt: typeof part.updatedAt === 'string' ? part.updatedAt : new Date(0).toISOString(),
+      extensions: asRecord(part.extensions)
+    }
+  }
+  return null
+}
+
+function normalizeChatContentParts(value: unknown): ChatContentPart[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(normalizeChatContentPart)
+    .filter((part): part is ChatContentPart => part !== null)
+}
+
 function normalizeMixedBlock(value: unknown, canonicalOriginals: Map<number, OriginalChatBlock>): MixedChatBlock {
   const record = asRecord(value)
   const rawOriginal = asRecord(record.original)
@@ -143,7 +184,7 @@ function normalizeMixedBlock(value: unknown, canonicalOriginals: Map<number, Ori
       ? (hasOwn(rawLlm, 'content') ? { content: llmContent(rawLlm.content) } : {})
       : undefined,
     user: hasOwn(record, 'user')
-      ? (Array.isArray(rawUser.contentParts) ? { contentParts: cloneJson(rawUser.contentParts) } : {})
+      ? (Array.isArray(rawUser.contentParts) ? { contentParts: normalizeChatContentParts(rawUser.contentParts) } : {})
       : undefined,
     pluginData: asRecord(record.pluginData)
   }

@@ -261,7 +261,7 @@ function autoSaveEdit() {
 function isEmptyChatBlock(block: DbChatBlock): boolean {
   return block.contentParts.every(part => {
     if (part.type === 'tool_call') return false
-    return part.text.trim().length === 0
+    return (typeof part.text === 'string' ? part.text : '').trim().length === 0
   })
 }
 

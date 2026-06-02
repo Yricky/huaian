@@ -8,7 +8,7 @@ import {
 } from '../../../../packages/streaming-markdown/src'
 
 const props = defineProps<{
-  markdown: string
+  markdown?: string
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
@@ -58,12 +58,12 @@ onMounted(() => {
   applyThemeVars(containerRef.value)
   renderer = createStreamingMarkdownRenderer(containerRef.value, { classPrefix: 'sm' })
   observeSize(containerRef.value)
-  renderer.replace(props.markdown)
+  renderer.replace(props.markdown ?? '')
   renderer.finalize()
 })
 
 watch(() => props.markdown, (markdown) => {
-  renderer?.replace(markdown)
+  renderer?.replace(markdown ?? '')
   renderer?.finalize()
 })
 

@@ -14,6 +14,7 @@ import {
 import type {
   DbChatBlock,
   DbChatBlockCreatePayload,
+  ChatContentPart,
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatRuntimeConfig,
@@ -270,6 +271,21 @@ function userContentParts(mixedBlock: ProcessingChat['chatBlocks'][number]): DbC
   return Array.isArray(mixedBlock.user.contentParts) ? mixedBlock.user.contentParts : []
 }
 
+function textPartValue(part: ChatContentPart): string {
+  if (part.type === 'tool_call') return ''
+  return typeof part.text === 'string' ? part.text : ''
+}
+
+function contentPartHasDisplay(part: ChatContentPart): boolean {
+  if (part.type === 'tool_call') return true
+  return textPartValue(part).trim().length > 0
+}
+
+function shouldShowContentParts(contentParts: DbChatBlock['contentParts'], sourceBlock: DbChatBlock | null): boolean {
+  if (sourceBlock && sourceBlock.status !== 'idle') return true
+  return contentParts.some(contentPartHasDisplay)
+}
+
 function displayBlockForView(
   mixedBlock: ProcessingChat['chatBlocks'][number],
   index: number,
@@ -279,14 +295,14 @@ function displayBlockForView(
 
   if (viewMode.value === 'llm') {
     const contentParts = mixedBlock.llm ? llmContentParts(mixedBlock) : sourceBlock?.contentParts ?? null
-    if (!contentParts) return null
+    if (!contentParts || !shouldShowContentParts(contentParts, sourceBlock)) return null
     return sourceBlock
       ? { ...sourceBlock, kind: roleKind(mixedBlock.role), contentParts }
       : syntheticBlock(mixedBlock, index, contentParts)
   }
 
   const contentParts = mixedBlock.user ? userContentParts(mixedBlock) : sourceBlock?.contentParts ?? null
-  if (!contentParts) return null
+  if (!contentParts || !shouldShowContentParts(contentParts, sourceBlock)) return null
   return sourceBlock
     ? { ...sourceBlock, kind: roleKind(mixedBlock.role), contentParts }
     : syntheticBlock(mixedBlock, index, contentParts)
@@ -473,7 +489,7 @@ async function saveEditingBlocks() {
 function isEmptyChatBlock(block: DbChatBlock): boolean {
   return block.contentParts.every(part => {
     if (part.type === 'tool_call') return false
-    return part.text.trim().length === 0
+    return (typeof part.text === 'string' ? part.text : '').trim().length === 0
   })
 }
 

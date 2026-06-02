@@ -34,7 +34,7 @@ const visibleTextParts = computed<VisibleTextPart[]>(() => props.block.contentPa
 )))
 
 function displayTextMarkdown(value: string): string {
-  return value
+  return typeof value === 'string' ? value : ''
 }
 
 function setEditorElement(element: Element | ComponentPublicInstance | null) {

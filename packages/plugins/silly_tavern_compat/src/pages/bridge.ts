@@ -29,11 +29,25 @@ export interface ParentPluginApi {
   }
   storage: {
     list(path?: string): Promise<PluginFileEntry[]>
+    listFor(pluginId: string, path?: string): Promise<PluginFileEntry[]>
     readText(path: string): Promise<string>
+    readTextFor(pluginId: string, path: string): Promise<string>
     readBase64(path: string): Promise<string>
+    readBase64For(pluginId: string, path: string): Promise<string>
     writeText(path: string, content: string): Promise<void>
+    writeTextFor(pluginId: string, path: string, content: string): Promise<void>
     writeBase64(path: string, content: string): Promise<void>
+    writeBase64For(pluginId: string, path: string, content: string): Promise<void>
     delete(path: string): Promise<void>
+    deleteFor(pluginId: string, path: string): Promise<void>
+    readJson(path: string, fallback?: unknown): Promise<unknown>
+    readJsonFor(pluginId: string, path: string, fallback?: unknown): Promise<unknown>
+    writeJson(path: string, value: unknown): Promise<void>
+    writeJsonFor(pluginId: string, path: string, value: unknown): Promise<void>
+  }
+  toolSettings: {
+    getCommonArgs(): Promise<JsonRecord>
+    setCommonArgs(value: JsonRecord): Promise<JsonRecord>
   }
 }
 

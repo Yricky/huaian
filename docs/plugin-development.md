@@ -105,7 +105,7 @@ base
 | `chatBlockProcessor` | `string` | 聊天块处理器脚本路径。 |
 | `settingsHtml` | `string` | 插件设置页 HTML 路径。 |
 | `toolCalls` | `PluginToolCallManifest[]` | 插件工具调用组。 |
-| `chatHtml` | `string` | 当前已被 manifest 解析，但没有 UI 消费，不要依赖。 |
+| `chatHtml` | `string` | 聊天页插件页面 HTML 路径。 |
 
 所有路径都相对于插件目录。路径会被限制在插件目录内部，不能通过 `../` 逃逸到外部目录。
 
@@ -332,7 +332,7 @@ interface PluginRuntimeApi {
 const url = context.api.assetUrl('images/avatar.png')
 ```
 
-返回 URL 使用 `huaianext://<pluginId>/` 协议，只能定位当前插件目录内的文件。插件设置页 HTML 会自动注入 `<base href="huaianext://<pluginId>/">`，因此页面可以直接用相对路径或根路径引用插件目录中的 CSS、JS、图片、字体、JSON 等静态资源。
+返回 URL 使用 `huaianext://<pluginId>/` 协议，只能定位当前插件目录内的文件。插件设置页、聊天页和工具通参设置页会直接以 `huaianext://<pluginId>/<path>` 加载，因此可以把插件页面当作部署在 `huaianext://<pluginId>/` 这个站点下的普通前端页面来开发。
 
 ### storage
 
@@ -344,8 +344,14 @@ interface PluginStorageApi {
   listFor(pluginId: string, path?: string): Promise<PluginFileEntry[]>
   readText(path: string): Promise<string>
   readTextFor(pluginId: string, path: string): Promise<string>
+  readBase64(path: string): Promise<string>
+  readBase64For(pluginId: string, path: string): Promise<string>
   writeText(path: string, content: string): Promise<void>
   writeTextFor(pluginId: string, path: string, content: string): Promise<void>
+  writeBase64(path: string, content: string): Promise<void>
+  writeBase64For(pluginId: string, path: string, content: string): Promise<void>
+  delete(path: string): Promise<void>
+  deleteFor(pluginId: string, path: string): Promise<void>
   readJson(path: string, fallback?: unknown): Promise<unknown>
   readJsonFor(pluginId: string, path: string, fallback?: unknown): Promise<unknown>
   writeJson(path: string, value: unknown): Promise<void>
@@ -422,10 +428,10 @@ interface PluginScopes {
 
 设置页是一个独立 iframe：
 
-- 宿主会读取插件目录中的 HTML 文件。
-- 宿主会向 HTML 注入 `<base href="huaianext://<pluginId>/">`，方便使用相对路径加载插件静态资源。
-- 宿主会注入 `window.parentPluginApi`。
-- iframe 使用 sandbox，只允许脚本运行，不能直接访问 Electron、Node 或父窗口 DOM。
+- iframe 会直接加载 `huaianext://<pluginId>/<settingsHtml>`。
+- 页面相对路径会自然按 `huaianext://<pluginId>/` 解析。
+- 宿主通过 preload 暴露 `window.parentPluginApi`，不会改写插件 HTML。
+- iframe 使用 sandbox，只允许脚本、下载和同源插件资源运行，不能直接访问 Electron、Node 或父窗口 DOM。
 
 这意味着设置页和工具设置页不需要打包成单个 HTML 文件。只要最终文件位于 `plugins/<pluginId>` 下，HTML 可以像普通前端项目一样拆分引用：
 
@@ -451,14 +457,22 @@ const files = await api.storage.list('presets')
 - `listFor(pluginId, path)`
 - `readText(path)`
 - `readTextFor(pluginId, path)`
+- `readBase64(path)`
+- `readBase64For(pluginId, path)`
 - `writeText(path, content)`
 - `writeTextFor(pluginId, path, content)`
+- `writeBase64(path, content)`
+- `writeBase64For(pluginId, path, content)`
+- `delete(path)`
+- `deleteFor(pluginId, path)`
 - `readJson(path, fallback)`
+- `readJsonFor(pluginId, path, fallback)`
 - `writeJson(path, value)`
+- `writeJsonFor(pluginId, path, value)`
 
 全局设置页应把长期配置写入 `pluginData/<pluginId>`。写入数据后，宿主会派发插件数据变更事件，聊天显示会重新准备插件显示块。
 
-不要依赖 iframe 的同源存储、父窗口对象或 Electron API。设置页与宿主通信的稳定方式只有 `window.parentPluginApi`。
+不要依赖父窗口对象或 Electron API。设置页与宿主通信的稳定方式只有 `window.parentPluginApi`。iframe 的 origin 是对应插件的 `huaianext://<pluginId>`，可以使用浏览器同源语义加载自己的页面资源。
 
 ## 工具调用
 
@@ -612,10 +626,11 @@ handler 没有当前聊天块列表，也没有经过清理的项目快照。需
 - 插件运行在浏览器 iframe 沙箱中，没有 Node.js、Electron、shell 或任意文件系统访问能力。
 - 插件只能通过宿主 API 读取插件目录文件和插件数据目录文件。
 - 运行时脚本沙箱禁止网络连接；设置页 iframe 不应把网络访问作为稳定插件能力。
+- 可见插件页面直接运行在 `huaianext://<pluginId>/` origin 下，并通过 preload 暴露的 `window.parentPluginApi` 与宿主通信。
 - 插件数据路径会被限制在目标插件数据目录内。
 - 当前没有第三方插件安装器、签名校验、权限声明或权限授权 UI。
 - `storage.*For` 可以访问其他插件的数据目录，当前没有细粒度权限控制。
-- `chatHtml` manifest 字段当前没有 UI 消费。
+- `chatHtml` 会显示为聊天页中的插件页面入口。
 - 多个 `toolCalls` 可以声明；聊天页工具调用对话框会列出当前聊天可用的工具组。
 - 入口脚本如果使用 import，需要预先打包为单文件入口。
 

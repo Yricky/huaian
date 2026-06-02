@@ -18,90 +18,19 @@ const emit = defineEmits<{
 
 const frameId = Math.random().toString(36).slice(2)
 const { project } = useProjectWorkbench()
-const frameSrc = ref('')
 const currentChat = ref<ChatSession | null>(null)
 const currentCommonArgs = computed(() => asRecord(props.commonArgs))
 const debugMode = computed(() => Boolean(project.value?.config.debugMode))
-const debugFrameUrl = computed(() => window.electronAPI.pluginAssetUrl(props.pluginId, props.htmlPath))
-let frameObjectUrl = ''
-let mounted = false
-let loadToken = 0
+const frameSrc = computed(() => window.electronAPI.pluginAssetUrl(props.pluginId, props.htmlPath))
+const debugFrameUrl = frameSrc
 
-function bridgeScript(): string {
-  return `
-<script>
-(() => {
-  const frameId = ${JSON.stringify(frameId)};
-  let nextId = 0;
-  const pending = new Map();
-  window.addEventListener('message', event => {
-    const data = event.data || {};
-    if (data.source !== 'st-forge-plugin-host' || data.frameId !== frameId) return;
-    const item = pending.get(data.id);
-    if (!item) return;
-    pending.delete(data.id);
-    if (data.ok) item.resolve(data.value);
-    else item.reject(new Error(data.error || 'Plugin API call failed'));
-  });
-  function call(method, args) {
-    const id = ++nextId;
-    window.parent.postMessage({ source: 'st-forge-plugin-frame', frameId, id, method, args }, '*');
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-  }
-  window.parentPluginApi = {
-    storage: {
-      list: path => call('storage.list', [path || '']),
-      listFor: (pluginId, path) => call('storage.listFor', [pluginId, path || '']),
-      readText: path => call('storage.readText', [path]),
-      readTextFor: (pluginId, path) => call('storage.readTextFor', [pluginId, path]),
-      readBase64: path => call('storage.readBase64', [path]),
-      readBase64For: (pluginId, path) => call('storage.readBase64For', [pluginId, path]),
-      writeText: (path, content) => call('storage.writeText', [path, content]),
-      writeTextFor: (pluginId, path, content) => call('storage.writeTextFor', [pluginId, path, content]),
-      writeBase64: (path, content) => call('storage.writeBase64', [path, content]),
-      writeBase64For: (pluginId, path, content) => call('storage.writeBase64For', [pluginId, path, content]),
-      delete: path => call('storage.delete', [path]),
-      deleteFor: (pluginId, path) => call('storage.deleteFor', [pluginId, path]),
-      readJson: (path, fallback) => call('storage.readJson', [path, fallback]),
-      readJsonFor: (pluginId, path, fallback) => call('storage.readJsonFor', [pluginId, path, fallback]),
-      writeJson: (path, value) => call('storage.writeJson', [path, value]),
-      writeJsonFor: (pluginId, path, value) => call('storage.writeJsonFor', [pluginId, path, value])
-    },
-    chat: {
-      getSession: () => call('chat.getSession', []),
-      getPluginData: () => call('chat.getPluginData', []),
-      setPluginData: value => call('chat.setPluginData', [value])
-    },
-    toolSettings: {
-      getCommonArgs: () => call('toolSettings.getCommonArgs', []),
-      setCommonArgs: value => call('toolSettings.setCommonArgs', [value])
-    }
-  };
-})();
-<\/script>`
-}
-
-function withBridge(html: string): string {
-  const base = `<base href="${window.electronAPI.pluginAssetUrl(props.pluginId, '')}">`
-  const injected = `${base}${bridgeScript()}`
-  if (/<head[^>]*>/i.test(html)) return html.replace(/<head([^>]*)>/i, `<head$1>${injected}`)
-  return `${injected}${html}`
-}
-
-async function loadHtml() {
-  const token = ++loadToken
-  const html = await window.electronAPI.readPluginFile(props.pluginId, props.htmlPath)
-  if (!mounted || token !== loadToken) return
-  const nextUrl = URL.createObjectURL(new Blob([withBridge(html)], { type: 'text/html' }))
-  if (frameObjectUrl) URL.revokeObjectURL(frameObjectUrl)
-  frameObjectUrl = nextUrl
-  frameSrc.value = nextUrl
+function pluginFrame(): HTMLIFrameElement | null {
+  return document.querySelector<HTMLIFrameElement>(`iframe[data-plugin-frame="${frameId}"]`)
 }
 
 function reply(id: number, value: unknown, ok = true, error = '') {
-  const frame = document.querySelector<HTMLIFrameElement>(`iframe[data-plugin-frame="${frameId}"]`)
   const messageValue = value === undefined ? null : cloneJson(value)
-  frame?.contentWindow?.postMessage({
+  pluginFrame()?.contentWindow?.postMessage({
     source: 'st-forge-plugin-host',
     frameId,
     id,
@@ -217,6 +146,8 @@ function dispatchProjectSnapshotChanged(): void {
 function onMessage(event: MessageEvent) {
   const data = asRecord(event.data)
   if (data.source !== 'st-forge-plugin-frame' || data.frameId !== frameId) return
+  const frame = pluginFrame()
+  if (!frame?.contentWindow || event.source !== frame.contentWindow) return
   const id = Number(data.id)
   const method = String(data.method ?? '')
   const args = Array.isArray(data.args) ? data.args : []
@@ -225,31 +156,23 @@ function onMessage(event: MessageEvent) {
     .catch(error => reply(id, null, false, error instanceof Error ? error.message : String(error)))
 }
 
-watch(() => [props.pluginId, props.htmlPath], () => {
-  if (mounted) void loadHtml()
-})
-
 watch(() => props.chat, (chat) => {
   currentChat.value = chat ? cloneJson(chat) : null
 }, { immediate: true })
 
 onMounted(() => {
-  mounted = true
   window.addEventListener('message', onMessage)
-  void loadHtml()
 })
 
 onBeforeUnmount(() => {
-  mounted = false
-  loadToken += 1
   window.removeEventListener('message', onMessage)
-  if (frameObjectUrl) URL.revokeObjectURL(frameObjectUrl)
 })
 </script>
 
 <template>
   <div class="plugin-frame-shell">
-    <iframe class="plugin-frame" :data-plugin-frame="frameId" sandbox="allow-scripts allow-downloads" :src="frameSrc" />
+    <iframe class="plugin-frame" :data-plugin-frame="frameId" :name="frameId"
+      sandbox="allow-scripts allow-downloads allow-same-origin" :src="frameSrc" />
     <span v-if="debugMode" class="plugin-frame-debug-label">{{ debugFrameUrl }}</span>
   </div>
 </template>

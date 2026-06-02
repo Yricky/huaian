@@ -166,6 +166,11 @@ export function createProjectWorkbench() {
 
   function processingChatForDisplay(chat: ChatSession, blocks: DbChatBlock[]): ProcessingChat {
     const cached = processingChats.value[chat.id] ?? processingChatFromDbBlocks(chat, processableChatBlocks(blocks))
+    const blockById = new Map(blocks.map(block => [block.id, block]))
+    const hasLiveGeneratingReplacement = cached.chatBlocks.some(block => {
+      const originalId = block.original?.id
+      return originalId !== undefined && blockById.get(originalId)?.status === 'generating'
+    })
     const missingBlocks = blocks
       .filter(block => !cached.chatBlocks.some(item => item.original?.id === block.id))
       .map(mixedBlockFromDbChatBlock)
@@ -174,7 +179,7 @@ export function createProjectWorkbench() {
         const right = blocks.find(block => block.id === b.original?.id)?.orderIndex ?? 0
         return left - right
       })
-    if (!missingBlocks.length) return cached
+    if (!missingBlocks.length && !hasLiveGeneratingReplacement) return cached
 
     const orderById = new Map(blocks.map(block => [block.id, block.orderIndex]))
     const result: ProcessingChat['chatBlocks'] = []
@@ -188,7 +193,9 @@ export function createProjectWorkbench() {
         result.push(missing)
         missingIndex += 1
       }
-      result.push(block)
+      if (block.original && !blockById.has(block.original.id)) continue
+      const sourceBlock = block.original ? blockById.get(block.original.id) : null
+      result.push(sourceBlock?.status === 'generating' ? mixedBlockFromDbChatBlock(sourceBlock) : block)
     }
     result.push(...missingBlocks.slice(missingIndex))
     return {
@@ -625,6 +632,7 @@ export function createProjectWorkbench() {
     currentPromise = (async () => {
       let timedOut = false
       const timeout = window.setTimeout(() => {
+        if (processingRefreshTokens.get(chatId) !== token || processingRefreshPromises.get(chatId) !== currentPromise) return
         timedOut = true
         void disableChatPluginsAfterProcessingTimeout(chatId)
       }, 1000)
@@ -632,7 +640,8 @@ export function createProjectWorkbench() {
         const bundle = await preparePluginChatProcessing(snapshot, chat, blocks)
         if (timedOut) return null
         processingTimeoutChats.delete(chatId)
-        if (processingRefreshTokens.get(chatId) === token) {
+        const isCurrentRefresh = processingRefreshTokens.get(chatId) === token
+        if (isCurrentRefresh) {
           processingChats.value = {
             ...processingChats.value,
             [chatId]: bundle.processingChat
@@ -642,7 +651,7 @@ export function createProjectWorkbench() {
             [chatId]: bundle.toolDefinitions
           }
         }
-        if (writeBackPluginData) {
+        if (writeBackPluginData && isCurrentRefresh) {
           await writeProcessingPluginData(chat, bundle.processingChat)
         }
         return bundle.processingChat
@@ -670,15 +679,22 @@ export function createProjectWorkbench() {
   }
 
   async function waitForProcessingRefresh(chatId: number, promise: Promise<ProcessingChat | null>): Promise<ProcessingChat | null> {
-    return Promise.race([
-      promise,
-      new Promise<null>(resolve => {
-        window.setTimeout(() => {
-          void disableChatPluginsAfterProcessingTimeout(chatId)
-          resolve(null)
-        }, 1000)
-      })
-    ])
+    let timeout: number | null = null
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<null>(resolve => {
+          timeout = window.setTimeout(() => {
+            if (processingRefreshPromises.get(chatId) === promise) {
+              void disableChatPluginsAfterProcessingTimeout(chatId)
+            }
+            resolve(null)
+          }, 1000)
+        })
+      ])
+    } finally {
+      if (timeout !== null) window.clearTimeout(timeout)
+    }
   }
 
   async function processingChatForGeneration(chat: ChatSession): Promise<ProcessingChat> {
@@ -784,12 +800,11 @@ export function createProjectWorkbench() {
 
   let unsubscribeGenerationEvents: (() => void) | null = null
 
-  watch(() => ({
-    chatId: selectedChat.value?.id ?? null,
-    signature: selectedProcessingSignature.value
-  }), (current, previous) => {
-    if (current.chatId === null || !current.signature) return
-    void refreshProcessingChat(current.chatId, previous?.chatId === current.chatId)
+  watch([() => selectedChat.value?.id ?? null, selectedProcessingSignature], (current, previous) => {
+    const [chatId, signature] = current
+    const previousChatId = previous?.[0]
+    if (chatId === null || !signature) return
+    void refreshProcessingChat(chatId, previousChatId === chatId)
   }, { immediate: true })
 
   onMounted(() => {

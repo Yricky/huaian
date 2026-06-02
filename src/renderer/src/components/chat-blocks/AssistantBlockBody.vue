@@ -57,11 +57,11 @@ function stringFromMetadata(value: unknown, fallback = ''): string {
 }
 
 function displayTextMarkdown(value: string): string {
-  return value
+  return typeof value === 'string' ? value : ''
 }
 
 function displayReasoningMarkdown(value: string): string {
-  return value
+  return typeof value === 'string' ? value : ''
 }
 
 function setEditorElement(element: Element | ComponentPublicInstance | null) {

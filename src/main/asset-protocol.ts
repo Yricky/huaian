@@ -6,7 +6,6 @@ import { pluginAssetPath, pluginAssetRoot } from './project/plugins'
 
 export const ASSET_PROTOCOL = 'st-forge-asset'
 export const PLUGIN_PROTOCOL = 'huaianext'
-export const LEGACY_PLUGIN_PROTOCOL = 'st-forge-plugin'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.apng': 'image/apng',
@@ -39,10 +38,10 @@ const PLUGIN_CONTENT_SECURITY_POLICY = [
   "default-src 'self' 'unsafe-inline' data:",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
-  `font-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}:`,
-  `media-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}:`,
-  `connect-src 'self' data: ${PLUGIN_PROTOCOL}: ${LEGACY_PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  `img-src 'self' data: ${PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  `font-src 'self' data: ${PLUGIN_PROTOCOL}:`,
+  `media-src 'self' data: ${PLUGIN_PROTOCOL}:`,
+  `connect-src 'self' data: ${PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
   "worker-src 'self' blob:"
 ].join('; ')
 
@@ -68,20 +67,12 @@ function decodeAssetPath(url: string): string | null {
 function decodePluginAssetUrl(url: string): { pluginId: string, path: string } | null {
   try {
     const parsed = new URL(url)
+    if (parsed.protocol !== `${PLUGIN_PROTOCOL}:` || !parsed.hostname) return null
     const pathSegments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
-
-    if (parsed.protocol === `${PLUGIN_PROTOCOL}:` && parsed.hostname) {
-      return {
-        pluginId: decodeURIComponent(parsed.hostname),
-        path: pathSegments.join('/')
-      }
+    return {
+      pluginId: decodeURIComponent(parsed.hostname),
+      path: pathSegments.join('/')
     }
-
-    const segments = parsed.hostname
-      ? [decodeURIComponent(parsed.hostname), ...pathSegments]
-      : pathSegments
-    const [pluginId, ...pathParts] = segments
-    return pluginId ? { pluginId, path: pathParts.join('/') } : null
   } catch {
     return null
   }
@@ -105,15 +96,6 @@ export function registerAssetProtocolSchemes(): void {
     },
     {
       scheme: PLUGIN_PROTOCOL,
-      privileges: {
-        corsEnabled: true,
-        secure: true,
-        standard: true,
-        supportFetchAPI: true
-      }
-    },
-    {
-      scheme: LEGACY_PLUGIN_PROTOCOL,
       privileges: {
         corsEnabled: true,
         secure: true,
@@ -181,5 +163,4 @@ export function registerAssetProtocol(): void {
   }
 
   protocol.handle(PLUGIN_PROTOCOL, handlePluginAssetRequest)
-  protocol.handle(LEGACY_PLUGIN_PROTOCOL, handlePluginAssetRequest)
 }
