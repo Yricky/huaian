@@ -7,9 +7,7 @@ import type {
   OriginalChatBlock,
   ProcessingChat,
   PluginFrameApiMethod,
-  PluginGlobalExport,
   PluginManifest,
-  PluginToolCallDefinition,
   PluginToolCallRequest as PluginHandlerToolCallRequest,
   PluginFileEntry
 } from '@huaian/plugin-api'
@@ -281,54 +279,44 @@ export type ChatGenerationEvent =
 
 export type SidebarView = 'chat' | 'settings' | 'plugins'
 
-export interface IpcInvokeMap {
-  'project:get': { args: []; result: ProjectSnapshot }
-  'project:listRecent': { args: []; result: RecentProject[] }
-  'project:updateConfig': { args: [ProjectConfigUpdatePayload]; result: ProjectConfig }
-  'project:open': { args: []; result: ProjectSnapshot | null }
-  'project:openPath': { args: [string]; result: ProjectSnapshot }
-  'llm:createProvider': { args: [LlmProviderCreatePayload]; result: LlmProvider }
-  'llm:updateProvider': { args: [LlmProviderUpdatePayload]; result: LlmProvider }
-  'llm:deleteProvider': { args: [number]; result: ProjectSnapshot }
-  'llm:fetchProviderModels': { args: [number]; result: LlmProvider }
-  'llm:clearProviderModelsCache': { args: [number]; result: LlmProvider }
-  'llm:restoreProviderFromInstance': { args: [number]; result: LlmProvider }
-  'llm:createInstance': { args: [LlmInstanceCreatePayload]; result: LlmInstance }
-  'llm:updateInstance': { args: [LlmInstanceUpdatePayload]; result: LlmInstance }
-  'llm:deleteInstance': { args: [number]; result: ProjectSnapshot }
-  'chat:create': { args: [ChatCreatePayload?]; result: ChatSession }
-  'chat:update': { args: [ChatUpdatePayload]; result: ChatSession }
-  'chat:delete': { args: [number]; result: ProjectSnapshot }
-  'chat:createBlock': { args: [DbChatBlockCreatePayload]; result: DbChatBlock }
-  'chat:updateBlock': { args: [DbChatBlockUpdatePayload]; result: DbChatBlock }
-  'chat:deleteBlock': { args: [number]; result: ProjectSnapshot }
-  'chat:startGeneration': { args: [ChatGenerationRequest]; result: ChatGenerationStartResult }
-  'chat:previewGeneration': { args: [ChatGenerationRequest]; result: ChatGenerationPreviewMessage[] }
-  'chat:stopGeneration': { args: [number]; result: boolean }
-  'plugin:list': { args: []; result: PluginDescriptor[] }
-  'plugin:readFile': { args: [string, string]; result: string }
-  'plugin:listDataFiles': { args: [string, string?]; result: PluginFileEntry[] }
-  'plugin:readDataFile': { args: [string, string]; result: string }
-  'plugin:readDataFileBase64': { args: [string, string]; result: string }
-  'plugin:writeDataFile': { args: [string, string, string]; result: void }
-  'plugin:writeDataFileBase64': { args: [string, string, string]; result: void }
-  'plugin:deleteDataFile': { args: [string, string]; result: void }
-  'plugin:toolCallResponse': { args: [PluginToolCallResponse]; result: void }
-  'app:getVersion': { args: []; result: string }
-  'app:getName': { args: []; result: string }
-  'app:quit': { args: []; result: void }
-}
+export type IpcInvokeChannel =
+  | 'project:get'
+  | 'project:listRecent'
+  | 'project:updateConfig'
+  | 'project:open'
+  | 'project:openPath'
+  | 'llm:createProvider'
+  | 'llm:updateProvider'
+  | 'llm:deleteProvider'
+  | 'llm:fetchProviderModels'
+  | 'llm:clearProviderModelsCache'
+  | 'llm:restoreProviderFromInstance'
+  | 'llm:createInstance'
+  | 'llm:updateInstance'
+  | 'llm:deleteInstance'
+  | 'chat:create'
+  | 'chat:update'
+  | 'chat:delete'
+  | 'chat:createBlock'
+  | 'chat:updateBlock'
+  | 'chat:deleteBlock'
+  | 'chat:startGeneration'
+  | 'chat:previewGeneration'
+  | 'chat:stopGeneration'
+  | 'plugin:list'
+  | 'plugin:readFile'
+  | 'plugin:listDataFiles'
+  | 'plugin:readDataFile'
+  | 'plugin:readDataFileBase64'
+  | 'plugin:writeDataFile'
+  | 'plugin:writeDataFileBase64'
+  | 'plugin:deleteDataFile'
+  | 'plugin:toolCallResponse'
+  | 'app:getVersion'
+  | 'app:getName'
+  | 'app:quit'
 
-export type IpcInvokeChannel = keyof IpcInvokeMap
-export type IpcInvokeArgs<T extends IpcInvokeChannel> = IpcInvokeMap[T]['args']
-export type IpcInvokeResult<T extends IpcInvokeChannel> = IpcInvokeMap[T]['result']
-
-export interface IpcRendererEventMap {
-  'plugin:toolCallRequest': PluginToolCallRequest
-  'chat:generationEvent': ChatGenerationEvent
-}
-
-export type IpcRendererEventChannel = keyof IpcRendererEventMap
+export type IpcRendererEventChannel = 'plugin:toolCallRequest' | 'chat:generationEvent'
 
 export interface ElectronApi {
   getProject(): Promise<ProjectSnapshot>
@@ -385,23 +373,12 @@ export interface PluginRuntimeWorkerPrepareInput {
   processingChat: ProcessingChat
 }
 
-export interface PluginRuntimeWorkerInvokeMap {
-  ensurePluginRuntime: { args: PluginRuntimeWorkerRuntime; result: void }
-  preparePluginChatProcessing: { args: PluginRuntimeWorkerPrepareInput; result: ProcessingChat }
-  listPluginToolCalls: { args: { runtime: PluginRuntimeWorkerRuntime }; result: Record<string, PluginToolCallDefinition[]> }
-  listPluginGlobalEntries: {
-    args: { runtime: PluginRuntimeWorkerRuntime }
-    result: Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>
-  }
-  handlePluginToolCallRequest: {
-    args: { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest }
-    result: CloneableValue
-  }
-}
-
-export type PluginRuntimeWorkerMethod = keyof PluginRuntimeWorkerInvokeMap
-export type PluginRuntimeWorkerArgs<T extends PluginRuntimeWorkerMethod> = PluginRuntimeWorkerInvokeMap[T]['args']
-export type PluginRuntimeWorkerResult<T extends PluginRuntimeWorkerMethod> = PluginRuntimeWorkerInvokeMap[T]['result']
+export type PluginRuntimeWorkerMethod =
+  | 'ensurePluginRuntime'
+  | 'preparePluginChatProcessing'
+  | 'listPluginToolCalls'
+  | 'listPluginGlobalEntries'
+  | 'handlePluginToolCallRequest'
 
 export type PluginWorkerHostCallMethod =
   | 'plugin.readFile'
@@ -427,8 +404,36 @@ export type PluginHostToWorkerMessage =
     source: 'ha-ext-worker-host'
     type: 'invoke'
     id: number
-    method: PluginRuntimeWorkerMethod
-    args: PluginRuntimeWorkerArgs<PluginRuntimeWorkerMethod>
+    method: 'ensurePluginRuntime'
+    args: PluginRuntimeWorkerRuntime
+  }
+  | {
+    source: 'ha-ext-worker-host'
+    type: 'invoke'
+    id: number
+    method: 'preparePluginChatProcessing'
+    args: PluginRuntimeWorkerPrepareInput
+  }
+  | {
+    source: 'ha-ext-worker-host'
+    type: 'invoke'
+    id: number
+    method: 'listPluginToolCalls'
+    args: { runtime: PluginRuntimeWorkerRuntime }
+  }
+  | {
+    source: 'ha-ext-worker-host'
+    type: 'invoke'
+    id: number
+    method: 'listPluginGlobalEntries'
+    args: { runtime: PluginRuntimeWorkerRuntime }
+  }
+  | {
+    source: 'ha-ext-worker-host'
+    type: 'invoke'
+    id: number
+    method: 'handlePluginToolCallRequest'
+    args: { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest }
   }
   | {
     source: 'ha-ext-worker-host'

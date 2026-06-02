@@ -10,9 +10,8 @@ import type {
   PluginGlobalExport,
   PluginGlobalRegistry,
   PluginManifest,
-  PluginRuntimeWorkerArgs,
-  PluginRuntimeWorkerMethod,
-  PluginRuntimeWorkerResult,
+  PluginRuntimeWorkerPrepareInput,
+  PluginRuntimeWorkerRuntime,
   PluginRuntimeContext,
   PluginStorageApi,
   PluginWorkerHostCallMethod,
@@ -20,6 +19,7 @@ import type {
   PluginWorkerToHostPayload,
   PluginHostToWorkerMessage,
   PluginToolCallDefinition,
+  PluginToolCallRequest,
   ProcessingChat
 } from '../../../shared/types'
 import { PLUGIN_FRAME_API_METHODS } from '../../../shared/types'
@@ -248,7 +248,7 @@ async function executePluginScript(
   return fn(context, plugins, context.haExtApi)
 }
 
-async function ensurePluginRuntime(input: PluginRuntimeWorkerArgs<'ensurePluginRuntime'>): Promise<void> {
+async function ensurePluginRuntime(input: PluginRuntimeWorkerRuntime): Promise<void> {
   const signature = asString(input.signature)
   if (signature && loadedProjectSignature === signature) return
 
@@ -292,10 +292,10 @@ function sanitizeProcessingChatFactory(processingChat: ProcessingChat) {
   }
 }
 
-async function preparePluginChatProcessing(input: PluginRuntimeWorkerArgs<'preparePluginChatProcessing'>): Promise<ProcessingChat> {
+async function preparePluginChatProcessing(input: PluginRuntimeWorkerPrepareInput): Promise<ProcessingChat> {
   await ensurePluginRuntime(input.runtime)
   const activePlugins = input.runtime.activePlugins
-  let processingChat = cloneJson(input.processingChat) as ProcessingChat
+  let processingChat = input.processingChat
   const sanitizeProcessingChat = sanitizeProcessingChatFactory(processingChat)
 
   for (const descriptor of activePlugins) {
@@ -309,8 +309,8 @@ async function preparePluginChatProcessing(input: PluginRuntimeWorkerArgs<'prepa
 }
 
 async function listPluginToolCalls(
-  input: PluginRuntimeWorkerArgs<'listPluginToolCalls'>
-): Promise<PluginRuntimeWorkerResult<'listPluginToolCalls'>> {
+  input: { runtime: PluginRuntimeWorkerRuntime }
+): Promise<Record<string, PluginToolCallDefinition[]>> {
   await ensurePluginRuntime(input.runtime)
   const activePlugins = input.runtime.activePlugins
   const result: Record<string, PluginToolCallDefinition[]> = {}
@@ -325,8 +325,8 @@ async function listPluginToolCalls(
 }
 
 async function listPluginGlobalEntries(
-  input: PluginRuntimeWorkerArgs<'listPluginGlobalEntries'>
-): Promise<PluginRuntimeWorkerResult<'listPluginGlobalEntries'>> {
+  input: { runtime: PluginRuntimeWorkerRuntime }
+): Promise<Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>> {
   await ensurePluginRuntime(input.runtime)
   const activePlugins = input.runtime.activePlugins
   const result: Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>> = {}
@@ -342,7 +342,7 @@ async function listPluginGlobalEntries(
 }
 
 async function handlePluginToolCallRequest(
-  input: PluginRuntimeWorkerArgs<'handlePluginToolCallRequest'>
+  input: { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest }
 ): Promise<CloneableValue> {
   await ensurePluginRuntime(input.runtime)
   const plugins = input.runtime.allPlugins
@@ -473,23 +473,22 @@ function disconnectFrame(data: Extract<PluginHostToWorkerMessage, { type: 'disco
 }
 
 async function invokeRuntimeWorkerMethod(
-  method: PluginRuntimeWorkerMethod,
-  args: JsonRecordValue
+  data: Extract<PluginHostToWorkerMessage, { type: 'invoke' }>
 ): Promise<JsonRecordValue> {
-  if (method === 'ensurePluginRuntime') {
-    await ensurePluginRuntime(args as PluginRuntimeWorkerArgs<'ensurePluginRuntime'>)
+  if (data.method === 'ensurePluginRuntime') {
+    await ensurePluginRuntime(data.args)
     return null
   }
-  if (method === 'listPluginGlobalEntries') {
-    return listPluginGlobalEntries(args as PluginRuntimeWorkerArgs<'listPluginGlobalEntries'>)
+  if (data.method === 'listPluginGlobalEntries') {
+    return listPluginGlobalEntries(data.args)
   }
-  if (method === 'listPluginToolCalls') {
-    return listPluginToolCalls(args as PluginRuntimeWorkerArgs<'listPluginToolCalls'>)
+  if (data.method === 'listPluginToolCalls') {
+    return listPluginToolCalls(data.args)
   }
-  if (method === 'preparePluginChatProcessing') {
-    return preparePluginChatProcessing(args as PluginRuntimeWorkerArgs<'preparePluginChatProcessing'>)
+  if (data.method === 'preparePluginChatProcessing') {
+    return preparePluginChatProcessing(data.args)
   }
-  return handlePluginToolCallRequest(args as PluginRuntimeWorkerArgs<'handlePluginToolCallRequest'>)
+  return handlePluginToolCallRequest(data.args)
 }
 
 function handleHostResponse(data: Extract<PluginHostToWorkerMessage, { type: 'host-response' }>): void {
@@ -524,12 +523,12 @@ globalThis.addEventListener('message', (event: MessageEvent<PluginHostToWorkerMe
   if (data.type !== 'invoke') return
   const id = Number(data.id)
   Promise.resolve()
-    .then(() => invokeRuntimeWorkerMethod(data.method, data.args))
+    .then(() => invokeRuntimeWorkerMethod(data))
     .then(value => postToHost({
       type: 'response',
       id,
       ok: true,
-      value: safeResponseValue(value),
+      value: value,
       error: ''
     }))
     .catch(error => postToHost({

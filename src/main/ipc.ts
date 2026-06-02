@@ -1,8 +1,17 @@
 import { app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
-  IpcInvokeArgs,
+  ChatCreatePayload,
+  ChatGenerationRequest,
+  ChatUpdatePayload,
+  DbChatBlockCreatePayload,
+  DbChatBlockUpdatePayload,
   IpcInvokeChannel,
-  IpcInvokeResult
+  LlmInstanceCreatePayload,
+  LlmInstanceUpdatePayload,
+  LlmProviderCreatePayload,
+  LlmProviderUpdatePayload,
+  PluginToolCallResponse,
+  ProjectConfigUpdatePayload
 } from '../shared/types'
 import { hasActiveGeneration, previewChatGeneration, resolvePluginToolCall, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { fetchProviderModels } from './project/llm-provider'
@@ -47,9 +56,9 @@ function ensureCanSwitchProject(): void {
   }
 }
 
-function handleIpc<T extends IpcInvokeChannel>(
-  channel: T,
-  handler: (event: IpcMainInvokeEvent, ...args: IpcInvokeArgs<T>) => IpcInvokeResult<T> | Promise<IpcInvokeResult<T>>
+function handleIpc<TArgs extends unknown[], TResult>(
+  channel: IpcInvokeChannel,
+  handler: (event: IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>
 ): void {
   ipcMain.handle(channel, handler as Parameters<typeof ipcMain.handle>[1])
 }
@@ -57,14 +66,14 @@ function handleIpc<T extends IpcInvokeChannel>(
 export function registerIpcHandlers(): void {
   handleIpc('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
   handleIpc('project:listRecent', () => listRecentProjects())
-  handleIpc('project:updateConfig', (_, payload) => updateProjectConfig(payload))
+  handleIpc('project:updateConfig', (_, payload: ProjectConfigUpdatePayload) => updateProjectConfig(payload))
   handleIpc('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) return hasProject() ? getProjectSnapshot() : openDefaultProject()
     return openProjectAt(result.filePaths[0])
   })
-  handleIpc('project:openPath', async (_, projectPath) => {
+  handleIpc('project:openPath', async (_, projectPath: string) => {
     ensureCanSwitchProject()
     try {
       return await openProjectAt(projectPath)
@@ -74,62 +83,64 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  handleIpc('llm:createProvider', (_, payload) => createLlmProvider(payload))
-  handleIpc('llm:updateProvider', (_, payload) => updateLlmProvider(payload))
-  handleIpc('llm:deleteProvider', (_, id) => deleteLlmProvider(id))
-  handleIpc('llm:fetchProviderModels', (_, id) => fetchProviderModels(id))
-  handleIpc('llm:clearProviderModelsCache', (_, id) => clearLlmProviderModelsCache(id))
-  handleIpc('llm:restoreProviderFromInstance', (_, id) => restoreLlmProviderFromInstance(id))
+  handleIpc('llm:createProvider', (_, payload: LlmProviderCreatePayload) => createLlmProvider(payload))
+  handleIpc('llm:updateProvider', (_, payload: LlmProviderUpdatePayload) => updateLlmProvider(payload))
+  handleIpc('llm:deleteProvider', (_, id: number) => deleteLlmProvider(id))
+  handleIpc('llm:fetchProviderModels', (_, id: number) => fetchProviderModels(id))
+  handleIpc('llm:clearProviderModelsCache', (_, id: number) => clearLlmProviderModelsCache(id))
+  handleIpc('llm:restoreProviderFromInstance', (_, id: number) => restoreLlmProviderFromInstance(id))
 
-  handleIpc('llm:createInstance', (_, payload) => createLlmInstance(payload))
-  handleIpc('llm:updateInstance', (_, payload) => updateLlmInstance(payload))
-  handleIpc('llm:deleteInstance', (_, id) => deleteLlmInstance(id))
+  handleIpc('llm:createInstance', (_, payload: LlmInstanceCreatePayload) => createLlmInstance(payload))
+  handleIpc('llm:updateInstance', (_, payload: LlmInstanceUpdatePayload) => updateLlmInstance(payload))
+  handleIpc('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
 
-  handleIpc('chat:create', (_, payload) => createChat(payload ?? {}))
-  handleIpc('chat:update', (_, payload) => updateChat(payload))
-  handleIpc('chat:delete', (_, id) => {
+  handleIpc('chat:create', (_, payload?: ChatCreatePayload) => createChat(payload ?? {}))
+  handleIpc('chat:update', (_, payload: ChatUpdatePayload) => updateChat(payload))
+  handleIpc('chat:delete', (_, id: number) => {
     if (hasActiveGeneration(id)) {
       throw new Error('这个聊天正在生成，请先停止生成。')
     }
     return deleteChat(id)
   })
-  handleIpc('chat:createBlock', (_, payload) => {
+  handleIpc('chat:createBlock', (_, payload: DbChatBlockCreatePayload) => {
     if (hasActiveGeneration(payload.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再添加聊天块。')
     }
     return createChatBlock(payload)
   })
-  handleIpc('chat:updateBlock', (_, payload) => {
+  handleIpc('chat:updateBlock', (_, payload: DbChatBlockUpdatePayload) => {
     const block = getChatBlock(payload.id)
     if (hasActiveGeneration(block.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
     }
     return updateChatBlock(payload)
   })
-  handleIpc('chat:deleteBlock', (_, id) => {
+  handleIpc('chat:deleteBlock', (_, id: number) => {
     const block = getChatBlock(id)
     if (hasActiveGeneration(block.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
     }
     return deleteChatBlock(id)
   })
-  handleIpc('chat:startGeneration', (event, payload) => startChatGeneration(payload, event.sender))
-  handleIpc('chat:previewGeneration', (_, payload) => previewChatGeneration(payload))
-  handleIpc('chat:stopGeneration', (_, chatId) => stopChatGeneration(chatId))
+  handleIpc('chat:startGeneration', (event, payload: ChatGenerationRequest) => startChatGeneration(payload, event.sender))
+  handleIpc('chat:previewGeneration', (_, payload: ChatGenerationRequest) => previewChatGeneration(payload))
+  handleIpc('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
 
   handleIpc('plugin:list', () => listProjectPlugins())
-  handleIpc('plugin:readFile', (_, pluginId, path) => readPluginFile(pluginId, path))
-  handleIpc('plugin:listDataFiles', (_, pluginId, path = '') => listPluginDataFiles(pluginId, path))
-  handleIpc('plugin:readDataFile', (_, pluginId, path) => readPluginDataFile(pluginId, path))
-  handleIpc('plugin:readDataFileBase64', (_, pluginId, path) => readPluginDataFileBase64(pluginId, path))
-  handleIpc('plugin:writeDataFile', (_, pluginId, path, content) => (
+  handleIpc('plugin:readFile', (_, pluginId: string, path: string) => readPluginFile(pluginId, path))
+  handleIpc('plugin:listDataFiles', (_, pluginId: string, path: string | undefined = '') => (
+    listPluginDataFiles(pluginId, path)
+  ))
+  handleIpc('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
+  handleIpc('plugin:readDataFileBase64', (_, pluginId: string, path: string) => readPluginDataFileBase64(pluginId, path))
+  handleIpc('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
     writePluginDataFile(pluginId, path, content)
   ))
-  handleIpc('plugin:writeDataFileBase64', (_, pluginId, path, content) => (
+  handleIpc('plugin:writeDataFileBase64', (_, pluginId: string, path: string, content: string) => (
     writePluginDataFileBase64(pluginId, path, content)
   ))
-  handleIpc('plugin:deleteDataFile', (_, pluginId, path) => deletePluginDataFile(pluginId, path))
-  handleIpc('plugin:toolCallResponse', (_, payload) => resolvePluginToolCall(payload))
+  handleIpc('plugin:deleteDataFile', (_, pluginId: string, path: string) => deletePluginDataFile(pluginId, path))
+  handleIpc('plugin:toolCallResponse', (_, payload: PluginToolCallResponse) => resolvePluginToolCall(payload))
 
   handleIpc('app:getVersion', () => app.getVersion())
   handleIpc('app:getName', () => app.getName())

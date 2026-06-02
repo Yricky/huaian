@@ -1,14 +1,19 @@
 import type {
   ChatSession,
+  CloneableValue,
   JsonRecord,
   JsonRecordValue,
+  ProcessingChat,
   PluginFrameCapabilities,
   PluginFrameHostMessage,
+  PluginGlobalExport,
   PluginHostToWorkerMessage,
   PluginHostToWorkerPayload,
-  PluginRuntimeWorkerArgs,
   PluginRuntimeWorkerMethod,
-  PluginRuntimeWorkerResult,
+  PluginRuntimeWorkerPrepareInput,
+  PluginRuntimeWorkerRuntime,
+  PluginToolCallDefinition,
+  PluginToolCallRequest,
   PluginWorkerHostCallMethod,
   PluginWorkerToHostMessage
 } from '../../shared/types'
@@ -246,14 +251,49 @@ export function connectPluginFrame(frameId: string): void {
   frameWindow.postMessage(message, '*', [channel.port2])
 }
 
-export async function invokePluginWorker<T extends PluginRuntimeWorkerMethod>(
-  method: T,
-  args: PluginRuntimeWorkerArgs<T>,
+export function invokePluginWorker(
+  method: 'ensurePluginRuntime',
+  args: PluginRuntimeWorkerRuntime,
   signature?: string
-): Promise<PluginRuntimeWorkerResult<T>> {
+): Promise<void>
+export function invokePluginWorker(
+  method: 'preparePluginChatProcessing',
+  args: PluginRuntimeWorkerPrepareInput,
+  signature?: string
+): Promise<ProcessingChat>
+export function invokePluginWorker(
+  method: 'listPluginToolCalls',
+  args: { runtime: PluginRuntimeWorkerRuntime },
+  signature?: string
+): Promise<Record<string, PluginToolCallDefinition[]>>
+export function invokePluginWorker(
+  method: 'listPluginGlobalEntries',
+  args: { runtime: PluginRuntimeWorkerRuntime },
+  signature?: string
+): Promise<Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>>
+export function invokePluginWorker(
+  method: 'handlePluginToolCallRequest',
+  args: { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest },
+  signature?: string
+): Promise<CloneableValue>
+export function invokePluginWorker(
+  method: PluginRuntimeWorkerMethod,
+  args:
+    | PluginRuntimeWorkerRuntime
+    | PluginRuntimeWorkerPrepareInput
+    | { runtime: PluginRuntimeWorkerRuntime }
+    | { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest },
+  signature?: string
+): Promise<
+  | void
+  | ProcessingChat
+  | Record<string, PluginToolCallDefinition[]>
+  | Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>
+  | CloneableValue
+> {
   ensureWorker(signature)
   const id = ++nextMessageId
-  return new Promise<PluginRuntimeWorkerResult<T>>((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       pendingInvocations.delete(id)
       reject(new Error(`Plugin worker call timed out: ${method}`))
@@ -264,7 +304,7 @@ export async function invokePluginWorker<T extends PluginRuntimeWorkerMethod>(
       id,
       method,
       args
-    })
+    } as PluginHostToWorkerPayload)
   })
 }
 

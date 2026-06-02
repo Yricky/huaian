@@ -1,23 +1,26 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
+  ChatGenerationEvent,
   ElectronApi,
-  IpcInvokeArgs,
   IpcInvokeChannel,
-  IpcInvokeResult,
   IpcRendererEventChannel,
-  IpcRendererEventMap
+  PluginToolCallRequest
 } from '../shared/types'
 
-function invokeIpc<T extends IpcInvokeChannel>(channel: T, ...args: IpcInvokeArgs<T>): Promise<IpcInvokeResult<T>> {
-  return ipcRenderer.invoke(channel, ...args)
+function invokeIpc<TResult>(channel: IpcInvokeChannel, ...args: unknown[]): Promise<TResult> {
+  return ipcRenderer.invoke(channel, ...args) as Promise<TResult>
 }
 
-function onIpcEvent<T extends IpcRendererEventChannel>(
-  channel: T,
-  callback: (event: IpcRendererEventMap[T]) => void
+function onIpcEvent(channel: 'plugin:toolCallRequest', callback: (event: PluginToolCallRequest) => void): () => void
+function onIpcEvent(channel: 'chat:generationEvent', callback: (event: ChatGenerationEvent) => void): () => void
+function onIpcEvent(
+  channel: IpcRendererEventChannel,
+  callback: ((event: PluginToolCallRequest) => void) | ((event: ChatGenerationEvent) => void)
 ): () => void {
-  const listener = (_: IpcRendererEvent, event: IpcRendererEventMap[T]) => callback(event)
+  const listener = (_: IpcRendererEvent, event: PluginToolCallRequest | ChatGenerationEvent) => (
+    (callback as (event: PluginToolCallRequest | ChatGenerationEvent) => void)(event)
+  )
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
 }
