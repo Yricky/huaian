@@ -18,7 +18,8 @@ import type {
   JsonRecord,
   JsonRecordValue,
   PluginToolCallRequest,
-  PluginToolCallResponse
+  PluginToolCallResponse,
+  ProjectSnapshot
 } from '../../shared/types'
 import {
   createAssistantGenerationBlock,
@@ -48,6 +49,20 @@ const pendingPluginToolCalls = new Map<string, {
   resolve: (value: CloneableValue) => void
   timeout: ReturnType<typeof setTimeout>
 }>()
+
+export function withActiveGenerationBlockStatus(block: DbChatBlock): DbChatBlock {
+  const generation = activeGenerations.get(block.chatId)
+  if (!generation || generation.blockId !== block.id) return block
+  return block.status === 'generating' ? block : { ...block, status: 'generating' }
+}
+
+export function withActiveGenerationSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
+  if (!activeGenerations.size) return snapshot
+  return {
+    ...snapshot,
+    chatBlocks: snapshot.chatBlocks.map(withActiveGenerationBlockStatus)
+  }
+}
 
 function usageNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -442,6 +457,7 @@ async function runGeneration(
       '',
       metadataPatch
     )
+    activeGenerations.delete(chatId)
     sendEvent(webContents, { type: 'finished', chatId, block })
   } catch (error) {
     if (isAbortError(error) || abortController.signal.aborted) {
@@ -453,6 +469,7 @@ async function runGeneration(
         '',
         { generationFinishedAt: new Date().toISOString() }
       )
+      activeGenerations.delete(chatId)
       sendEvent(webContents, { type: 'stopped', chatId, block })
       return
     }
@@ -466,6 +483,7 @@ async function runGeneration(
       message,
       { generationFinishedAt: new Date().toISOString() }
     )
+    activeGenerations.delete(chatId)
     sendEvent(webContents, { type: 'error', chatId, block, error: message })
   } finally {
     activeGenerations.delete(chatId)
@@ -501,14 +519,14 @@ export async function startChatGeneration(
   const generationBlock = request.regenerateBlockId
     ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance)
     : createAssistantGenerationBlock(chat.id, instance)
-  const currentGenerationBlock = generationBlock
   const abortController = new AbortController()
 
   activeGenerations.set(chat.id, {
     abortController,
-    blockId: currentGenerationBlock.id,
+    blockId: generationBlock.id,
     chatId: chat.id
   })
+  const currentGenerationBlock = withActiveGenerationBlockStatus(generationBlock)
   sendEvent(webContents, { type: 'started', chatId: chat.id, block: currentGenerationBlock })
 
   void runGeneration(

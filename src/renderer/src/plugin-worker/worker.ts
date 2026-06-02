@@ -352,13 +352,7 @@ async function handlePluginToolCallRequest(
 
   const handler = toolHandlerByName(descriptor.manifest.id, asString(request.toolCallName))
   if (typeof handler?.handle !== 'function') throw new Error('插件工具没有导出 handle。')
-  return safeResponseValue(await handler.handle({
-    chatId: Number(request.chatId),
-    toolCallName: asString(request.toolCallName),
-    toolName: asString(request.toolName),
-    input: asRecord(request.input),
-    commonArgs: asRecord(request.commonArgs)
-  }) as JsonRecordValue)
+  return safeResponseValue(await handler.handle(request) as JsonRecordValue)
 }
 
 async function callFrameMethod(frameId: string, method: PluginFrameApiMethod, args: JsonRecordValue[]): Promise<JsonRecordValue> {

@@ -193,7 +193,12 @@ export function createProjectWorkbench() {
     const result: ProcessingChat['chatBlocks'] = []
     let missingIndex = 0
     for (const block of cached.chatBlocks) {
-      const order = block.original ? orderById.get(block.original.id) ?? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY
+      if (!block.original) {
+        result.push(block)
+        continue
+      }
+
+      const order = orderById.get(block.original.id) ?? Number.POSITIVE_INFINITY
       while (missingIndex < missingBlocks.length) {
         const missing = missingBlocks[missingIndex]
         const missingOrder = orderById.get(missing.original?.id ?? -1) ?? Number.POSITIVE_INFINITY
@@ -201,8 +206,8 @@ export function createProjectWorkbench() {
         result.push(missing)
         missingIndex += 1
       }
-      if (block.original && !blockById.has(block.original.id)) continue
-      const sourceBlock = block.original ? blockById.get(block.original.id) : null
+      if (!blockById.has(block.original.id)) continue
+      const sourceBlock = blockById.get(block.original.id)
       result.push(sourceBlock?.status === 'generating' ? mixedBlockFromDbChatBlock(sourceBlock) : block)
     }
     result.push(...missingBlocks.slice(missingIndex))

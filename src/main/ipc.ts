@@ -13,7 +13,14 @@ import type {
   PluginToolCallResponse,
   ProjectConfigUpdatePayload
 } from '../shared/types'
-import { hasActiveGeneration, previewChatGeneration, resolvePluginToolCall, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
+import {
+  hasActiveGeneration,
+  previewChatGeneration,
+  resolvePluginToolCall,
+  startChatGeneration,
+  stopChatGeneration,
+  withActiveGenerationSnapshot
+} from './project/llm-runtime'
 import { fetchProviderModels } from './project/llm-provider'
 import { hasProject } from './project/state'
 import {
@@ -64,13 +71,15 @@ function handleIpc<TArgs extends unknown[], TResult>(
 }
 
 export function registerIpcHandlers(): void {
-  handleIpc('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
+  handleIpc('project:get', async () => withActiveGenerationSnapshot(hasProject() ? getProjectSnapshot() : await openDefaultProject()))
   handleIpc('project:listRecent', () => listRecentProjects())
   handleIpc('project:updateConfig', (_, payload: ProjectConfigUpdatePayload) => updateProjectConfig(payload))
   handleIpc('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
-    if (result.canceled || !result.filePaths[0]) return hasProject() ? getProjectSnapshot() : openDefaultProject()
+    if (result.canceled || !result.filePaths[0]) {
+      return withActiveGenerationSnapshot(hasProject() ? getProjectSnapshot() : await openDefaultProject())
+    }
     return openProjectAt(result.filePaths[0])
   })
   handleIpc('project:openPath', async (_, projectPath: string) => {
@@ -85,14 +94,14 @@ export function registerIpcHandlers(): void {
 
   handleIpc('llm:createProvider', (_, payload: LlmProviderCreatePayload) => createLlmProvider(payload))
   handleIpc('llm:updateProvider', (_, payload: LlmProviderUpdatePayload) => updateLlmProvider(payload))
-  handleIpc('llm:deleteProvider', (_, id: number) => deleteLlmProvider(id))
+  handleIpc('llm:deleteProvider', async (_, id: number) => withActiveGenerationSnapshot(await deleteLlmProvider(id)))
   handleIpc('llm:fetchProviderModels', (_, id: number) => fetchProviderModels(id))
   handleIpc('llm:clearProviderModelsCache', (_, id: number) => clearLlmProviderModelsCache(id))
   handleIpc('llm:restoreProviderFromInstance', (_, id: number) => restoreLlmProviderFromInstance(id))
 
   handleIpc('llm:createInstance', (_, payload: LlmInstanceCreatePayload) => createLlmInstance(payload))
   handleIpc('llm:updateInstance', (_, payload: LlmInstanceUpdatePayload) => updateLlmInstance(payload))
-  handleIpc('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
+  handleIpc('llm:deleteInstance', async (_, id: number) => withActiveGenerationSnapshot(await deleteLlmInstance(id)))
 
   handleIpc('chat:create', (_, payload?: ChatCreatePayload) => createChat(payload ?? {}))
   handleIpc('chat:update', (_, payload: ChatUpdatePayload) => updateChat(payload))

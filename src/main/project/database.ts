@@ -72,6 +72,7 @@ export function initDatabase(dbPath: string): any {
     );
   `)
   ensureColumn(db, 'chat_sessions', 'runtime_config_json', 'TEXT NOT NULL DEFAULT \'{}\'')
+  db.prepare("UPDATE chat_blocks SET status = 'idle' WHERE status = 'generating'").run()
   return db
 }
 
@@ -190,7 +191,7 @@ function normalizeBlockKind(value: JsonRecordValue): ChatBlockKind {
 }
 
 function normalizeBlockStatus(value: JsonRecordValue): ChatBlockStatus {
-  return value === 'generating' || value === 'stopped' || value === 'error' ? value : 'idle'
+  return value === 'stopped' || value === 'error' ? value : 'idle'
 }
 
 export function rowToLlmProvider(row: any): LlmProvider {

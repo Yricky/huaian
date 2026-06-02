@@ -276,6 +276,10 @@ function json<T>(value: T): string {
   return JSON.stringify(value ?? null)
 }
 
+function chatBlockStatusForStorage(status: DbChatBlock['status']): Exclude<DbChatBlock['status'], 'generating'> {
+  return status === 'generating' ? 'idle' : status
+}
+
 function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRuntimeConfig {
   return {
     llmInstanceId,
@@ -577,8 +581,8 @@ export function updateChatBlock(payload: DbChatBlockUpdatePayload): DbChatBlock 
     payload.enabled === undefined ? (block.enabled ? 1 : 0) : (payload.enabled ? 1 : 0),
     json(payload.contentParts ?? block.contentParts),
     json(metadata),
-    payload.preserveStatus || block.status === 'generating' ? block.status : 'idle',
-    payload.preserveStatus || block.status === 'generating' ? block.errorText : '',
+    payload.preserveStatus ? chatBlockStatusForStorage(block.status) : 'idle',
+    payload.preserveStatus ? block.errorText : '',
     now,
     payload.id
   )
@@ -610,7 +614,7 @@ export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmI
     chatId,
     'assistant',
     0,
-    'generating',
+    'idle',
     nextChatBlockOrder(chatId),
     json([{ type: 'text', text: '' }]),
     json({ generationStartedAt: now }),
@@ -635,7 +639,7 @@ export function prepareAssistantBlockForRegeneration(id: number, llmInstance: Ll
   delete metadata.generationFinishedAt
   project.db.prepare(`
     UPDATE chat_blocks
-    SET enabled = 0, status = 'generating', content_parts_json = ?, llm_instance_snapshot_json = ?,
+    SET enabled = 0, status = 'idle', content_parts_json = ?, llm_instance_snapshot_json = ?,
         metadata_json = ?, error_text = '', updated_at = ?
     WHERE id = ?
   `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(metadata), now, id)
@@ -664,7 +668,7 @@ export function updateAssistantGenerationBlock(
   `).run(
     json(contentParts),
     json(metadata),
-    status,
+    chatBlockStatusForStorage(status),
     enabled ? 1 : 0,
     errorText,
     now,
