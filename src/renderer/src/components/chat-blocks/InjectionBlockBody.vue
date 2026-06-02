@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, type ComponentPublicInstance } from 'vue'
-import type { DbChatBlock } from '../../../../shared/types'
+import type { DbChatBlock, JsonRecord, JsonRecordValue } from '../../../../shared/types'
 
 interface InjectionDetail {
   title: string
@@ -38,23 +38,23 @@ const injectionDetails = computed(() => {
 
 const hasInjectionDetails = computed(() => injectionDetails.value.length > 0)
 
-function numberFromMetadata(value: unknown): number | null {
+function numberFromMetadata(value: JsonRecordValue): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function recordFromMetadata(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+function recordFromMetadata(value: JsonRecordValue): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
 }
 
-function stringFromMetadata(value: unknown, fallback = ''): string {
+function stringFromMetadata(value: JsonRecordValue, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
-function optionalNumberFromMetadata(value: unknown): number | undefined {
+function optionalNumberFromMetadata(value: JsonRecordValue): number | undefined {
   return numberFromMetadata(value) ?? undefined
 }
 
-function injectionDetailFromMetadata(value: unknown): InjectionDetail | null {
+function injectionDetailFromMetadata(value: JsonRecordValue): InjectionDetail | null {
   const record = recordFromMetadata(value)
   const content = stringFromMetadata(record.content).trim()
   if (!content) return null

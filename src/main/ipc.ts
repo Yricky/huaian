@@ -1,17 +1,8 @@
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
-  ChatCreatePayload,
-  DbChatBlockCreatePayload,
-  DbChatBlockUpdatePayload,
-  ChatGenerationRequest,
-  ChatUpdatePayload,
-  IpcJsonPayload,
-  LlmInstanceCreatePayload,
-  LlmInstanceUpdatePayload,
-  LlmProviderCreatePayload,
-  LlmProviderUpdatePayload,
-  PluginToolCallResponse,
-  ProjectConfigUpdatePayload
+  IpcInvokeArgs,
+  IpcInvokeChannel,
+  IpcInvokeResult
 } from '../shared/types'
 import { hasActiveGeneration, previewChatGeneration, resolvePluginToolCall, startChatGeneration, stopChatGeneration } from './project/llm-runtime'
 import { fetchProviderModels } from './project/llm-provider'
@@ -50,29 +41,30 @@ import {
   updateLlmProvider
 } from './project/store'
 
-function parseIpcPayload<T>(payload: IpcJsonPayload<T>): T {
-  return typeof payload === 'string' ? JSON.parse(payload) : payload
-}
-
 function ensureCanSwitchProject(): void {
   if (hasActiveGeneration()) {
     throw new Error('有聊天正在生成，请先停止生成后再切换项目。')
   }
 }
 
+function handleIpc<T extends IpcInvokeChannel>(
+  channel: T,
+  handler: (event: IpcMainInvokeEvent, ...args: IpcInvokeArgs<T>) => IpcInvokeResult<T> | Promise<IpcInvokeResult<T>>
+): void {
+  ipcMain.handle(channel, handler as Parameters<typeof ipcMain.handle>[1])
+}
+
 export function registerIpcHandlers(): void {
-  ipcMain.handle('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
-  ipcMain.handle('project:listRecent', () => listRecentProjects())
-  ipcMain.handle('project:updateConfig', (_, payload: IpcJsonPayload<ProjectConfigUpdatePayload>) => (
-    updateProjectConfig(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('project:open', async () => {
+  handleIpc('project:get', async () => hasProject() ? getProjectSnapshot() : openDefaultProject())
+  handleIpc('project:listRecent', () => listRecentProjects())
+  handleIpc('project:updateConfig', (_, payload) => updateProjectConfig(payload))
+  handleIpc('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) return hasProject() ? getProjectSnapshot() : openDefaultProject()
     return openProjectAt(result.filePaths[0])
   })
-  ipcMain.handle('project:openPath', async (_, projectPath: string) => {
+  handleIpc('project:openPath', async (_, projectPath) => {
     ensureCanSwitchProject()
     try {
       return await openProjectAt(projectPath)
@@ -82,84 +74,64 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('llm:createProvider', (_, payload: IpcJsonPayload<LlmProviderCreatePayload>) => (
-    createLlmProvider(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('llm:updateProvider', (_, payload: IpcJsonPayload<LlmProviderUpdatePayload>) => (
-    updateLlmProvider(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('llm:deleteProvider', (_, id: number) => deleteLlmProvider(id))
-  ipcMain.handle('llm:fetchProviderModels', (_, id: number) => fetchProviderModels(id))
-  ipcMain.handle('llm:clearProviderModelsCache', (_, id: number) => clearLlmProviderModelsCache(id))
-  ipcMain.handle('llm:restoreProviderFromInstance', (_, id: number) => restoreLlmProviderFromInstance(id))
+  handleIpc('llm:createProvider', (_, payload) => createLlmProvider(payload))
+  handleIpc('llm:updateProvider', (_, payload) => updateLlmProvider(payload))
+  handleIpc('llm:deleteProvider', (_, id) => deleteLlmProvider(id))
+  handleIpc('llm:fetchProviderModels', (_, id) => fetchProviderModels(id))
+  handleIpc('llm:clearProviderModelsCache', (_, id) => clearLlmProviderModelsCache(id))
+  handleIpc('llm:restoreProviderFromInstance', (_, id) => restoreLlmProviderFromInstance(id))
 
-  ipcMain.handle('llm:createInstance', (_, payload: IpcJsonPayload<LlmInstanceCreatePayload>) => (
-    createLlmInstance(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('llm:updateInstance', (_, payload: IpcJsonPayload<LlmInstanceUpdatePayload>) => (
-    updateLlmInstance(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
+  handleIpc('llm:createInstance', (_, payload) => createLlmInstance(payload))
+  handleIpc('llm:updateInstance', (_, payload) => updateLlmInstance(payload))
+  handleIpc('llm:deleteInstance', (_, id) => deleteLlmInstance(id))
 
-  ipcMain.handle('chat:create', (_, payload?: IpcJsonPayload<ChatCreatePayload>) => (
-    createChat(payload ? parseIpcPayload(payload) : {})
-  ))
-  ipcMain.handle('chat:update', (_, payload: IpcJsonPayload<ChatUpdatePayload>) => (
-    updateChat(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('chat:delete', (_, id: number) => {
+  handleIpc('chat:create', (_, payload) => createChat(payload ?? {}))
+  handleIpc('chat:update', (_, payload) => updateChat(payload))
+  handleIpc('chat:delete', (_, id) => {
     if (hasActiveGeneration(id)) {
       throw new Error('这个聊天正在生成，请先停止生成。')
     }
     return deleteChat(id)
   })
-  ipcMain.handle('chat:createBlock', (_, payload: IpcJsonPayload<DbChatBlockCreatePayload>) => {
-    const parsed = parseIpcPayload(payload)
-    if (hasActiveGeneration(parsed.chatId)) {
+  handleIpc('chat:createBlock', (_, payload) => {
+    if (hasActiveGeneration(payload.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再添加聊天块。')
     }
-    return createChatBlock(parsed)
+    return createChatBlock(payload)
   })
-  ipcMain.handle('chat:updateBlock', (_, payload: IpcJsonPayload<DbChatBlockUpdatePayload>) => {
-    const parsed = parseIpcPayload(payload)
-    const block = getChatBlock(parsed.id)
+  handleIpc('chat:updateBlock', (_, payload) => {
+    const block = getChatBlock(payload.id)
     if (hasActiveGeneration(block.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
     }
-    return updateChatBlock(parsed)
+    return updateChatBlock(payload)
   })
-  ipcMain.handle('chat:deleteBlock', (_, id: number) => {
+  handleIpc('chat:deleteBlock', (_, id) => {
     const block = getChatBlock(id)
     if (hasActiveGeneration(block.chatId)) {
       throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
     }
     return deleteChatBlock(id)
   })
-  ipcMain.handle('chat:startGeneration', (event, payload: IpcJsonPayload<ChatGenerationRequest>) => (
-    startChatGeneration(parseIpcPayload(payload), event.sender)
-  ))
-  ipcMain.handle('chat:previewGeneration', (_, payload: IpcJsonPayload<ChatGenerationRequest>) => (
-    previewChatGeneration(parseIpcPayload(payload))
-  ))
-  ipcMain.handle('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
+  handleIpc('chat:startGeneration', (event, payload) => startChatGeneration(payload, event.sender))
+  handleIpc('chat:previewGeneration', (_, payload) => previewChatGeneration(payload))
+  handleIpc('chat:stopGeneration', (_, chatId) => stopChatGeneration(chatId))
 
-  ipcMain.handle('plugin:list', () => listProjectPlugins())
-  ipcMain.handle('plugin:readFile', (_, pluginId: string, path: string) => readPluginFile(pluginId, path))
-  ipcMain.handle('plugin:listDataFiles', (_, pluginId: string, path = '') => listPluginDataFiles(pluginId, path))
-  ipcMain.handle('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
-  ipcMain.handle('plugin:readDataFileBase64', (_, pluginId: string, path: string) => readPluginDataFileBase64(pluginId, path))
-  ipcMain.handle('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
+  handleIpc('plugin:list', () => listProjectPlugins())
+  handleIpc('plugin:readFile', (_, pluginId, path) => readPluginFile(pluginId, path))
+  handleIpc('plugin:listDataFiles', (_, pluginId, path = '') => listPluginDataFiles(pluginId, path))
+  handleIpc('plugin:readDataFile', (_, pluginId, path) => readPluginDataFile(pluginId, path))
+  handleIpc('plugin:readDataFileBase64', (_, pluginId, path) => readPluginDataFileBase64(pluginId, path))
+  handleIpc('plugin:writeDataFile', (_, pluginId, path, content) => (
     writePluginDataFile(pluginId, path, content)
   ))
-  ipcMain.handle('plugin:writeDataFileBase64', (_, pluginId: string, path: string, content: string) => (
+  handleIpc('plugin:writeDataFileBase64', (_, pluginId, path, content) => (
     writePluginDataFileBase64(pluginId, path, content)
   ))
-  ipcMain.handle('plugin:deleteDataFile', (_, pluginId: string, path: string) => deletePluginDataFile(pluginId, path))
-  ipcMain.handle('plugin:toolCallResponse', (_, payload: IpcJsonPayload<PluginToolCallResponse>) => (
-    resolvePluginToolCall(parseIpcPayload(payload))
-  ))
+  handleIpc('plugin:deleteDataFile', (_, pluginId, path) => deletePluginDataFile(pluginId, path))
+  handleIpc('plugin:toolCallResponse', (_, payload) => resolvePluginToolCall(payload))
 
-  ipcMain.handle('app:getVersion', () => app.getVersion())
-  ipcMain.handle('app:getName', () => app.getName())
-  ipcMain.handle('app:quit', () => app.quit())
+  handleIpc('app:getVersion', () => app.getVersion())
+  handleIpc('app:getName', () => app.getName())
+  handleIpc('app:quit', () => app.quit())
 }

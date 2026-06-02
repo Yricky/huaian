@@ -1,5 +1,6 @@
 import type {
   JsonRecord,
+  JsonRecordValue,
   LlmInstance,
   LlmProvider,
   ProviderModelCacheItem
@@ -28,15 +29,15 @@ function ensureBaseURL(value: string, fallback: string): string {
   return (value.trim() || fallback).replace(/\/+$/, '')
 }
 
-function isMissingPackageError(error: unknown): boolean {
-  return error instanceof Error && /Cannot find package|Cannot find module|ERR_MODULE_NOT_FOUND/.test(error.message)
+function isMissingPackageError(error: Error): boolean {
+  return /Cannot find package|Cannot find module|ERR_MODULE_NOT_FOUND/.test(error.message)
 }
 
 async function importProvider(packageName: string): Promise<any> {
   try {
     return await dynamicImport(packageName)
   } catch (error) {
-    if (isMissingPackageError(error)) {
+    if (error instanceof Error && isMissingPackageError(error)) {
       throw new Error(`缺少 AI SDK provider 包：${packageName}。请运行 pnpm add ${packageName} 后重试。`)
     }
     throw error
@@ -173,7 +174,7 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     })
     const metadata = new Map<string, JsonRecord>()
     const ids = Array.isArray(json.data)
-      ? json.data.map((item: unknown) => {
+      ? json.data.map((item: JsonRecordValue) => {
         const record = asRecord(item)
         const id = asString(record.id)
         if (id) metadata.set(id, record)
@@ -186,7 +187,7 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     const json = await fetchJson(`${baseURL}/api/tags`, { headers })
     const metadata = new Map<string, JsonRecord>()
     const ids = Array.isArray(json.models)
-      ? json.models.map((item: unknown) => {
+      ? json.models.map((item: JsonRecordValue) => {
         const record = asRecord(item)
         const id = asString(record.name)
         if (id) metadata.set(id, record)
@@ -204,7 +205,7 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
       }
     })
     const ids = Array.isArray(json.data)
-      ? json.data.map((item: unknown) => asString(asRecord(item).id))
+      ? json.data.map((item: JsonRecordValue) => asString(asRecord(item).id))
       : []
     models = cacheItems(ids)
   } else if (provider.type === 'google') {
@@ -213,7 +214,7 @@ export async function fetchProviderModels(providerId: number): Promise<LlmProvid
     url.searchParams.set('key', provider.apiKey)
     const json = await fetchJson(url.toString(), { headers })
     const ids = Array.isArray(json.models)
-      ? json.models.map((item: unknown) => {
+      ? json.models.map((item: JsonRecordValue) => {
         const name = asString(asRecord(item).name)
         return name.replace(/^models\//, '')
       })

@@ -4,6 +4,8 @@ import { MdCode, MdPsychology } from 'vue-icons-plus/md'
 import type {
   DbChatBlock,
   ChatContentPart,
+  JsonRecord,
+  JsonRecordValue,
   ReasoningContentPart,
   ToolCallContentPart
 } from '../../../../shared/types'
@@ -48,11 +50,11 @@ watch(() => props.block.id, () => {
   openToolCalls.value = {}
 })
 
-function recordFromMetadata(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+function recordFromMetadata(value: JsonRecordValue): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
 }
 
-function stringFromMetadata(value: unknown, fallback = ''): string {
+function stringFromMetadata(value: JsonRecordValue, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
@@ -134,7 +136,7 @@ function toolCallStatusLabel(part: ToolCallContentPart): string {
   return '成功'
 }
 
-function toolCallJson(part: ToolCallContentPart): Record<string, unknown> {
+function toolCallJson(part: ToolCallContentPart): JsonRecord {
   return {
     toolCallId: part.toolCallId,
     toolName: part.toolName,

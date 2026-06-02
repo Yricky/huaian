@@ -3,6 +3,7 @@ import type {
   ChatRuntimeConfig,
   ChatToolDefinition,
   JsonRecord,
+  JsonRecordValue,
   PluginProjectConfig,
   ProjectConfig
 } from '../../shared/types'
@@ -23,11 +24,11 @@ export function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
 
-export function toString(value: unknown, fallback = ''): string {
+export function toString(value: JsonRecordValue, fallback = ''): string {
   return asString(value, fallback)
 }
 
-export function toStringArray(value: unknown): string[] {
+export function toStringArray(value: JsonRecordValue): string[] {
   if (Array.isArray(value)) {
     return value.map(item => String(item).trim()).filter(Boolean)
   }
@@ -37,16 +38,16 @@ export function toStringArray(value: unknown): string[] {
   return []
 }
 
-export function toNumber(value: unknown, fallback: number): number {
+export function toNumber(value: JsonRecordValue, fallback: number): number {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
 }
 
-export function toBoolean(value: unknown, fallback: boolean): boolean {
+export function toBoolean(value: JsonRecordValue, fallback: boolean): boolean {
   return asBoolean(value, fallback)
 }
 
-function nullableInteger(value: unknown): number | null {
+function nullableInteger(value: JsonRecordValue): number | null {
   if (value === null || value === undefined || value === '') return null
   const number = Number(value)
   return Number.isInteger(number) ? number : null
@@ -67,7 +68,7 @@ export function defaultPluginProjectConfig(): PluginProjectConfig {
   }
 }
 
-export function normalizePluginProjectConfig(value: unknown): PluginProjectConfig {
+export function normalizePluginProjectConfig(value: JsonRecordValue): PluginProjectConfig {
   const data = asRecord(value)
   const enabledPluginIds = Array.isArray(data.enabledPluginIds)
     ? data.enabledPluginIds.map(item => String(item).trim()).filter(Boolean)
@@ -77,7 +78,7 @@ export function normalizePluginProjectConfig(value: unknown): PluginProjectConfi
   }
 }
 
-export function normalizeChatCreationDefaults(value: unknown): ChatCreationDefaults {
+export function normalizeChatCreationDefaults(value: JsonRecordValue): ChatCreationDefaults {
   const data = asRecord(value)
   return {
     enabledPluginIds: Array.isArray(data.enabledPluginIds)
@@ -86,7 +87,7 @@ export function normalizeChatCreationDefaults(value: unknown): ChatCreationDefau
   }
 }
 
-export function normalizeProjectConfig(value: unknown): ProjectConfig {
+export function normalizeProjectConfig(value: JsonRecordValue): ProjectConfig {
   const data = asRecord(value)
   return {
     schemaVersion: toNumber(data.schemaVersion, 1),
@@ -96,7 +97,7 @@ export function normalizeProjectConfig(value: unknown): ProjectConfig {
   }
 }
 
-export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
+export function normalizeChatRuntimeConfig(value: JsonRecordValue): ChatRuntimeConfig {
   const data = asRecord(value)
   return {
     llmInstanceId: nullableInteger(data.llmInstanceId),
@@ -108,7 +109,7 @@ export function normalizeChatRuntimeConfig(value: unknown): ChatRuntimeConfig {
   }
 }
 
-export function normalizeChatToolDefinitions(value: unknown): ChatToolDefinition[] {
+export function normalizeChatToolDefinitions(value: JsonRecordValue): ChatToolDefinition[] {
   if (!Array.isArray(value)) return []
   const seen = new Set<string>()
   const definitions: ChatToolDefinition[] = []

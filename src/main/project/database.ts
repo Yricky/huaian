@@ -6,6 +6,7 @@ import type {
   ChatContentPart,
   ChatSession,
   JsonRecord,
+  JsonRecordValue,
   LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
@@ -80,7 +81,7 @@ function ensureColumn(db: any, tableName: string, columnName: string, definition
   db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`).run()
 }
 
-function parseJsonColumn(value: string): unknown {
+function parseJsonColumn(value: string): JsonRecordValue {
   try {
     return JSON.parse(value)
   } catch {
@@ -93,11 +94,11 @@ function parseJsonArray<T>(value: string): T[] {
   return Array.isArray(parsed) ? parsed as T[] : []
 }
 
-function asBoolean(value: unknown): boolean {
+function asBoolean(value: JsonRecordValue): boolean {
   return Boolean(value)
 }
 
-function normalizeProviderType(value: unknown): LlmProviderType {
+function normalizeProviderType(value: JsonRecordValue): LlmProviderType {
   return (
     value === 'openai' ||
     value === 'openai-compatible' ||
@@ -108,7 +109,7 @@ function normalizeProviderType(value: unknown): LlmProviderType {
   ) ? value : 'openai-compatible'
 }
 
-function normalizeProviderSnapshot(value: unknown): LlmProviderSnapshot {
+function normalizeProviderSnapshot(value: JsonRecordValue): LlmProviderSnapshot {
   const record = asRecord(value)
   return {
     providerName: asString(record.providerName, ''),
@@ -117,7 +118,7 @@ function normalizeProviderSnapshot(value: unknown): LlmProviderSnapshot {
   }
 }
 
-function normalizeParameters(value: unknown): LlmGenerationParameters {
+function normalizeParameters(value: JsonRecordValue): LlmGenerationParameters {
   const record = asRecord(value)
   return {
     temperature: record.temperature === null || record.temperature === undefined ? null : Number(record.temperature),
@@ -140,7 +141,7 @@ function normalizeParameters(value: unknown): LlmGenerationParameters {
   }
 }
 
-function normalizeContentParts(value: unknown): ChatContentPart[] {
+function normalizeContentParts(value: JsonRecordValue): ChatContentPart[] {
   if (!Array.isArray(value)) return []
   return value
     .map(part => asRecord(part))
@@ -179,7 +180,7 @@ function normalizeContentParts(value: unknown): ChatContentPart[] {
     })
 }
 
-function normalizeBlockKind(value: unknown): ChatBlockKind {
+function normalizeBlockKind(value: JsonRecordValue): ChatBlockKind {
   return (
     value === 'system' ||
     value === 'user' ||
@@ -188,7 +189,7 @@ function normalizeBlockKind(value: unknown): ChatBlockKind {
   ) ? value : 'user'
 }
 
-function normalizeBlockStatus(value: unknown): ChatBlockStatus {
+function normalizeBlockStatus(value: JsonRecordValue): ChatBlockStatus {
   return value === 'generating' || value === 'stopped' || value === 'error' ? value : 'idle'
 }
 
@@ -250,7 +251,7 @@ export function rowToChatBlock(row: any): DbChatBlock {
   }
 }
 
-function normalizeLlmInstanceSnapshot(value: unknown): LlmInstance | null {
+function normalizeLlmInstanceSnapshot(value: JsonRecordValue): LlmInstance | null {
   const record = asRecord(value)
   const id = Number(record.id)
   if (!Number.isFinite(id)) return null

@@ -15,7 +15,9 @@ import type {
   ChatSession,
   ChatToolDefinition,
   DbChatBlock,
+  JsonRecordValue,
   LlmToolDefinition,
+  PluginRuntimeWorkerRuntime,
   PluginDescriptor,
   PluginToolCallRequest,
   ProjectSnapshot
@@ -39,9 +41,6 @@ export interface AvailablePluginGlobalEntry {
   settingsHtml?: string
   chatHtml?: string
 }
-
-type PluginToolCallsByPlugin = Record<string, PluginToolCallDefinition[]>
-type PluginGlobalEntriesByPlugin = Record<string, Pick<AvailablePluginGlobalEntry, 'settingsHtml' | 'chatHtml'>>
 
 let toolRequestUnsubscribe: (() => void) | null = null
 
@@ -70,7 +69,7 @@ function pluginRuntimeSignature(project: ProjectSnapshot, plugins: PluginDescrip
   })
 }
 
-function pluginRuntimeDescriptor(project: ProjectSnapshot, plugins = activePlugins(project)): JsonRecord {
+function pluginRuntimeDescriptor(project: ProjectSnapshot, plugins = activePlugins(project)): PluginRuntimeWorkerRuntime {
   return {
     signature: pluginRuntimeSignature(project, plugins),
     allPlugins: project.plugins,
@@ -122,7 +121,7 @@ function hasOwn(record: JsonRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key)
 }
 
-function llmContent(value: unknown): string | LLMContentPart[] | undefined {
+function llmContent(value: JsonRecordValue): string | LLMContentPart[] | undefined {
   if (typeof value === 'string') return value
   if (!Array.isArray(value)) return undefined
   return value
@@ -142,7 +141,7 @@ function llmContent(value: unknown): string | LLMContentPart[] | undefined {
     ))
 }
 
-function normalizeChatContentPart(value: unknown): ChatContentPart | null {
+function normalizeChatContentPart(value: JsonRecordValue): ChatContentPart | null {
   const part = asRecord(value)
   if (part.type === 'text') {
     return {
@@ -175,14 +174,14 @@ function normalizeChatContentPart(value: unknown): ChatContentPart | null {
   return null
 }
 
-function normalizeChatContentParts(value: unknown): ChatContentPart[] {
+function normalizeChatContentParts(value: JsonRecordValue): ChatContentPart[] {
   if (!Array.isArray(value)) return []
   return value
     .map(normalizeChatContentPart)
     .filter((part): part is ChatContentPart => part !== null)
 }
 
-function normalizeMixedBlock(value: unknown, canonicalOriginals: Map<number, OriginalChatBlock>): MixedChatBlock {
+function normalizeMixedBlock(value: JsonRecordValue, canonicalOriginals: Map<number, OriginalChatBlock>): MixedChatBlock {
   const record = asRecord(value)
   const rawOriginal = asRecord(record.original)
   const originalId = typeof rawOriginal.id === 'number' ? rawOriginal.id : null
@@ -219,7 +218,7 @@ function validateOriginalSequence(blocks: MixedChatBlock[], expectedOriginalIds:
 }
 
 function normalizeProcessingChat(
-  value: unknown,
+  value: JsonRecordValue,
   previous: ProcessingChat,
   canonicalOriginals: Map<number, OriginalChatBlock>,
   expectedOriginalIds: number[]
@@ -284,7 +283,9 @@ export async function preparePluginChatProcessing(
   const runtime = pluginRuntimeDescriptor(project, plugins)
   const result = await invokePluginWorker('preparePluginChatProcessing', {
     runtime,
-    blocks: processingChat.chatBlocks.map(block => block.original).filter(Boolean),
+    blocks: processingChat.chatBlocks
+      .map(block => block.original)
+      .filter((block): block is OriginalChatBlock => Boolean(block)),
     chat: processingChat.chatSession,
     hostChat: chat,
     processingChat
@@ -302,7 +303,7 @@ async function availableToolCallsForPlugins(
   plugins: PluginDescriptor[]
 ): Promise<AvailablePluginToolCall[]> {
   const runtime = pluginRuntimeDescriptor(project, plugins)
-  const toolCallsByPlugin = await invokePluginWorker<PluginToolCallsByPlugin>('listPluginToolCalls', {
+  const toolCallsByPlugin = await invokePluginWorker('listPluginToolCalls', {
     runtime
   }, String(runtime.signature))
   const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]))
@@ -318,7 +319,7 @@ async function availablePluginGlobalEntriesForPlugins(
   plugins: PluginDescriptor[]
 ): Promise<AvailablePluginGlobalEntry[]> {
   const runtime = pluginRuntimeDescriptor(project, plugins)
-  const entriesByPlugin = await invokePluginWorker<PluginGlobalEntriesByPlugin>('listPluginGlobalEntries', {
+  const entriesByPlugin = await invokePluginWorker('listPluginGlobalEntries', {
     runtime
   }, String(runtime.signature))
   const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]))

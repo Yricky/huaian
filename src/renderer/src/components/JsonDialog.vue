@@ -4,7 +4,7 @@ import { MdClose } from 'vue-icons-plus/md'
 
 const props = defineProps<{
   title: string
-  value: unknown
+  value: object | string | number | boolean | null | undefined
 }>()
 
 const emit = defineEmits<{

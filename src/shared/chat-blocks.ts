@@ -2,7 +2,7 @@ import {
   chatBlockTargetRole,
   normalizeChatBlockTargetRole
 } from '@huaian/plugin-api/chat-blocks'
-import type { DbChatBlock, ChatBlockKind, JsonRecord } from './types'
+import type { DbChatBlock, ChatBlockKind, JsonRecord, JsonRecordValue } from './types'
 import { asRecord, asString } from './value-utils'
 
 type ChatBlockDisplayLike = Pick<DbChatBlock, 'kind' | 'metadata' | 'status'>
@@ -11,13 +11,13 @@ export interface ChatBlockDisplayOptions {
   userName?: string
 }
 
-function asNumberArray(value: unknown): number[] {
+function asNumberArray(value: JsonRecordValue): number[] {
   return Array.isArray(value)
     ? value.map(Number).filter(Number.isFinite)
     : []
 }
 
-function metadataRecords(value: unknown): JsonRecord[] {
+function metadataRecords(value: JsonRecordValue): JsonRecord[] {
   return Array.isArray(value)
     ? value.map(asRecord).filter(record => Object.keys(record).length > 0)
     : []
@@ -25,7 +25,7 @@ function metadataRecords(value: unknown): JsonRecord[] {
 
 export { chatBlockTargetRole, normalizeChatBlockTargetRole }
 
-export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: unknown): JsonRecord {
+export function chatBlockMetadataForStorage(kind: ChatBlockKind, metadata: JsonRecord = {}): JsonRecord {
   const next = { ...asRecord(metadata) }
   if (kind === 'injection') {
     next.targetRole = normalizeChatBlockTargetRole(next.targetRole)

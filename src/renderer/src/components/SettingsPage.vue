@@ -12,7 +12,7 @@ import {
   MdSettings,
   MdTune
 } from 'vue-icons-plus/md'
-import type { JsonRecord, LlmInstance, LlmProvider, LlmProviderType } from '../../../shared/types'
+import type { JsonRecord, JsonRecordValue, LlmInstance, LlmProvider, LlmProviderType } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
 
@@ -102,7 +102,7 @@ function clone<T>(value: T): T {
 function markProviderDirty() { providerDirty.value = true }
 function markInstanceDirty() { instanceDirty.value = true }
 
-function isJsonRecord(value: unknown): value is JsonRecord {
+function isJsonRecord(value: JsonRecordValue): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
@@ -250,7 +250,7 @@ function instanceProviderOptionsKey(instance: LlmInstance) {
   return instance.providerSnapshot.type
 }
 
-function setRequestNumber(config: JsonRecord, key: string, value: unknown) {
+function setRequestNumber(config: JsonRecord, key: string, value: number | null | undefined) {
   if (typeof value === 'number' && Number.isFinite(value)) config[key] = value
 }
 

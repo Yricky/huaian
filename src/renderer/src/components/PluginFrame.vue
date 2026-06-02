@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import type { ChatSession, JsonRecord } from '../../../shared/types'
 import { asRecord, cloneJson } from '../../../shared/value-utils'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
@@ -46,17 +46,18 @@ function dispatchProjectSnapshotChanged(): void {
 
 async function setChatPluginData(value: JsonRecord): Promise<JsonRecord> {
   if (!currentChat.value) throw new Error('当前插件页面没有绑定聊天。')
-  const nextChat = await window.electronAPI.updateChat(JSON.stringify({
+  const runtimeConfig = toRaw(currentChat.value.runtimeConfig)
+  const nextChat = await window.electronAPI.updateChat({
     id: currentChat.value.id,
     title: currentChat.value.title,
     runtimeConfig: {
-      ...currentChat.value.runtimeConfig,
+      ...runtimeConfig,
       pluginData: {
-        ...asRecord(currentChat.value.runtimeConfig.pluginData),
+        ...asRecord(runtimeConfig.pluginData),
         [props.pluginId]: asRecord(value)
       }
     }
-  }))
+  })
   currentChat.value = cloneJson(nextChat)
   emit('update:chat', nextChat)
   dispatchPluginDataChanged(props.pluginId)

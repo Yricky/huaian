@@ -13,7 +13,7 @@ import {
   MdVisibilityOff
 } from 'vue-icons-plus/md'
 import { chatBlockSummary, chatBlockTargetRole, chatBlockTitle } from '../../../shared/chat-blocks'
-import type { DbChatBlock } from '../../../shared/types'
+import type { DbChatBlock, JsonRecord, JsonRecordValue } from '../../../shared/types'
 import AssistantBlockBody from './chat-blocks/AssistantBlockBody.vue'
 import InjectionBlockBody from './chat-blocks/InjectionBlockBody.vue'
 import SystemUserBlockBody from './chat-blocks/SystemUserBlockBody.vue'
@@ -168,15 +168,15 @@ function updateMenuPosition() {
   }
 }
 
-function numberFromMetadata(value: unknown): number | null {
+function numberFromMetadata(value: JsonRecordValue): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function recordFromMetadata(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+function recordFromMetadata(value: JsonRecordValue): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
 }
 
-function tokenCountFromUsage(value: unknown): number | null {
+function tokenCountFromUsage(value: JsonRecordValue): number | null {
   const usage = recordFromMetadata(value)
   const total = numberFromMetadata(usage.totalTokens)
   if (total !== null) return total

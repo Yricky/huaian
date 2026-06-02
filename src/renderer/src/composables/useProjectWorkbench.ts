@@ -1,4 +1,4 @@
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch, type InjectionKey } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, toRaw, watch, type InjectionKey } from 'vue'
 import type {
   DbChatBlock,
   ChatCreatePayload,
@@ -12,6 +12,7 @@ import type {
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
+  JsonRecord,
   ProjectConfigUpdatePayload,
   ProjectSnapshot,
   ProcessingChat,
@@ -100,8 +101,15 @@ export function createProjectWorkbench() {
     return JSON.parse(JSON.stringify(value))
   }
 
-  function toIpcJson(value: unknown): string {
-    return JSON.stringify(value)
+  function toIpcPayload<T>(value: T): T {
+    const raw = toRaw(value)
+    if (Array.isArray(raw)) return raw.map(item => toIpcPayload(item)) as T
+    if (raw && typeof raw === 'object') {
+      return Object.fromEntries(
+        Object.entries(raw).map(([key, item]) => [key, toIpcPayload(item)])
+      ) as T
+    }
+    return raw
   }
 
   function showToast(text: string, kind: ToastKind = 'info') {
@@ -126,7 +134,7 @@ export function createProjectWorkbench() {
     return blocks.filter(block => block.status !== 'generating')
   }
 
-  function metadataForOriginalSignature(metadata: unknown): Record<string, unknown> {
+  function metadataForOriginalSignature(metadata: JsonRecord): JsonRecord {
     const { pluginData: _pluginData, ...rest } = asRecord(metadata)
     return rest
   }
@@ -153,11 +161,11 @@ export function createProjectWorkbench() {
     })
   }
 
-  function pluginDataPatchHasEntries(value: unknown): boolean {
+  function pluginDataPatchHasEntries(value: JsonRecord): boolean {
     return Object.keys(asRecord(value)).length > 0
   }
 
-  function mergePluginData(base: unknown, patch: unknown): Record<string, unknown> {
+  function mergePluginData(base: JsonRecord, patch: JsonRecord): JsonRecord {
     return {
       ...asRecord(base),
       ...asRecord(patch)
@@ -347,7 +355,7 @@ export function createProjectWorkbench() {
 
   async function createLlmProvider(payload?: Partial<LlmProviderCreatePayload>) {
     try {
-      const provider = await window.electronAPI.createLlmProvider(toIpcJson({
+      const provider = await window.electronAPI.createLlmProvider(toIpcPayload({
         name: payload?.name ?? '新提供商',
         type: payload?.type ?? 'openai-compatible',
         apiKey: payload?.apiKey ?? '',
@@ -363,7 +371,7 @@ export function createProjectWorkbench() {
 
   async function saveLlmProvider(provider: LlmProvider) {
     try {
-      const saved = await window.electronAPI.updateLlmProvider(toIpcJson({
+      const saved = await window.electronAPI.updateLlmProvider(toIpcPayload({
         id: provider.id,
         name: provider.name,
         type: provider.type,
@@ -414,7 +422,7 @@ export function createProjectWorkbench() {
   async function restoreProviderFromSelectedInstance() {
     if (!selectedLlmInstance.value) return
     try {
-      const provider = await window.electronAPI.restoreLlmProviderFromInstance(selectedLlmInstance.value.id)
+      const provider = await window.electronAPI.restoreProviderFromInstance(selectedLlmInstance.value.id)
       replaceLlmProvider(provider)
       showToast('已从 LLM 实例恢复提供商，请补充 API Key', 'success')
     } catch (error) {
@@ -424,7 +432,7 @@ export function createProjectWorkbench() {
 
   async function createLlmInstance(payload: LlmInstanceCreatePayload) {
     try {
-      const instance = await window.electronAPI.createLlmInstance(toIpcJson(payload))
+      const instance = await window.electronAPI.createLlmInstance(toIpcPayload(payload))
       replaceLlmInstance(instance)
       activeView.value = 'settings'
       showToast('LLM 实例已创建', 'success')
@@ -435,7 +443,7 @@ export function createProjectWorkbench() {
 
   async function saveLlmInstance(instance: LlmInstance) {
     try {
-      const saved = await window.electronAPI.updateLlmInstance(toIpcJson({
+      const saved = await window.electronAPI.updateLlmInstance(toIpcPayload({
         id: instance.id,
         name: instance.name,
         providerId: instance.providerId,
@@ -478,7 +486,7 @@ export function createProjectWorkbench() {
   async function saveProjectConfig(payload: ProjectConfigUpdatePayload): Promise<boolean> {
     if (!project.value) return false
     try {
-      project.value.config = await window.electronAPI.updateProjectConfig(toIpcJson(payload))
+      project.value.config = await window.electronAPI.updateProjectConfig(toIpcPayload(payload))
       return true
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -488,7 +496,7 @@ export function createProjectWorkbench() {
 
   async function createChat(payload?: ChatCreatePayload): Promise<ChatSession | null> {
     try {
-      const chat = await window.electronAPI.createChat(payload ? toIpcJson(payload) : undefined)
+      const chat = await window.electronAPI.createChat(payload ? toIpcPayload(payload) : undefined)
       replaceChat(chat)
       activeView.value = 'chat'
       showToast('聊天已创建', 'success')
@@ -501,7 +509,7 @@ export function createProjectWorkbench() {
 
   async function saveChat(chat: ChatSession) {
     try {
-      replaceChat(await window.electronAPI.updateChat(toIpcJson({
+      replaceChat(await window.electronAPI.updateChat(toIpcPayload({
         id: chat.id,
         title: chat.title,
         runtimeConfig: chat.runtimeConfig
@@ -529,7 +537,7 @@ export function createProjectWorkbench() {
 
   async function createChatBlock(payload: DbChatBlockCreatePayload) {
     try {
-      const block = await window.electronAPI.createChatBlock(toIpcJson(payload))
+      const block = await window.electronAPI.createChatBlock(toIpcPayload(payload))
       replaceChatBlock(block)
       await refreshProjectSnapshot()
       return block
@@ -541,7 +549,7 @@ export function createProjectWorkbench() {
 
   async function saveChatBlock(block: DbChatBlock) {
     try {
-      replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcJson({
+      replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcPayload({
         id: block.id,
         enabled: block.enabled,
         contentParts: block.contentParts,
@@ -565,7 +573,7 @@ export function createProjectWorkbench() {
 
   async function writeProcessingPluginData(chat: ChatSession, processingChat: ProcessingChat) {
     if (pluginDataPatchHasEntries(processingChat.pluginData)) {
-      const updated = await window.electronAPI.updateChat(toIpcJson({
+      const updated = await window.electronAPI.updateChat(toIpcPayload({
         id: chat.id,
         title: chat.title,
         runtimeConfig: {
@@ -586,7 +594,7 @@ export function createProjectWorkbench() {
         ...sourceBlock.metadata,
         pluginData: mergePluginData(asRecord(sourceBlock.metadata.pluginData), block.pluginData)
       }
-      const updated = await window.electronAPI.updateChatBlock(toIpcJson({
+      const updated = await window.electronAPI.updateChatBlock(toIpcPayload({
         id: sourceBlock.id,
         metadata,
         preserveStatus: true
@@ -601,7 +609,7 @@ export function createProjectWorkbench() {
     const chat = chats.value.find(item => item.id === chatId)
     if (!chat || chat.runtimeConfig.enabledPluginIds.length === 0) return
     showToast('插件处理超过 1 秒，已禁用当前聊天插件。', 'error')
-    const updated = await window.electronAPI.updateChat(toIpcJson({
+    const updated = await window.electronAPI.updateChat(toIpcPayload({
       id: chat.id,
       title: chat.title,
       runtimeConfig: {
@@ -732,7 +740,7 @@ export function createProjectWorkbench() {
   async function startChatGeneration(payload: ChatGenerationRequest) {
     try {
       const prepared = await prepareGenerationRequest(payload)
-      const result = await window.electronAPI.startChatGeneration(toIpcJson(prepared))
+      const result = await window.electronAPI.startChatGeneration(toIpcPayload(prepared))
       replaceChatBlock(result.block)
       if (!generatingChatIds.value.includes(payload.chatId)) {
         generatingChatIds.value = [...generatingChatIds.value, payload.chatId]
@@ -745,7 +753,7 @@ export function createProjectWorkbench() {
   async function previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[] | null> {
     try {
       const prepared = await prepareGenerationRequest(payload)
-      return await window.electronAPI.previewChatGeneration(toIpcJson(prepared))
+      return await window.electronAPI.previewChatGeneration(toIpcPayload(prepared))
     } catch (error) {
       showToast(errorText(error), 'error')
       return null

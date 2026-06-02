@@ -10,11 +10,13 @@ import type {
   ChatGenerationPreviewMessage,
   ChatGenerationRequest,
   ChatGenerationStartResult,
+  CloneableValue,
   LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
   LlmToolDefinition,
   JsonRecord,
+  JsonRecordValue,
   PluginToolCallRequest,
   PluginToolCallResponse
 } from '../../shared/types'
@@ -43,11 +45,11 @@ interface ActiveGeneration {
 const activeGenerations = new Map<number, ActiveGeneration>()
 const pendingPluginToolCalls = new Map<string, {
   reject: (error: Error) => void
-  resolve: (value: unknown) => void
+  resolve: (value: CloneableValue) => void
   timeout: ReturnType<typeof setTimeout>
 }>()
 
-function usageNumber(value: unknown): number | null {
+function usageNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
@@ -179,8 +181,8 @@ function invokePluginTool(
   webContents: WebContents,
   chatId: number,
   definition: LlmToolDefinition,
-  input: unknown
-): Promise<unknown> {
+  input: JsonRecordValue
+): Promise<CloneableValue> {
   const requestId = randomUUID()
   const request: PluginToolCallRequest = {
     requestId,
@@ -208,7 +210,7 @@ function pluginToolsForDefinitions(webContents: WebContents, chatId: number, def
     tools[definition.toolName] = tool({
       description: definition.description,
       inputSchema: jsonSchema(definition.inputSchema as any),
-      execute: async (input: unknown) => invokePluginTool(webContents, chatId, definition, input)
+      execute: async (input: JsonRecordValue) => invokePluginTool(webContents, chatId, definition, input)
     } as any)
   }
   return tools
@@ -256,8 +258,8 @@ function upsertToolCallPart(
     toolCallId: string
     toolName: string
     status: 'pending' | 'success' | 'error'
-    input?: unknown
-    output?: unknown
+    input?: JsonRecordValue
+    output?: CloneableValue
     error?: string
     extensions?: JsonRecord
   }
@@ -367,7 +369,7 @@ async function runGeneration(
           toolName: part.toolName,
           status: 'success',
           input: part.input,
-          output: part.output,
+          output: part.output as CloneableValue,
           extensions: pluginToolCallExtensions(pluginDefinition)
         })
         persist(true)

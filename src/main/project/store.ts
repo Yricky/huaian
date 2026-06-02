@@ -272,7 +272,7 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
-function json(value: unknown): string {
+function json<T>(value: T): string {
   return JSON.stringify(value ?? null)
 }
 

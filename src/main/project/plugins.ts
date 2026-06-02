@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
-import type { JsonRecord, PluginDescriptor, PluginFileEntry, PluginManifest } from '../../shared/types'
+import type { CloneableValue, JsonRecord, JsonRecordValue, PluginDescriptor, PluginFileEntry, PluginManifest } from '../../shared/types'
 import { asRecord, asString } from '../../shared/value-utils'
 import { ensureProject, getCurrentProject } from './state'
 import { extractZipFile } from './zip'
@@ -20,7 +20,7 @@ function assertPluginId(pluginId: string): void {
   }
 }
 
-function normalizePluginManifest(value: unknown): PluginManifest | null {
+function normalizePluginManifest(value: JsonRecordValue): PluginManifest | null {
   const record = asRecord(value)
   const id = asString(record.id).trim()
   if (id === 'base' || !PLUGIN_ID_RE.test(id)) return null
@@ -259,7 +259,7 @@ export async function readPluginDataJson(pluginId: string, path: string, fallbac
   }
 }
 
-export async function writePluginDataJson(pluginId: string, path: string, value: unknown): Promise<void> {
+export async function writePluginDataJson(pluginId: string, path: string, value: CloneableValue): Promise<void> {
   await writePluginDataFile(pluginId, path, `${JSON.stringify(value, null, 2)}\n`)
 }
 

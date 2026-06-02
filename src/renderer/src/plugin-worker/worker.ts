@@ -1,15 +1,25 @@
 import type {
+  CloneableValue,
   HaExtApi,
   JsonRecord,
-  PluginDescriptor,
+  JsonRecordValue,
+  PluginFrameApiMethod,
+  PluginFrameClientCallMessage,
+  PluginFrameHostMessage,
   PluginFileEntry,
   PluginGlobalExport,
   PluginGlobalRegistry,
   PluginManifest,
+  PluginRuntimeWorkerArgs,
+  PluginRuntimeWorkerMethod,
+  PluginRuntimeWorkerResult,
   PluginRuntimeContext,
   PluginStorageApi,
+  PluginWorkerHostCallMethod,
+  PluginWorkerToHostMessage,
+  PluginWorkerToHostPayload,
+  PluginHostToWorkerMessage,
   PluginToolCallDefinition,
-  PluginToolCallRequest,
   ProcessingChat
 } from '../../../shared/types'
 import { asRecord, asString } from '../../../shared/value-utils'
@@ -21,7 +31,7 @@ const API_HOST_SOURCE = 'ha-ext-api-host'
 
 interface PendingHostCall {
   reject: (error: Error) => void
-  resolve: (value: unknown) => void
+  resolve: (value: JsonRecordValue) => void
 }
 
 interface FrameRuntimeContext {
@@ -33,7 +43,7 @@ interface FrameRuntimeContext {
   port: MessagePort
 }
 
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor
 const pluginGlobals: Record<string, PluginGlobalExport> = {}
 const pendingHostCalls = new Map<number, PendingHostCall>()
 const frames = new Map<string, FrameRuntimeContext>()
@@ -44,22 +54,23 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null))
 }
 
-function safeResponseValue(value: unknown): unknown {
+function safeResponseValue(value: JsonRecordValue): CloneableValue {
   try {
-    return cloneJson(value)
+    return cloneJson(value) as CloneableValue
   } catch {
     return null
   }
 }
 
-function postToHost(message: JsonRecord, transfer?: Transferable[]): void {
-  globalThis.postMessage({
+function postToHost(message: PluginWorkerToHostPayload, transfer?: Transferable[]): void {
+  const payload = {
     source: WORKER_SOURCE,
     ...message
-  }, transfer ? { transfer } : undefined)
+  } as PluginWorkerToHostMessage
+  globalThis.postMessage(payload, transfer ? { transfer } : undefined)
 }
 
-function callHost<T = unknown>(method: string, args: JsonRecord): Promise<T> {
+function callHost<T = JsonRecordValue>(method: PluginWorkerHostCallMethod, args: JsonRecord): Promise<T> {
   const id = ++nextHostCallId
   postToHost({
     type: 'host-call',
@@ -68,7 +79,7 @@ function callHost<T = unknown>(method: string, args: JsonRecord): Promise<T> {
     args
   })
   return new Promise<T>((resolve, reject) => (
-    pendingHostCalls.set(id, { resolve: resolve as (value: unknown) => void, reject })
+    pendingHostCalls.set(id, { resolve: resolve as (value: JsonRecordValue) => void, reject })
   ))
 }
 
@@ -150,8 +161,8 @@ function storageApi(pluginId: string): PluginStorageApi {
         return cloneJson(fallback)
       }
     },
-    writeJson: (path: string, value: unknown) => writeText(path, `${JSON.stringify(value, null, 2)}\n`),
-    writeJsonFor: (targetPluginId: string, path: string, value: unknown) => (
+    writeJson: (path: string, value: JsonRecordValue) => writeText(path, `${JSON.stringify(value, null, 2)}\n`),
+    writeJsonFor: (targetPluginId: string, path: string, value: JsonRecordValue) => (
       writeTextFor(targetPluginId, path, `${JSON.stringify(value, null, 2)}\n`)
     )
   }
@@ -171,7 +182,7 @@ function registry(): PluginGlobalRegistry {
   }
 }
 
-function normalizeToolSchemas(value: unknown): PluginToolCallDefinition['tools'] {
+function normalizeToolSchemas(value: JsonRecordValue): PluginToolCallDefinition['tools'] {
   if (!Array.isArray(value)) return []
   return value
     .map(item => {
@@ -185,8 +196,8 @@ function normalizeToolSchemas(value: unknown): PluginToolCallDefinition['tools']
     .filter(schema => schema.name)
 }
 
-function toolCallDefinitionFromHandler(key: string, value: unknown): PluginToolCallDefinition | null {
-  const handler = value as { handle?: unknown }
+function toolCallDefinitionFromHandler(key: string, value: JsonRecordValue): PluginToolCallDefinition | null {
+  const handler = value as { handle?: JsonRecordValue }
   if (typeof handler?.handle !== 'function') return null
   const record = asRecord(value)
   const name = asString(record.name) || key
@@ -209,7 +220,7 @@ function toolHandlerByName(pluginId: string, toolCallName: string): NonNullable<
   return null
 }
 
-function normalizePluginGlobalExport(value: unknown, pluginId: string): PluginGlobalExport {
+function normalizePluginGlobalExport(value: JsonRecordValue, pluginId: string): PluginGlobalExport {
   const record = asRecord(value)
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`插件 ${pluginId} 的 initGlobal 必须返回对象。`)
@@ -250,13 +261,12 @@ async function executePluginScript(
   return fn(context, plugins, context.haExtApi)
 }
 
-async function ensurePluginRuntime(input: unknown): Promise<void> {
-  const record = asRecord(input)
-  const signature = asString(record.signature)
+async function ensurePluginRuntime(input: PluginRuntimeWorkerArgs<'ensurePluginRuntime'>): Promise<void> {
+  const signature = asString(input.signature)
   if (signature && loadedProjectSignature === signature) return
 
   for (const key of Object.keys(pluginGlobals)) delete pluginGlobals[key]
-  const activePlugins = Array.isArray(record.activePlugins) ? record.activePlugins as PluginDescriptor[] : []
+  const activePlugins = input.activePlugins
   const pluginRegistry = registry()
 
   for (const descriptor of activePlugins) {
@@ -277,10 +287,11 @@ function sanitizeProcessingChatFactory(processingChat: ProcessingChat) {
     .filter(original => typeof asRecord(original).id === 'number')
     .map(original => [asRecord(original).id, cloneJson(original)]))
 
-  return (value: unknown): ProcessingChat => {
-    const chatValue = asRecord(value) as unknown as ProcessingChat
+  return (value: JsonRecordValue): ProcessingChat => {
+    const chatValue = asRecord(value)
     if (!Array.isArray(chatValue.chatBlocks)) return processingChat
     return {
+      ...processingChat,
       ...chatValue,
       chatBlocks: chatValue.chatBlocks.map(blockValue => {
         const block = asRecord(blockValue)
@@ -290,16 +301,14 @@ function sanitizeProcessingChatFactory(processingChat: ProcessingChat) {
           ? blockValue
           : { ...block, original: cloneJson(canonicalOriginals.get(originalId)) }
       }) as ProcessingChat['chatBlocks']
-    } as ProcessingChat
+    }
   }
 }
 
-async function preparePluginChatProcessing(input: unknown): Promise<ProcessingChat> {
-  const record = asRecord(input)
-  await ensurePluginRuntime(record.runtime)
-  const runtime = asRecord(record.runtime)
-  const activePlugins = Array.isArray(runtime.activePlugins) ? runtime.activePlugins as PluginDescriptor[] : []
-  let processingChat = cloneJson(record.processingChat) as ProcessingChat
+async function preparePluginChatProcessing(input: PluginRuntimeWorkerArgs<'preparePluginChatProcessing'>): Promise<ProcessingChat> {
+  await ensurePluginRuntime(input.runtime)
+  const activePlugins = input.runtime.activePlugins
+  let processingChat = cloneJson(input.processingChat) as ProcessingChat
   const sanitizeProcessingChat = sanitizeProcessingChatFactory(processingChat)
 
   for (const descriptor of activePlugins) {
@@ -312,11 +321,11 @@ async function preparePluginChatProcessing(input: unknown): Promise<ProcessingCh
   return processingChat
 }
 
-async function listPluginToolCalls(input: unknown): Promise<Record<string, PluginToolCallDefinition[]>> {
-  const record = asRecord(input)
-  await ensurePluginRuntime(record.runtime)
-  const runtime = asRecord(record.runtime)
-  const activePlugins = Array.isArray(runtime.activePlugins) ? runtime.activePlugins as PluginDescriptor[] : []
+async function listPluginToolCalls(
+  input: PluginRuntimeWorkerArgs<'listPluginToolCalls'>
+): Promise<PluginRuntimeWorkerResult<'listPluginToolCalls'>> {
+  await ensurePluginRuntime(input.runtime)
+  const activePlugins = input.runtime.activePlugins
   const result: Record<string, PluginToolCallDefinition[]> = {}
   for (const descriptor of activePlugins) {
     const toolCalls = asRecord(pluginGlobals[descriptor.manifest.id]?.toolCalls)
@@ -328,11 +337,11 @@ async function listPluginToolCalls(input: unknown): Promise<Record<string, Plugi
   return result
 }
 
-async function listPluginGlobalEntries(input: unknown): Promise<Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>> {
-  const record = asRecord(input)
-  await ensurePluginRuntime(record.runtime)
-  const runtime = asRecord(record.runtime)
-  const activePlugins = Array.isArray(runtime.activePlugins) ? runtime.activePlugins as PluginDescriptor[] : []
+async function listPluginGlobalEntries(
+  input: PluginRuntimeWorkerArgs<'listPluginGlobalEntries'>
+): Promise<PluginRuntimeWorkerResult<'listPluginGlobalEntries'>> {
+  await ensurePluginRuntime(input.runtime)
+  const activePlugins = input.runtime.activePlugins
   const result: Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>> = {}
   for (const descriptor of activePlugins) {
     const globalExport = pluginGlobals[descriptor.manifest.id]
@@ -345,27 +354,27 @@ async function listPluginGlobalEntries(input: unknown): Promise<Record<string, P
   return result
 }
 
-async function handlePluginToolCallRequest(input: unknown): Promise<unknown> {
-  const record = asRecord(input)
-  await ensurePluginRuntime(record.runtime)
-  const runtime = asRecord(record.runtime)
-  const plugins = Array.isArray(runtime.allPlugins) ? runtime.allPlugins as PluginDescriptor[] : []
-  const request = asRecord(record.request) as unknown as PluginToolCallRequest
+async function handlePluginToolCallRequest(
+  input: PluginRuntimeWorkerArgs<'handlePluginToolCallRequest'>
+): Promise<CloneableValue> {
+  await ensurePluginRuntime(input.runtime)
+  const plugins = input.runtime.allPlugins
+  const request = input.request
   const descriptor = plugins.find(plugin => plugin.manifest.id === request.pluginId)
   if (!descriptor) throw new Error('插件工具不存在。')
 
   const handler = toolHandlerByName(descriptor.manifest.id, asString(request.toolCallName))
   if (typeof handler?.handle !== 'function') throw new Error('插件工具没有导出 handle。')
-  return handler.handle({
+  return safeResponseValue(await handler.handle({
     chatId: Number(request.chatId),
     toolCallName: asString(request.toolCallName),
     toolName: asString(request.toolName),
     input: asRecord(request.input),
     commonArgs: asRecord(request.commonArgs)
-  })
+  }) as JsonRecordValue)
 }
 
-async function callFrameMethod(frameId: string, method: string, args: unknown[]): Promise<unknown> {
+async function callFrameMethod(frameId: string, method: PluginFrameApiMethod, args: JsonRecordValue[]): Promise<JsonRecordValue> {
   const frame = frames.get(frameId)
   if (!frame) throw new Error('插件页面上下文不存在。')
   if (method === 'storage.list') return callHost('storage.list', { pluginId: frame.pluginId, path: String(args[0] ?? '') })
@@ -435,18 +444,19 @@ async function callFrameMethod(frameId: string, method: string, args: unknown[])
   throw new Error(`Unknown haExtApi method: ${method}`)
 }
 
-function replyToFrame(port: MessagePort, id: number, ok: boolean, value: unknown = null, error = ''): void {
-  port.postMessage({
+function replyToFrame(port: MessagePort, id: number, ok: boolean, value: JsonRecordValue = null, error = ''): void {
+  const message: PluginFrameHostMessage = {
     source: API_HOST_SOURCE,
     type: 'response',
     id,
     ok,
     value: value === undefined ? null : value,
     error
-  })
+  }
+  port.postMessage(message)
 }
 
-function connectFrame(data: JsonRecord, port: MessagePort): void {
+function connectFrame(data: Extract<PluginHostToWorkerMessage, { type: 'connect-frame' }>, port: MessagePort): void {
   const frameId = asString(data.frameId)
   const pluginId = asString(data.pluginId)
   if (!frameId || !pluginId) return
@@ -457,33 +467,45 @@ function connectFrame(data: JsonRecord, port: MessagePort): void {
   }
   frames.get(frameId)?.port.close()
   frames.set(frameId, frame)
-  port.onmessage = event => {
-    const message = asRecord(event.data)
+  port.onmessage = (event: MessageEvent<PluginFrameClientCallMessage>) => {
+    const message = event.data
     if (message.source !== CLIENT_SOURCE || message.type !== 'call') return
     const id = Number(message.id)
     const args = Array.isArray(message.args) ? message.args : []
-    void callFrameMethod(frameId, asString(message.method), args)
+    void callFrameMethod(frameId, message.method, args)
       .then(value => replyToFrame(port, id, true, value))
       .catch(error => replyToFrame(port, id, false, null, error instanceof Error ? error.message : String(error)))
   }
   port.start()
 }
 
-function disconnectFrame(data: JsonRecord): void {
+function disconnectFrame(data: Extract<PluginHostToWorkerMessage, { type: 'disconnect-frame' }>): void {
   const frameId = asString(data.frameId)
   frames.get(frameId)?.port.close()
   frames.delete(frameId)
 }
 
-const methods: Record<string, (input: unknown) => Promise<unknown> | unknown> = {
-  ensurePluginRuntime,
-  listPluginGlobalEntries,
-  listPluginToolCalls,
-  preparePluginChatProcessing,
-  handlePluginToolCallRequest
+async function invokeRuntimeWorkerMethod(
+  method: PluginRuntimeWorkerMethod,
+  args: JsonRecordValue
+): Promise<JsonRecordValue> {
+  if (method === 'ensurePluginRuntime') {
+    await ensurePluginRuntime(args as PluginRuntimeWorkerArgs<'ensurePluginRuntime'>)
+    return null
+  }
+  if (method === 'listPluginGlobalEntries') {
+    return listPluginGlobalEntries(args as PluginRuntimeWorkerArgs<'listPluginGlobalEntries'>)
+  }
+  if (method === 'listPluginToolCalls') {
+    return listPluginToolCalls(args as PluginRuntimeWorkerArgs<'listPluginToolCalls'>)
+  }
+  if (method === 'preparePluginChatProcessing') {
+    return preparePluginChatProcessing(args as PluginRuntimeWorkerArgs<'preparePluginChatProcessing'>)
+  }
+  return handlePluginToolCallRequest(args as PluginRuntimeWorkerArgs<'handlePluginToolCallRequest'>)
 }
 
-function handleHostResponse(data: JsonRecord): void {
+function handleHostResponse(data: Extract<PluginHostToWorkerMessage, { type: 'host-response' }>): void {
   const id = Number(data.id)
   const pending = pendingHostCalls.get(id)
   if (!pending) return
@@ -492,8 +514,8 @@ function handleHostResponse(data: JsonRecord): void {
   else pending.reject(new Error(asString(data.error, 'Plugin host call failed')))
 }
 
-globalThis.addEventListener('message', event => {
-  const data = asRecord(event.data)
+globalThis.addEventListener('message', (event: MessageEvent<PluginHostToWorkerMessage>) => {
+  const data = event.data
   if (data.source !== HOST_SOURCE) return
 
   if (data.type === 'host-response') {
@@ -514,20 +536,8 @@ globalThis.addEventListener('message', event => {
 
   if (data.type !== 'invoke') return
   const id = Number(data.id)
-  const method = methods[asString(data.method)]
-  if (!method) {
-    postToHost({
-      type: 'response',
-      id,
-      ok: false,
-      value: null,
-      error: `Unknown plugin worker method: ${String(data.method ?? '')}`
-    })
-    return
-  }
-
   Promise.resolve()
-    .then(() => method(data.args))
+    .then(() => invokeRuntimeWorkerMethod(data.method, data.args))
     .then(value => postToHost({
       type: 'response',
       id,

@@ -1,4 +1,17 @@
-import type { ChatSession, JsonRecord } from '../../shared/types'
+import type {
+  ChatSession,
+  JsonRecord,
+  JsonRecordValue,
+  PluginFrameCapabilities,
+  PluginFrameHostMessage,
+  PluginHostToWorkerMessage,
+  PluginHostToWorkerPayload,
+  PluginRuntimeWorkerArgs,
+  PluginRuntimeWorkerMethod,
+  PluginRuntimeWorkerResult,
+  PluginWorkerHostCallMethod,
+  PluginWorkerToHostMessage
+} from '../../shared/types'
 import { asRecord, asString } from '../../shared/value-utils'
 import PluginRuntimeWorker from './plugin-worker/worker.ts?worker'
 
@@ -9,15 +22,12 @@ const INVOCATION_TIMEOUT_MS = 120_000
 
 interface PendingInvocation {
   reject: (error: Error) => void
-  resolve: (value: unknown) => void
+  resolve: (value: JsonRecordValue) => void
   timeout: number
 }
 
 export interface PluginFrameRegistration {
-  capabilities: {
-    chat?: boolean
-    toolSettings?: boolean
-  }
+  capabilities: PluginFrameCapabilities
   frameId: string
   getChat?: () => ChatSession | null
   getCommonArgs?: () => JsonRecord
@@ -57,11 +67,12 @@ function publicChatSession(chat: ChatSession | null): JsonRecord | null {
     : null
 }
 
-function postToWorker(message: JsonRecord, transfer?: Transferable[]): void {
-  worker?.postMessage(cloneForMessage({
+function postToWorker(message: PluginHostToWorkerPayload, transfer?: Transferable[]): void {
+  const payload = {
     source: HOST_SOURCE,
     ...message
-  }), transfer ?? [])
+  } as PluginHostToWorkerMessage
+  worker?.postMessage(cloneForMessage(payload), transfer ?? [])
 }
 
 function reconnectRegisteredFrames(): void {
@@ -97,7 +108,7 @@ function ensureWorker(signature?: string): Worker {
   return worker
 }
 
-async function handleHostMethod(method: string, argsValue: unknown): Promise<unknown> {
+async function handleHostMethod(method: PluginWorkerHostCallMethod, argsValue: JsonRecordValue): Promise<JsonRecordValue> {
   const args = asRecord(argsValue)
   const pluginId = asString(args.pluginId)
 
@@ -160,7 +171,7 @@ async function handleHostMethod(method: string, argsValue: unknown): Promise<unk
   throw new Error(`Unknown plugin worker host method: ${method}`)
 }
 
-function replyToWorkerHostCall(id: number, ok: boolean, value: unknown = null, error = ''): void {
+function replyToWorkerHostCall(id: number, ok: boolean, value: JsonRecordValue = null, error = ''): void {
   postToWorker({
     type: 'host-response',
     id,
@@ -170,19 +181,19 @@ function replyToWorkerHostCall(id: number, ok: boolean, value: unknown = null, e
   })
 }
 
-async function handleWorkerHostCall(data: JsonRecord): Promise<void> {
+async function handleWorkerHostCall(data: Extract<PluginWorkerToHostMessage, { type: 'host-call' }>): Promise<void> {
   const id = Number(data.id)
   if (!Number.isFinite(id)) return
   try {
-    const value = await handleHostMethod(asString(data.method), data.args)
+    const value = await handleHostMethod(data.method, data.args)
     replyToWorkerHostCall(id, true, value)
   } catch (error) {
     replyToWorkerHostCall(id, false, null, error instanceof Error ? error.message : String(error))
   }
 }
 
-function onWorkerMessage(event: MessageEvent): void {
-  const data = asRecord(event.data)
+function onWorkerMessage(event: MessageEvent<PluginWorkerToHostMessage>): void {
+  const data = event.data
   if (data.source !== WORKER_SOURCE) return
 
   if (data.type === 'ready') return
@@ -225,24 +236,29 @@ export function connectPluginFrame(frameId: string): void {
     pluginId: registration.pluginId,
     capabilities: registration.capabilities
   }, [channel.port1])
-  frameWindow.postMessage({
+  const message: PluginFrameHostMessage = {
     source: API_HOST_SOURCE,
     type: 'connect',
     frameId,
     pluginId: registration.pluginId,
     capabilities: registration.capabilities
-  }, '*', [channel.port2])
+  }
+  frameWindow.postMessage(message, '*', [channel.port2])
 }
 
-export async function invokePluginWorker<T = unknown>(method: string, args: unknown, signature?: string): Promise<T> {
+export async function invokePluginWorker<T extends PluginRuntimeWorkerMethod>(
+  method: T,
+  args: PluginRuntimeWorkerArgs<T>,
+  signature?: string
+): Promise<PluginRuntimeWorkerResult<T>> {
   ensureWorker(signature)
   const id = ++nextMessageId
-  return new Promise<T>((resolve, reject) => {
+  return new Promise<PluginRuntimeWorkerResult<T>>((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       pendingInvocations.delete(id)
       reject(new Error(`Plugin worker call timed out: ${method}`))
     }, INVOCATION_TIMEOUT_MS)
-    pendingInvocations.set(id, { resolve: resolve as (value: unknown) => void, reject, timeout })
+    pendingInvocations.set(id, { resolve: resolve as (value: JsonRecordValue) => void, reject, timeout })
     postToWorker({
       type: 'invoke',
       id,

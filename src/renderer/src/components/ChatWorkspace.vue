@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue'
 import {
   MdBook,
   MdCheck,
@@ -21,6 +21,7 @@ import type {
   ChatSession,
   ChatToolDefinition,
   JsonRecord,
+  JsonRecordValue,
   LlmInstance,
   ProcessingChat,
   PluginDescriptor,
@@ -240,7 +241,9 @@ async function setBlockCollapsed(block: DbChatBlock, sourceBlock: DbChatBlock | 
   })
 }
 
-function isChatBlockRowExpose(element: unknown): element is ChatBlockRowExpose {
+type ChatBlockRowRefValue = Element | ComponentPublicInstance | ChatBlockRowExpose | null
+
+function isChatBlockRowExpose(element: ChatBlockRowRefValue): element is ChatBlockRowExpose {
   return Boolean(
     element &&
     typeof (element as ChatBlockRowExpose).commitEdit === 'function' &&
@@ -248,7 +251,7 @@ function isChatBlockRowExpose(element: unknown): element is ChatBlockRowExpose {
   )
 }
 
-function setBlockRowRef(blockId: number, element: unknown) {
+function setBlockRowRef(blockId: number, element: ChatBlockRowRefValue) {
   if (isChatBlockRowExpose(element)) {
     blockRowRefs.set(blockId, element)
     return
@@ -447,11 +450,11 @@ function updateReplyPanelPosition() {
   }
 }
 
-function recordFromJson(value: unknown): JsonRecord {
+function recordFromJson(value: JsonRecordValue): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}
 }
 
-function formatJson(value: unknown): string {
+function formatJson<T>(value: T): string {
   return JSON.stringify(value, null, 2) ?? 'undefined'
 }
 
