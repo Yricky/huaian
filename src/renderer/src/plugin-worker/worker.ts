@@ -1,11 +1,13 @@
 import type {
-  DbChatBlock,
-  ChatSession as HostChatSession,
+  HaExtApi,
   JsonRecord,
   PluginDescriptor,
+  PluginFileEntry,
   PluginGlobalExport,
   PluginGlobalRegistry,
   PluginManifest,
+  PluginRuntimeContext,
+  PluginStorageApi,
   PluginToolCallRequest,
   ProcessingChat
 } from '../../../shared/types'
@@ -56,7 +58,7 @@ function postToHost(message: JsonRecord, transfer?: Transferable[]): void {
   }, transfer ? { transfer } : undefined)
 }
 
-function callHost(method: string, args: JsonRecord): Promise<unknown> {
+function callHost<T = unknown>(method: string, args: JsonRecord): Promise<T> {
   const id = ++nextHostCallId
   postToHost({
     type: 'host-call',
@@ -64,7 +66,9 @@ function callHost(method: string, args: JsonRecord): Promise<unknown> {
     method,
     args
   })
-  return new Promise((resolve, reject) => pendingHostCalls.set(id, { resolve, reject }))
+  return new Promise<T>((resolve, reject) => (
+    pendingHostCalls.set(id, { resolve: resolve as (value: unknown) => void, reject })
+  ))
 }
 
 function cleanAssetPath(path: string): string {
@@ -82,40 +86,40 @@ function pluginAssetUrl(pluginId: string, path: string): string {
   return `huaianext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
 }
 
-function storageApi(pluginId: string) {
-  const writeText = async (path: string, content: string) => callHost('storage.writeText', {
+function storageApi(pluginId: string): PluginStorageApi {
+  const writeText: PluginStorageApi['writeText'] = (path, content) => callHost<void>('storage.writeText', {
     pluginId,
     path: String(path ?? ''),
     content: String(content ?? '')
   })
-  const writeTextFor = async (targetPluginId: string, path: string, content: string) => callHost('storage.writeText', {
+  const writeTextFor: PluginStorageApi['writeTextFor'] = (targetPluginId, path, content) => callHost<void>('storage.writeText', {
     pluginId: String(targetPluginId ?? ''),
     path: String(path ?? ''),
     content: String(content ?? '')
   })
-  const writeBase64 = async (path: string, content: string) => callHost('storage.writeBase64', {
+  const writeBase64: PluginStorageApi['writeBase64'] = (path, content) => callHost<void>('storage.writeBase64', {
     pluginId,
     path: String(path ?? ''),
     content: String(content ?? '')
   })
-  const writeBase64For = async (targetPluginId: string, path: string, content: string) => callHost('storage.writeBase64', {
+  const writeBase64For: PluginStorageApi['writeBase64For'] = (targetPluginId, path, content) => callHost<void>('storage.writeBase64', {
     pluginId: String(targetPluginId ?? ''),
     path: String(path ?? ''),
     content: String(content ?? '')
   })
   return {
-    list: (path = '') => callHost('storage.list', { pluginId, path: String(path ?? '') }),
-    listFor: (targetPluginId: string, path = '') => callHost('storage.list', {
+    list: (path = '') => callHost<PluginFileEntry[]>('storage.list', { pluginId, path: String(path ?? '') }),
+    listFor: (targetPluginId: string, path = '') => callHost<PluginFileEntry[]>('storage.list', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
-    readText: (path: string) => callHost('storage.readText', { pluginId, path: String(path ?? '') }),
-    readTextFor: (targetPluginId: string, path: string) => callHost('storage.readText', {
+    readText: (path: string) => callHost<string>('storage.readText', { pluginId, path: String(path ?? '') }),
+    readTextFor: (targetPluginId: string, path: string) => callHost<string>('storage.readText', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
-    readBase64: (path: string) => callHost('storage.readBase64', { pluginId, path: String(path ?? '') }),
-    readBase64For: (targetPluginId: string, path: string) => callHost('storage.readBase64', {
+    readBase64: (path: string) => callHost<string>('storage.readBase64', { pluginId, path: String(path ?? '') }),
+    readBase64For: (targetPluginId: string, path: string) => callHost<string>('storage.readBase64', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
@@ -123,24 +127,24 @@ function storageApi(pluginId: string) {
     writeTextFor,
     writeBase64,
     writeBase64For,
-    delete: (path: string) => callHost('storage.delete', { pluginId, path: String(path ?? '') }),
-    deleteFor: (targetPluginId: string, path: string) => callHost('storage.delete', {
+    delete: (path: string) => callHost<void>('storage.delete', { pluginId, path: String(path ?? '') }),
+    deleteFor: (targetPluginId: string, path: string) => callHost<void>('storage.delete', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
     readJson: async (path: string, fallback = {}) => {
       try {
-        return JSON.parse(String(await callHost('storage.readText', { pluginId, path: String(path ?? '') })))
+        return JSON.parse(await callHost<string>('storage.readText', { pluginId, path: String(path ?? '') }))
       } catch {
         return cloneJson(fallback)
       }
     },
     readJsonFor: async (targetPluginId: string, path: string, fallback = {}) => {
       try {
-        return JSON.parse(String(await callHost('storage.readText', {
+        return JSON.parse(await callHost<string>('storage.readText', {
           pluginId: String(targetPluginId ?? ''),
           path: String(path ?? '')
-        })))
+        }))
       } catch {
         return cloneJson(fallback)
       }
@@ -152,7 +156,7 @@ function storageApi(pluginId: string) {
   }
 }
 
-function haExtApiForPlugin(pluginId: string) {
+function haExtApiForPlugin(pluginId: string): HaExtApi {
   return {
     assetUrl: (path: string) => pluginAssetUrl(pluginId, path),
     storage: storageApi(pluginId)
@@ -182,22 +186,27 @@ function isModuleScript(code: string): boolean {
   return /^\s*import\s/m.test(code) || /\bexport\s+(default|\{|\*)/.test(code)
 }
 
-async function executeModuleScript(code: string, context: unknown, plugins: PluginGlobalRegistry) {
+async function executeModuleScript(code: string, context: PluginRuntimeContext, plugins: PluginGlobalRegistry) {
   const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
   try {
     const module = await import(/* @vite-ignore */ url)
     const entry = module.default ?? module
-    return typeof entry === 'function' ? entry(context, plugins, asRecord(context).haExtApi) : entry
+    return typeof entry === 'function' ? entry(context, plugins, context.haExtApi) : entry
   } finally {
     URL.revokeObjectURL(url)
   }
 }
 
-async function executePluginScript(plugin: PluginManifest, path: string, context: unknown, plugins: PluginGlobalRegistry) {
-  const code = String(await callHost('plugin.readFile', { pluginId: plugin.id, path }))
+async function executePluginScript(
+  plugin: PluginManifest,
+  path: string,
+  context: PluginRuntimeContext,
+  plugins: PluginGlobalRegistry
+) {
+  const code = await callHost<string>('plugin.readFile', { pluginId: plugin.id, path })
   if (isModuleScript(code)) return executeModuleScript(code, context, plugins)
   const fn = new AsyncFunction('context', 'plugins', 'haExtApi', code)
-  return fn(context, plugins, asRecord(context).haExtApi)
+  return fn(context, plugins, context.haExtApi)
 }
 
 async function ensurePluginRuntime(input: unknown): Promise<void> {
@@ -212,8 +221,9 @@ async function ensurePluginRuntime(input: unknown): Promise<void> {
   for (const descriptor of activePlugins) {
     const plugin = descriptor.manifest
     const initGlobal = plugin.entry?.initGlobal
+    const context: PluginRuntimeContext = { haExtApi: haExtApiForPlugin(plugin.id), plugin }
     const globalExport = initGlobal
-      ? await executePluginScript(plugin, initGlobal, { haExtApi: haExtApiForPlugin(plugin.id), plugin }, pluginRegistry)
+      ? await executePluginScript(plugin, initGlobal, context, pluginRegistry)
       : { exports: {} }
     pluginGlobals[plugin.id] = normalizePluginGlobalExport(globalExport, plugin.id)
   }
