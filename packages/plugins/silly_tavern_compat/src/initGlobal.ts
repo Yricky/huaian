@@ -1,11 +1,16 @@
+import type { PluginGlobalExport, PluginRuntimeContext } from '@st-forge/plugin-api'
 import { applyToolInput, entryTitle, normalizeWorldEntry } from './data'
 import { testWorldEntryActivations } from './st-prompt-builder'
+import chatBlockProcessor from './chatBlockProcessor'
 
-export default function initGlobal() {
+export default function initGlobal(context: PluginRuntimeContext): PluginGlobalExport {
   return {
-    applyToolInput,
-    entryTitle,
-    normalizeWorldEntry,
-    testWorldEntryActivations
+    chatBlockProcessor: chatBlockProcessor(context),
+    exports: {
+      applyToolInput,
+      entryTitle,
+      normalizeWorldEntry,
+      testWorldEntryActivations
+    }
   }
 }

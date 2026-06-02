@@ -7,9 +7,7 @@ const packageDir = dirname(fileURLToPath(import.meta.url))
 const pluginApiRoot = resolve(packageDir, '../../plugin-api/src')
 
 const scriptEntries: Record<string, string> = {
-  initGlobal: 'src/initGlobal.ts',
-  initChat: 'src/initChat.ts',
-  chatBlockProcessor: 'src/chatBlockProcessor.ts'
+  initGlobal: 'src/initGlobal.ts'
 }
 
 const pageEntries: Record<string, { input: string; name: string }> = {
@@ -50,6 +48,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         { find: '@st-forge/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
+        { find: '@st-forge/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
         { find: '@st-forge/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
         { find: '@st-forge/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
         { find: '@st-forge/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
@@ -85,7 +84,7 @@ export default defineConfig(({ mode }) => {
   return {
     ...common,
     build: {
-      emptyOutDir: mode === 'initGlobal',
+      emptyOutDir: true,
       lib: {
         entry: resolve(packageDir, scriptEntry),
         fileName: () => `${mode}.js`,

@@ -35,15 +35,12 @@ function normalizePluginManifest(value: unknown): PluginManifest | null {
       : [],
     entry: Object.keys(entry).length ? {
       initGlobal: asString(entry.initGlobal) || undefined,
-      initChat: asString(entry.initChat) || undefined,
-      chatBlockProcessor: asString(entry.chatBlockProcessor) || undefined,
       toolCalls: Array.isArray(entry.toolCalls)
         ? entry.toolCalls.map(item => {
             const toolCall = asRecord(item)
             return {
               name: asString(toolCall.name),
               label: asString(toolCall.label) || undefined,
-              handler: asString(toolCall.handler) || undefined,
               prompt: asString(toolCall.prompt) || undefined,
               settingsHtml: asString(toolCall.settingsHtml) || undefined,
               tools: Array.isArray(toolCall.tools)

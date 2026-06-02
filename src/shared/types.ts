@@ -22,6 +22,8 @@ export type {
   OriginalChatBlock,
   ProcessingChat,
   PluginFileEntry,
+  PluginGlobalExport,
+  PluginGlobalRegistry,
   PluginManifest,
   PluginManifestEntry,
   PluginToolCallManifest,

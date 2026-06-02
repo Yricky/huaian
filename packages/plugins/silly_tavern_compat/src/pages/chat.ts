@@ -1,4 +1,7 @@
 import { createApp } from 'vue'
-import ChatPage from './ChatPage.vue'
+import { installHaExtApi } from '@st-forge/plugin-api/client'
 
-createApp(ChatPage).mount('#app')
+installHaExtApi({ chat: true })
+void import('./ChatPage.vue').then(({ default: ChatPage }) => {
+  createApp(ChatPage).mount('#app')
+})

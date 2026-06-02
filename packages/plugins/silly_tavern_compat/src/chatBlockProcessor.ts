@@ -100,7 +100,8 @@ function promptMessagesToChatBlocks(chat: ProcessingChat, messages: ChatGenerati
 export default function chatBlockProcessor(context: PluginRuntimeContext) {
   return {
     async process(chat: ProcessingChat): Promise<ProcessingChat> {
-      const data = await loadSillyTavernCompatData(context.api.storage, chat.chatSession, context.api.chat.getPluginData())
+      const pluginData = asRecord(chat.chatSession.pluginData[context.plugin.id])
+      const data = await loadSillyTavernCompatData(context.haExtApi.storage, chat.chatSession, pluginData)
       const prompt = buildSillyTavernLikePrompt({
         chat: {
           ...chat.chatSession,

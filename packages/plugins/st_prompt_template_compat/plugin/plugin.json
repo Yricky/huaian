@@ -6,8 +6,6 @@
   "dependencies": ["silly_tavern_compat"],
   "entry": {
     "initGlobal": "initGlobal.js",
-    "initChat": "initChat.js",
-    "chatBlockProcessor": "chatBlockProcessor.js",
     "settingsHtml": "settings.html"
   }
 }

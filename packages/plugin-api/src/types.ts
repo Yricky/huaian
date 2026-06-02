@@ -9,7 +9,6 @@ export interface PluginToolSchema {
 export interface PluginToolCallManifest {
   name: string
   label?: string
-  handler?: string
   prompt?: string
   tools?: PluginToolSchema[]
   settingsHtml?: string
@@ -17,8 +16,6 @@ export interface PluginToolCallManifest {
 
 export interface PluginManifestEntry {
   initGlobal?: string
-  initChat?: string
-  chatBlockProcessor?: string
   toolCalls?: PluginToolCallManifest[]
   settingsHtml?: string
   chatHtml?: string
@@ -153,31 +150,32 @@ export interface PluginStorageApi {
   writeJsonFor(pluginId: string, path: string, value: unknown): Promise<void>
 }
 
-export interface PluginChatApi {
-  getSession(): ChatSession | null
-  getPluginData(): JsonRecord
-  setPluginData(value: JsonRecord): Promise<ChatSession | null>
-  getBlockPluginData(blockId: number): JsonRecord
-  setBlockPluginData(blockId: number, value: JsonRecord): Promise<OriginalChatBlock | null>
+export interface HaExtChatApi {
+  getSession(): Promise<ChatSession | null>
+  getPluginData(): Promise<JsonRecord>
+  setPluginData(value: JsonRecord): Promise<JsonRecord>
 }
 
-export interface PluginRuntimeApi {
+export interface HaExtToolSettingsApi {
+  getCommonArgs(): Promise<JsonRecord>
+  setCommonArgs(value: JsonRecord): Promise<JsonRecord>
+}
+
+export interface HaExtApi {
   assetUrl(path: string): string
-  chat: PluginChatApi
   storage: PluginStorageApi
+  chat?: HaExtChatApi
+  toolSettings?: HaExtToolSettingsApi
 }
 
-export interface PluginScopes {
-  global: Record<string, unknown>
-  chat: Record<string, unknown>
+export interface HaExtApiInstallOptions {
+  chat?: boolean
+  toolSettings?: boolean
 }
 
 export interface PluginRuntimeContext {
-  api: PluginRuntimeApi
+  haExtApi: HaExtApi
   plugin: PluginManifest
-  chat?: ChatSession
-  blocks?: OriginalChatBlock[]
-  processingChat?: ProcessingChat
 }
 
 export interface PluginChatBlockProcessor {
@@ -186,4 +184,17 @@ export interface PluginChatBlockProcessor {
 
 export interface PluginToolHandler {
   handle(request: PluginToolCallRequest): Promise<unknown> | unknown
+}
+
+export type PluginSharedExports = Record<string, unknown>
+
+export interface PluginGlobalExport {
+  chatBlockProcessor?: PluginChatBlockProcessor
+  toolCalls?: Record<string, PluginToolHandler>
+  exports?: PluginSharedExports
+}
+
+export interface PluginGlobalRegistry {
+  get(pluginId: string): PluginGlobalExport | undefined
+  all(): Record<string, PluginGlobalExport>
 }

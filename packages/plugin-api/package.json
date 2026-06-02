@@ -11,6 +11,10 @@
       "types": "./src/chat-blocks.ts",
       "import": "./src/chat-blocks.ts"
     },
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
+    },
     "./types": {
       "types": "./src/types.ts",
       "import": "./src/types.ts"

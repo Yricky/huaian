@@ -120,7 +120,7 @@ async function refresh(): Promise<void> {
   const [characterFiles, worldBookFiles, pluginData] = await Promise.all([
     api.storage.list('characters'),
     api.storage.list('worldbooks'),
-    api.chat.getPluginData()
+    api.chat!.getPluginData()
   ])
   const loadedCharacters = await Promise.all(jsonFiles(characterFiles).map(loadCharacter))
   const loadedWorldBooks = await Promise.all(jsonFiles(worldBookFiles).map(loadWorldBook))
@@ -171,7 +171,7 @@ async function save(): Promise<void> {
       characterFile: draft.value.characterFile,
       worldBookFiles: [...draft.value.worldBookFiles]
     }
-    savedConfig.value = await api.chat.setPluginData(nextConfig)
+    savedConfig.value = await api.chat!.setPluginData(nextConfig)
     dirty.value = false
     setStatus('当前聊天的角色卡和世界书已保存')
   })

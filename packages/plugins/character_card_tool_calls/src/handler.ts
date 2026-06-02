@@ -1,7 +1,7 @@
 import type {
   JsonRecord,
+  PluginGlobalRegistry,
   PluginRuntimeContext,
-  PluginScopes,
   PluginToolCallRequest,
   PluginToolHandler
 } from '@st-forge/plugin-api'
@@ -14,8 +14,8 @@ interface SillyTavernCompatApi {
   testWorldEntryActivations(entries: unknown[], example: string): unknown
 }
 
-function sillyTavernCompatApi(myAppPlugins: PluginScopes): SillyTavernCompatApi {
-  const api = asRecord(myAppPlugins.global.silly_tavern_compat) as unknown as Partial<SillyTavernCompatApi>
+function sillyTavernCompatApi(plugins: PluginGlobalRegistry): SillyTavernCompatApi {
+  const api = asRecord(plugins.get('silly_tavern_compat')?.exports) as unknown as Partial<SillyTavernCompatApi>
   if (
     typeof api.applyToolInput !== 'function' ||
     typeof api.entryTitle !== 'function' ||
@@ -31,14 +31,14 @@ function entriesFromBook(book: JsonRecord): JsonRecord[] {
   return Array.isArray(book.entries) ? book.entries.map(asRecord) : []
 }
 
-export default function handler(context: PluginRuntimeContext, myAppPlugins: PluginScopes): PluginToolHandler {
+export default function handler(context: PluginRuntimeContext, plugins: PluginGlobalRegistry): PluginToolHandler {
   return {
     async handle(request: PluginToolCallRequest) {
-      const compat = sillyTavernCompatApi(myAppPlugins)
+      const compat = sillyTavernCompatApi(plugins)
       const worldBookFile = asString(request.commonArgs.worldBookFile)
       if (!worldBookFile) throw new Error('工具通参缺少 worldBookFile。')
       const path = `worldbooks/${worldBookFile}`
-      const book = asRecord(JSON.parse(await context.api.storage.readTextFor('silly_tavern_compat', path)))
+      const book = asRecord(JSON.parse(await context.haExtApi.storage.readTextFor('silly_tavern_compat', path)))
       const entries = entriesFromBook(book)
       const normalizedEntries = entries.map((entry, index) => (
         compat.normalizeWorldEntry(entry, Number(entry.id ?? index + 1), 1)
@@ -67,7 +67,7 @@ export default function handler(context: PluginRuntimeContext, myAppPlugins: Plu
         if (index >= 0) {
           entries[index] = compat.applyToolInput(entries[index], request.input)
           book.entries = entries
-          await context.api.storage.writeTextFor('silly_tavern_compat', path, `${JSON.stringify(book, null, 2)}\n`)
+          await context.haExtApi.storage.writeTextFor('silly_tavern_compat', path, `${JSON.stringify(book, null, 2)}\n`)
           return { success: true, id: requestedId, title: asString(entries[index].comment, `Entry #${requestedId}`) }
         }
         const nextId = Math.max(0, ...entries.map((entry, entryIndex) => Number(entry.id ?? entryIndex + 1)).filter(Number.isFinite)) + 1
@@ -87,7 +87,7 @@ export default function handler(context: PluginRuntimeContext, myAppPlugins: Plu
         created.id = nextId
         entries.push(created)
         book.entries = entries
-        await context.api.storage.writeTextFor('silly_tavern_compat', path, `${JSON.stringify(book, null, 2)}\n`)
+        await context.haExtApi.storage.writeTextFor('silly_tavern_compat', path, `${JSON.stringify(book, null, 2)}\n`)
         return { success: true, id: nextId, title: asString(created.comment, `Entry #${nextId}`) }
       }
       throw new Error(`未知世界书工具：${request.toolName}`)

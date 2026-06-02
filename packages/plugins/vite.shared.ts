@@ -1,21 +1,39 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 
 interface StForgePluginViteOptions {
   browserEjs?: boolean
   entries: Record<string, string>
+  pages?: Record<string, { input: string; name: string }>
+}
+
+function flattenPageHtml(): Plugin {
+  return {
+    name: 'st-forge-flatten-page-html',
+    enforce: 'post',
+    generateBundle(_, bundle) {
+      for (const [fileName, file] of Object.entries(bundle)) {
+        if (file.type !== 'asset' || !fileName.endsWith('.html') || !fileName.includes('/')) continue
+        const outputName = fileName.split('/').pop()
+        if (!outputName) continue
+        file.source = String(file.source).replace(/((?:\.\.\/)+)assets\//g, './assets/')
+        file.fileName = outputName
+      }
+    }
+  }
 }
 
 export function defineStForgePluginConfig(importMetaUrl: string, options: StForgePluginViteOptions) {
-  const packageDir = dirname(fileURLToPath(importMetaUrl))
-  const pluginApiRoot = resolve(packageDir, '../../plugin-api/src')
-  const entryNames = Object.keys(options.entries)
-  const alias = [
-    { find: '@st-forge/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
-    { find: '@st-forge/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
-    { find: '@st-forge/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
-    { find: '@st-forge/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
+    const packageDir = dirname(fileURLToPath(importMetaUrl))
+    const pluginApiRoot = resolve(packageDir, '../../plugin-api/src')
+    const entryNames = Object.keys(options.entries)
+      const alias = [
+        { find: '@st-forge/plugin-api/chat-blocks', replacement: resolve(pluginApiRoot, 'chat-blocks.ts') },
+        { find: '@st-forge/plugin-api/client', replacement: resolve(pluginApiRoot, 'client.ts') },
+        { find: '@st-forge/plugin-api/types', replacement: resolve(pluginApiRoot, 'types.ts') },
+        { find: '@st-forge/plugin-api/value-utils', replacement: resolve(pluginApiRoot, 'value-utils.ts') },
+        { find: '@st-forge/plugin-api', replacement: resolve(pluginApiRoot, 'index.ts') }
   ]
   if (options.browserEjs) {
     alias.unshift({ find: 'ejs', replacement: resolve(packageDir, 'node_modules/ejs/ejs.min.js') })
@@ -23,7 +41,38 @@ export function defineStForgePluginConfig(importMetaUrl: string, options: StForg
 
   return defineConfig(({ mode }) => {
     const entryName = options.entries[mode] ? mode : entryNames[0]
-    if (!entryName) throw new Error('插件 Vite 构建缺少入口。')
+    const pageEntry = options.pages?.[mode]
+    if (!entryName && !pageEntry) throw new Error('插件 Vite 构建缺少入口。')
+    if (pageEntry) {
+      return {
+        base: './',
+        build: {
+          emptyOutDir: false,
+          minify: 'esbuild',
+          outDir: resolve(packageDir, 'out'),
+          rollupOptions: {
+            input: {
+              [pageEntry.name]: resolve(packageDir, pageEntry.input)
+            },
+            output: {
+              assetFileNames: 'assets/[name]-[hash][extname]',
+              chunkFileNames: 'assets/[name]-[hash].js',
+              entryFileNames: 'assets/[name]-[hash].js'
+            }
+          },
+          target: 'es2020'
+        },
+        define: {
+          'process.env.NODE_ENV': JSON.stringify('production')
+        },
+        plugins: [flattenPageHtml()],
+        publicDir: resolve(packageDir, 'plugin'),
+        resolve: {
+          alias
+        },
+        root: packageDir
+      }
+    }
     return {
       build: {
         emptyOutDir: entryName === entryNames[0],

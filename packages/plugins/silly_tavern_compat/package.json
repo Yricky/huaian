@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --mode initGlobal && vite build --mode initChat && vite build --mode chatBlockProcessor && vite build --mode settingsHtml && vite build --mode chatHtml"
+    "build": "vite build --mode initGlobal && vite build --mode settingsHtml && vite build --mode chatHtml"
   },
   "dependencies": {
     "@st-forge/plugin-api": "workspace:*",
@@ -13,9 +13,7 @@
   "stForgePlugin": {
     "source": "plugin",
     "entries": {
-      "initGlobal": "src/initGlobal.ts",
-      "initChat": "src/initChat.ts",
-      "chatBlockProcessor": "src/chatBlockProcessor.ts"
+      "initGlobal": "src/initGlobal.ts"
     }
   }
 }

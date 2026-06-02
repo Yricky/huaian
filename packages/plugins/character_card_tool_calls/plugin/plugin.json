@@ -6,12 +6,10 @@
   "dependencies": ["silly_tavern_compat"],
   "entry": {
     "initGlobal": "initGlobal.js",
-    "initChat": "initChat.js",
     "toolCalls": [
       {
         "name": "lorebook_edit",
         "label": "世界书编辑工具组",
-        "handler": "handler.js",
         "settingsHtml": "toolSettings.html",
         "prompt": "你可以使用世界书编辑工具组来查看、测试、更新或新建当前绑定世界书的条目草稿。\n重要规则：这些工具只会编辑插件数据目录中的世界书 JSON，不会直接修改聊天内容。\n更新条目前先列出条目，避免重复创建；不确定触发效果时先测试触发。",
         "tools": [

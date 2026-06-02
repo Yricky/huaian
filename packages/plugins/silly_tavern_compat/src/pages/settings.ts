@@ -1,4 +1,7 @@
 import { createApp } from 'vue'
-import SettingsPage from './SettingsPage.vue'
+import { installHaExtApi } from '@st-forge/plugin-api/client'
 
-createApp(SettingsPage).mount('#app')
+installHaExtApi()
+void import('./SettingsPage.vue').then(({ default: SettingsPage }) => {
+  createApp(SettingsPage).mount('#app')
+})

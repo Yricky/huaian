@@ -1,63 +1,14 @@
-export interface PluginFileEntry {
-  name: string
-  path: string
-  isDirectory: boolean
-  size?: number
-}
+import type { HaExtApi, JsonRecord, PluginFileEntry } from '@st-forge/plugin-api'
 
-export interface JsonRecord {
-  [key: string]: unknown
-}
-
-export interface ChatSession {
-  id: number
-  title: string
-  runtimeConfig: {
-    llmInstanceId: number | null
-    enabledPluginIds: string[]
-    pluginData: JsonRecord
-  }
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ParentPluginApi {
-  chat: {
-    getSession(): Promise<ChatSession | null>
-    getPluginData(): Promise<JsonRecord>
-    setPluginData(value: JsonRecord): Promise<JsonRecord>
-  }
-  storage: {
-    list(path?: string): Promise<PluginFileEntry[]>
-    listFor(pluginId: string, path?: string): Promise<PluginFileEntry[]>
-    readText(path: string): Promise<string>
-    readTextFor(pluginId: string, path: string): Promise<string>
-    readBase64(path: string): Promise<string>
-    readBase64For(pluginId: string, path: string): Promise<string>
-    writeText(path: string, content: string): Promise<void>
-    writeTextFor(pluginId: string, path: string, content: string): Promise<void>
-    writeBase64(path: string, content: string): Promise<void>
-    writeBase64For(pluginId: string, path: string, content: string): Promise<void>
-    delete(path: string): Promise<void>
-    deleteFor(pluginId: string, path: string): Promise<void>
-    readJson(path: string, fallback?: unknown): Promise<unknown>
-    readJsonFor(pluginId: string, path: string, fallback?: unknown): Promise<unknown>
-    writeJson(path: string, value: unknown): Promise<void>
-    writeJsonFor(pluginId: string, path: string, value: unknown): Promise<void>
-  }
-  toolSettings: {
-    getCommonArgs(): Promise<JsonRecord>
-    setCommonArgs(value: JsonRecord): Promise<JsonRecord>
-  }
-}
+export type { JsonRecord, PluginFileEntry }
 
 declare global {
   interface Window {
-    parentPluginApi: ParentPluginApi
+    haExtApi: HaExtApi
   }
 }
 
-export const api = window.parentPluginApi
+export const api = window.haExtApi
 
 export function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}

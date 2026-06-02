@@ -9,7 +9,6 @@ export function createWindow(): void {
     show: false,
     webPreferences: {
       sandbox: false,
-      nodeIntegrationInSubFrames: true,
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, '../preload/index.js')

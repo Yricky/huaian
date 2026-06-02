@@ -190,13 +190,13 @@ async function renderBlock(block: MixedChatBlock, scopes: VariableScopes, chatId
 export default function chatBlockProcessor(context: PluginRuntimeContext) {
   return {
     async process(chat: ProcessingChat): Promise<ProcessingChat> {
-      const config = asRecord(await context.api.storage.readJson('config.json', {
+      const config = asRecord(await context.haExtApi.storage.readJson('config.json', {
         enabled: true,
         renderMessages: true,
         globalVariables: {}
       }))
       if (config.enabled === false || config.renderMessages === false) return chat
-      const scopes = variableScopes(config, context.api.chat.getPluginData())
+      const scopes = variableScopes(config, asRecord(chat.chatSession.pluginData[context.plugin.id]))
       return {
         ...chat,
         chatBlocks: await Promise.all(chat.chatBlocks.map(block => renderBlock(block, scopes, chat.chatSession.id)))

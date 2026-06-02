@@ -23,7 +23,7 @@ import type {
 } from '../../shared/types'
 import { asRecord, cloneJson } from '../../shared/value-utils'
 import { chatBlockTargetRole } from '../../shared/chat-blocks'
-import { invokePluginSandbox } from './pluginSandbox'
+import { invokePluginWorker } from './pluginWorkerHost'
 
 export interface PluginChatProcessingBundle {
   messages: ChatGenerationPreviewMessage[]
@@ -57,7 +57,7 @@ function pluginRuntimeSignature(project: ProjectSnapshot): string {
   })
 }
 
-function sandboxRuntime(project: ProjectSnapshot, plugins = activePlugins(project)): JsonRecord {
+function pluginRuntimeDescriptor(project: ProjectSnapshot, plugins = activePlugins(project)): JsonRecord {
   return {
     signature: pluginRuntimeSignature(project),
     allPlugins: project.plugins,
@@ -101,7 +101,8 @@ export function processingChatFromDbBlocks(chat: ChatSession, blocks: DbChatBloc
 }
 
 export function ensurePluginRuntime(project: ProjectSnapshot): Promise<void> {
-  return invokePluginSandbox('ensurePluginRuntime', sandboxRuntime(project)).then(() => undefined)
+  const runtime = pluginRuntimeDescriptor(project)
+  return invokePluginWorker('ensurePluginRuntime', runtime, String(runtime.signature)).then(() => undefined)
 }
 
 function hasOwn(record: JsonRecord, key: string): boolean {
@@ -267,13 +268,14 @@ export async function preparePluginChatProcessing(
     .filter((original): original is OriginalChatBlock => Boolean(original))
     .map(original => [original.id, original]))
   const expectedOriginalIds = blocks.map(block => block.id)
-  const result = await invokePluginSandbox('preparePluginChatProcessing', {
-    runtime: sandboxRuntime(project, plugins),
+  const runtime = pluginRuntimeDescriptor(project, plugins)
+  const result = await invokePluginWorker('preparePluginChatProcessing', {
+    runtime,
     blocks: processingChat.chatBlocks.map(block => block.original).filter(Boolean),
     chat: processingChat.chatSession,
     hostChat: chat,
     processingChat
-  })
+  }, String(runtime.signature))
   const normalized = normalizeProcessingChat(result, processingChat, canonicalOriginals, expectedOriginalIds)
   return {
     messages: messagesFromProcessingChat(normalized),
@@ -323,10 +325,11 @@ export function availableToolCalls(project: ProjectSnapshot, chat: ChatSession):
 
 export async function handlePluginToolCallRequest(project: ProjectSnapshot, request: PluginToolCallRequest): Promise<void> {
   try {
-    const output = await invokePluginSandbox('handlePluginToolCallRequest', {
-      runtime: sandboxRuntime(project),
+    const runtime = pluginRuntimeDescriptor(project)
+    const output = await invokePluginWorker('handlePluginToolCallRequest', {
+      runtime,
       request
-    })
+    }, String(runtime.signature))
     await window.electronAPI.resolvePluginToolCall({ requestId: request.requestId, ok: true, output })
   } catch (error) {
     await window.electronAPI.resolvePluginToolCall({
