@@ -6,6 +6,8 @@ import { worldbookEditToolHandler } from './worldbookTool'
 
 export default function initGlobal(context: PluginRuntimeContext): PluginGlobalExport {
   return {
+    settingsHtml: 'settings.html',
+    chatHtml: 'chat.html',
     chatBlockProcessor: chatBlockProcessor(context),
     toolCalls: {
       lorebook_edit: worldbookEditToolHandler(context)

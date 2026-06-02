@@ -215,6 +215,8 @@ function normalizePluginGlobalExport(value: unknown, pluginId: string): PluginGl
     throw new Error(`插件 ${pluginId} 的 initGlobal 必须返回对象。`)
   }
   return {
+    settingsHtml: asString(record.settingsHtml) || undefined,
+    chatHtml: asString(record.chatHtml) || undefined,
     chatBlockProcessor: record.chatBlockProcessor as PluginGlobalExport['chatBlockProcessor'],
     toolCalls: asRecord(record.toolCalls) as PluginGlobalExport['toolCalls'],
     exports: asRecord(record.exports)
@@ -322,6 +324,23 @@ async function listPluginToolCalls(input: unknown): Promise<Record<string, Plugi
       .map(([key, value]) => toolCallDefinitionFromHandler(key, value))
       .filter((definition): definition is PluginToolCallDefinition => definition !== null)
     if (definitions.length) result[descriptor.manifest.id] = definitions
+  }
+  return result
+}
+
+async function listPluginGlobalEntries(input: unknown): Promise<Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>>> {
+  const record = asRecord(input)
+  await ensurePluginRuntime(record.runtime)
+  const runtime = asRecord(record.runtime)
+  const activePlugins = Array.isArray(runtime.activePlugins) ? runtime.activePlugins as PluginDescriptor[] : []
+  const result: Record<string, Pick<PluginGlobalExport, 'settingsHtml' | 'chatHtml'>> = {}
+  for (const descriptor of activePlugins) {
+    const globalExport = pluginGlobals[descriptor.manifest.id]
+    if (!globalExport?.settingsHtml && !globalExport?.chatHtml) continue
+    result[descriptor.manifest.id] = {
+      settingsHtml: globalExport.settingsHtml,
+      chatHtml: globalExport.chatHtml
+    }
   }
   return result
 }
@@ -458,6 +477,7 @@ function disconnectFrame(data: JsonRecord): void {
 
 const methods: Record<string, (input: unknown) => Promise<unknown> | unknown> = {
   ensurePluginRuntime,
+  listPluginGlobalEntries,
   listPluginToolCalls,
   preparePluginChatProcessing,
   handlePluginToolCallRequest

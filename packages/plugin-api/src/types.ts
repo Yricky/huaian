@@ -16,8 +16,6 @@ export interface PluginToolCallDefinition {
 
 export interface PluginManifestEntry {
   initGlobal?: string
-  settingsHtml?: string
-  chatHtml?: string
 }
 
 export interface PluginManifest {
@@ -188,6 +186,8 @@ export interface PluginToolHandler extends PluginToolCallDefinition {
 export type PluginSharedExports = Record<string, unknown>
 
 export interface PluginGlobalExport {
+  settingsHtml?: string
+  chatHtml?: string
   chatBlockProcessor?: PluginChatBlockProcessor
   toolCalls?: Record<string, PluginToolHandler>
   exports?: PluginSharedExports

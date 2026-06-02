@@ -25,7 +25,6 @@ import { chatBlockTargetRole } from '../../shared/chat-blocks'
 import { invokePluginWorker } from './pluginWorkerHost'
 
 export interface PluginChatProcessingBundle {
-  messages: ChatGenerationPreviewMessage[]
   processingChat: ProcessingChat
   toolDefinitions: LlmToolDefinition[]
 }
@@ -35,7 +34,14 @@ export interface AvailablePluginToolCall {
   toolCall: PluginToolCallDefinition
 }
 
+export interface AvailablePluginGlobalEntry {
+  plugin: PluginDescriptor
+  settingsHtml?: string
+  chatHtml?: string
+}
+
 type PluginToolCallsByPlugin = Record<string, PluginToolCallDefinition[]>
+type PluginGlobalEntriesByPlugin = Record<string, Pick<AvailablePluginGlobalEntry, 'settingsHtml' | 'chatHtml'>>
 
 let toolRequestUnsubscribe: (() => void) | null = null
 
@@ -286,7 +292,6 @@ export async function preparePluginChatProcessing(
   const normalized = normalizeProcessingChat(result, processingChat, canonicalOriginals, expectedOriginalIds)
   const availableTools = await availableToolCallsForPlugins(project, plugins)
   return {
-    messages: messagesFromProcessingChat(normalized),
     processingChat: normalized,
     toolDefinitions: toolDefinitionsForChat(availableTools, chat.runtimeConfig.toolDefinitions)
   }
@@ -305,6 +310,21 @@ async function availableToolCallsForPlugins(
     const plugin = pluginById.get(pluginId)
     if (!plugin || !Array.isArray(toolCalls)) return []
     return toolCalls.map(toolCall => ({ plugin, toolCall }))
+  })
+}
+
+async function availablePluginGlobalEntriesForPlugins(
+  project: ProjectSnapshot,
+  plugins: PluginDescriptor[]
+): Promise<AvailablePluginGlobalEntry[]> {
+  const runtime = pluginRuntimeDescriptor(project, plugins)
+  const entriesByPlugin = await invokePluginWorker<PluginGlobalEntriesByPlugin>('listPluginGlobalEntries', {
+    runtime
+  }, String(runtime.signature))
+  const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]))
+  return Object.entries(entriesByPlugin).flatMap(([pluginId, entry]) => {
+    const plugin = pluginById.get(pluginId)
+    return plugin ? [{ plugin, ...entry }] : []
   })
 }
 
@@ -346,6 +366,13 @@ function toolDefinitionsForChat(
 
 export function availableToolCalls(project: ProjectSnapshot, chat: ChatSession): Promise<AvailablePluginToolCall[]> {
   return availableToolCallsForPlugins(project, activePlugins(project, chat))
+}
+
+export function availablePluginGlobalEntries(
+  project: ProjectSnapshot,
+  chat?: ChatSession
+): Promise<AvailablePluginGlobalEntry[]> {
+  return availablePluginGlobalEntriesForPlugins(project, activePlugins(project, chat))
 }
 
 export async function handlePluginToolCallRequest(project: ProjectSnapshot, request: PluginToolCallRequest): Promise<void> {

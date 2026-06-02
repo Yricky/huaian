@@ -34,9 +34,7 @@ function normalizePluginManifest(value: unknown): PluginManifest | null {
       ? record.dependencies.map(item => asString(item).trim()).filter(Boolean)
       : [],
     entry: Object.keys(entry).length ? {
-      initGlobal: asString(entry.initGlobal) || undefined,
-      settingsHtml: asString(entry.settingsHtml) || undefined,
-      chatHtml: asString(entry.chatHtml) || undefined
+      initGlobal: asString(entry.initGlobal) || undefined
     } : undefined
   }
 }

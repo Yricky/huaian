@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { MdClose, MdExtension, MdPowerSettingsNew, MdSettings } from 'vue-icons-plus/md'
 import type { PluginDescriptor } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
+import { availablePluginGlobalEntries, type AvailablePluginGlobalEntry } from '../pluginRuntime'
 import PluginFrame from './PluginFrame.vue'
 
 const { plugins, project, saveProjectConfig, showToast } = useProjectWorkbench()
 const selectedPlugin = ref<PluginDescriptor | null>(null)
+const pluginGlobalEntries = ref<AvailablePluginGlobalEntry[]>([])
 
 const enabledPluginIds = computed(() => new Set(project.value?.config.plugins.enabledPluginIds ?? []))
 const pluginById = computed(() => new Map(plugins.value.map(plugin => [plugin.manifest.id, plugin])))
+const pluginGlobalEntryById = computed(() => new Map(pluginGlobalEntries.value.map(entry => [entry.plugin.manifest.id, entry])))
 
 function pluginName(plugin: PluginDescriptor): string {
   return plugin.manifest.name || plugin.manifest.id
@@ -71,7 +74,19 @@ function pluginStatusLabel(plugin: PluginDescriptor): string {
 }
 
 function canOpenSettings(plugin: PluginDescriptor): boolean {
-  return isEnabled(plugin) && Boolean(plugin.manifest.entry?.settingsHtml)
+  return isEnabled(plugin) && Boolean(pluginGlobalEntryById.value.get(plugin.manifest.id)?.settingsHtml)
+}
+
+function pluginSettingsHtmlPath(plugin: PluginDescriptor): string {
+  return pluginGlobalEntryById.value.get(plugin.manifest.id)?.settingsHtml ?? ''
+}
+
+async function refreshPluginGlobalEntries(): Promise<void> {
+  if (!project.value) {
+    pluginGlobalEntries.value = []
+    return
+  }
+  pluginGlobalEntries.value = await availablePluginGlobalEntries(project.value)
 }
 
 async function togglePlugin(plugin: PluginDescriptor) {
@@ -90,6 +105,14 @@ function openPluginSettings(plugin: PluginDescriptor) {
 function closePlugin() {
   selectedPlugin.value = null
 }
+
+watch([
+  () => project.value?.path ?? '',
+  () => project.value?.config.plugins.enabledPluginIds.join('\u0000') ?? '',
+  () => plugins.value.map(plugin => `${plugin.manifest.id}:${plugin.manifest.versionCode}`).join('\u0000')
+], () => {
+  void refreshPluginGlobalEntries()
+}, { immediate: true })
 </script>
 
 <template>
@@ -107,9 +130,9 @@ function closePlugin() {
 
       <div class="plugin-settings-body">
         <PluginFrame
-          v-if="selectedPlugin.manifest.entry?.settingsHtml"
+          v-if="pluginSettingsHtmlPath(selectedPlugin)"
           :plugin-id="selectedPlugin.manifest.id"
-          :html-path="selectedPlugin.manifest.entry.settingsHtml"
+          :html-path="pluginSettingsHtmlPath(selectedPlugin)"
         />
       </div>
     </section>

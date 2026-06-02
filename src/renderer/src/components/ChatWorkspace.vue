@@ -26,7 +26,12 @@ import type {
   PluginDescriptor,
   ProjectSnapshot
 } from '../../../shared/types'
-import { availableToolCalls as loadAvailableToolCalls, type AvailablePluginToolCall } from '../pluginRuntime'
+import {
+  availablePluginGlobalEntries,
+  availableToolCalls as loadAvailableToolCalls,
+  type AvailablePluginGlobalEntry,
+  type AvailablePluginToolCall
+} from '../pluginRuntime'
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatToolDefinitionsDialog from './ChatToolDefinitionsDialog.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
@@ -80,6 +85,7 @@ const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const toolDefinitionsDialogOpen = ref(false)
 const availableToolCallOptions = ref<AvailablePluginToolCall[]>([])
+const availablePluginEntries = ref<AvailablePluginGlobalEntry[]>([])
 const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
@@ -101,6 +107,7 @@ const selectedLlmInstance = computed(() => {
 const activePluginIds = computed(() => new Set(props.chat.runtimeConfig.enabledPluginIds))
 const configuredToolDefinitions = computed(() => props.chat.runtimeConfig.toolDefinitions)
 const toolDefinitionsButtonLabel = computed(() => `工具调用 ${configuredToolDefinitions.value.length}`)
+const availablePluginEntryById = computed(() => new Map(availablePluginEntries.value.map(entry => [entry.plugin.manifest.id, entry])))
 const replyButtonLabel = computed(() => selectedLlmInstance.value?.name ?? '未选择 LLM')
 const previewMessagesJson = computed(() => formatJson(contextPreviewMessages.value ?? []))
 const sourceBlockById = computed(() => new Map(props.blocks.map(block => [block.id, block])))
@@ -185,6 +192,15 @@ watch([
 ], () => {
   if (toolDefinitionsDialogOpen.value) void refreshAvailableToolCalls()
 })
+
+watch([
+  () => props.chat.id,
+  () => props.chat.runtimeConfig.enabledPluginIds.join('\u0000'),
+  () => props.project?.path ?? '',
+  () => props.plugins.map(plugin => `${plugin.manifest.id}:${plugin.manifest.versionCode}`).join('\u0000')
+], () => {
+  void refreshAvailablePluginEntries()
+}, { immediate: true })
 
 onBeforeUnmount(() => {
   removeMenuListeners()
@@ -393,6 +409,14 @@ async function refreshAvailableToolCalls(): Promise<void> {
   availableToolCallOptions.value = await loadAvailableToolCalls(props.project, props.chat)
 }
 
+async function refreshAvailablePluginEntries(): Promise<void> {
+  if (!props.project) {
+    availablePluginEntries.value = []
+    return
+  }
+  availablePluginEntries.value = await availablePluginGlobalEntries(props.project, props.chat)
+}
+
 function openToolDefinitionsDialog(): void {
   toolDefinitionsDialogOpen.value = true
   void refreshAvailableToolCalls()
@@ -471,7 +495,7 @@ async function saveToolDefinitions(toolDefinitions: ChatToolDefinition[]) {
 }
 
 function pluginChatHtmlPath(plugin: PluginDescriptor): string {
-  return plugin.manifest.entry?.chatHtml ?? ''
+  return availablePluginEntryById.value.get(plugin.manifest.id)?.chatHtml ?? ''
 }
 
 function openPluginChatHtml(plugin: PluginDescriptor) {

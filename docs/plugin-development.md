@@ -27,9 +27,7 @@ Huaian 的插件是项目级资源：
   "versionCode": 1,
   "dependencies": [],
   "entry": {
-    "initGlobal": "initGlobal.js",
-    "settingsHtml": "settings.html",
-    "chatHtml": "chat.html"
+    "initGlobal": "initGlobal.js"
   }
 }
 ```
@@ -44,8 +42,6 @@ Huaian 的插件是项目级资源：
 | `versionCode` | `number` | 整数版本号，默认 `1`。改变它会触发运行时重建。 |
 | `dependencies` | `string[]` | 依赖插件 ID 列表。 |
 | `entry.initGlobal` | `string` | Worker 全局运行时入口。 |
-| `entry.settingsHtml` | `string` | 插件设置页。 |
-| `entry.chatHtml` | `string` | 聊天页可见插件页面。 |
 
 所有路径都相对于插件目录。宿主会限制路径不能通过 `../` 离开对应插件目录。
 
@@ -95,6 +91,8 @@ initGlobal(context, plugins, haExtApi)
 
 ```ts
 interface PluginGlobalExport {
+  settingsHtml?: string
+  chatHtml?: string
   chatBlockProcessor?: {
     process(chat: ProcessingChat): ProcessingChat | Promise<ProcessingChat>
   }
@@ -109,6 +107,8 @@ interface PluginGlobalExport {
   exports?: Record<string, unknown>
 }
 ```
+
+`settingsHtml` 是插件设置页 HTML 路径，`chatHtml` 是聊天页可见插件页面 HTML 路径；它们都相对于插件目录。除了 `entry.initGlobal` 之外，插件入口都由 `PluginGlobalExport` 暴露。
 
 如果某个插件的 `initGlobal` 初始化失败，后续初始化会 fail-fast，本轮插件处理失败。
 
