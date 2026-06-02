@@ -9,8 +9,7 @@ import {
   type MixedChatBlock,
   type OriginalChatBlock,
   type ProcessingChat,
-  type PluginManifest,
-  type PluginToolCallManifest
+  type PluginToolCallDefinition
 } from '@huaian/plugin-api'
 import type {
   ChatSession,
@@ -31,6 +30,13 @@ export interface PluginChatProcessingBundle {
   toolDefinitions: LlmToolDefinition[]
 }
 
+export interface AvailablePluginToolCall {
+  plugin: PluginDescriptor
+  toolCall: PluginToolCallDefinition
+}
+
+type PluginToolCallsByPlugin = Record<string, PluginToolCallDefinition[]>
+
 let toolRequestUnsubscribe: (() => void) | null = null
 
 function activePlugins(project: ProjectSnapshot, chat?: ChatSession): PluginDescriptor[] {
@@ -46,10 +52,11 @@ function activePlugins(project: ProjectSnapshot, chat?: ChatSession): PluginDesc
   return result
 }
 
-function pluginRuntimeSignature(project: ProjectSnapshot): string {
+function pluginRuntimeSignature(project: ProjectSnapshot, plugins: PluginDescriptor[]): string {
   return JSON.stringify({
     path: project.path,
     enabledPluginIds: project.config.plugins.enabledPluginIds,
+    activePluginIds: plugins.map(plugin => plugin.manifest.id),
     plugins: project.plugins.map(plugin => ({
       id: plugin.manifest.id,
       versionCode: plugin.manifest.versionCode
@@ -59,7 +66,7 @@ function pluginRuntimeSignature(project: ProjectSnapshot): string {
 
 function pluginRuntimeDescriptor(project: ProjectSnapshot, plugins = activePlugins(project)): JsonRecord {
   return {
-    signature: pluginRuntimeSignature(project),
+    signature: pluginRuntimeSignature(project, plugins),
     allPlugins: project.plugins,
     activePlugins: plugins
   }
@@ -277,26 +284,51 @@ export async function preparePluginChatProcessing(
     processingChat
   }, String(runtime.signature))
   const normalized = normalizeProcessingChat(result, processingChat, canonicalOriginals, expectedOriginalIds)
+  const availableTools = await availableToolCallsForPlugins(project, plugins)
   return {
     messages: messagesFromProcessingChat(normalized),
     processingChat: normalized,
-    toolDefinitions: toolDefinitionsForChat(plugins, chat.runtimeConfig.toolDefinitions)
+    toolDefinitions: toolDefinitionsForChat(availableTools, chat.runtimeConfig.toolDefinitions)
   }
 }
 
-function toolCallManifestByName(plugin: PluginManifest, name: string): PluginToolCallManifest | null {
-  return plugin.entry?.toolCalls?.find(toolCall => toolCall.name === name) ?? null
+async function availableToolCallsForPlugins(
+  project: ProjectSnapshot,
+  plugins: PluginDescriptor[]
+): Promise<AvailablePluginToolCall[]> {
+  const runtime = pluginRuntimeDescriptor(project, plugins)
+  const toolCallsByPlugin = await invokePluginWorker<PluginToolCallsByPlugin>('listPluginToolCalls', {
+    runtime
+  }, String(runtime.signature))
+  const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]))
+  return Object.entries(toolCallsByPlugin).flatMap(([pluginId, toolCalls]) => {
+    const plugin = pluginById.get(pluginId)
+    if (!plugin || !Array.isArray(toolCalls)) return []
+    return toolCalls.map(toolCall => ({ plugin, toolCall }))
+  })
 }
 
-function toolDefinitionsForChat(plugins: PluginDescriptor[], configuredTools: ChatToolDefinition[]): LlmToolDefinition[] {
-  const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin.manifest]))
+function toolDefinitionByName(
+  availableTools: AvailablePluginToolCall[],
+  pluginId: string,
+  toolCallName: string
+): PluginToolCallDefinition | null {
+  return availableTools.find(item => (
+    item.plugin.manifest.id === pluginId &&
+    item.toolCall.name === toolCallName
+  ))?.toolCall ?? null
+}
+
+function toolDefinitionsForChat(
+  availableTools: AvailablePluginToolCall[],
+  configuredTools: ChatToolDefinition[]
+): LlmToolDefinition[] {
   const definitions: LlmToolDefinition[] = []
   for (const configuredTool of configuredTools) {
     const pluginId = configuredTool.pluginId
     const toolCallName = configuredTool.toolCallName
-    const plugin = pluginById.get(pluginId)
-    const toolCall = plugin ? toolCallManifestByName(plugin, toolCallName) : null
-    if (!plugin || !toolCall) continue
+    const toolCall = toolDefinitionByName(availableTools, pluginId, toolCallName)
+    if (!toolCall) continue
     for (const schema of toolCall.tools ?? []) {
       definitions.push({
         pluginId,
@@ -304,28 +336,22 @@ function toolDefinitionsForChat(plugins: PluginDescriptor[], configuredTools: Ch
         toolName: schema.name,
         description: schema.description,
         inputSchema: schema.inputSchema,
-        commonArgs: asRecord(configuredTool.commonArgs)
+        commonArgs: asRecord(configuredTool.commonArgs),
+        prompt: toolCall.prompt
       })
     }
   }
   return definitions
 }
 
-export function availableToolCalls(project: ProjectSnapshot, chat: ChatSession): Array<{
-  plugin: PluginManifest
-  toolCall: PluginToolCallManifest
-}> {
-  return activePlugins(project, chat).flatMap(descriptor => (
-    descriptor.manifest.entry?.toolCalls?.map(toolCall => ({
-      plugin: descriptor.manifest,
-      toolCall
-    })) ?? []
-  ))
+export function availableToolCalls(project: ProjectSnapshot, chat: ChatSession): Promise<AvailablePluginToolCall[]> {
+  return availableToolCallsForPlugins(project, activePlugins(project, chat))
 }
 
 export async function handlePluginToolCallRequest(project: ProjectSnapshot, request: PluginToolCallRequest): Promise<void> {
   try {
-    const runtime = pluginRuntimeDescriptor(project)
+    const chat = project.chats.find(item => item.id === request.chatId)
+    const runtime = pluginRuntimeDescriptor(project, chat ? activePlugins(project, chat) : activePlugins(project))
     const output = await invokePluginWorker('handlePluginToolCallRequest', {
       runtime,
       request

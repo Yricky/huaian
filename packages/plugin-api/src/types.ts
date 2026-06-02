@@ -6,7 +6,7 @@ export interface PluginToolSchema {
   inputSchema: JsonRecord
 }
 
-export interface PluginToolCallManifest {
+export interface PluginToolCallDefinition {
   name: string
   label?: string
   prompt?: string
@@ -16,7 +16,6 @@ export interface PluginToolCallManifest {
 
 export interface PluginManifestEntry {
   initGlobal?: string
-  toolCalls?: PluginToolCallManifest[]
   settingsHtml?: string
   chatHtml?: string
 }
@@ -182,7 +181,7 @@ export interface PluginChatBlockProcessor {
   process(chat: ProcessingChat): Promise<ProcessingChat> | ProcessingChat
 }
 
-export interface PluginToolHandler {
+export interface PluginToolHandler extends PluginToolCallDefinition {
   handle(request: PluginToolCallRequest): Promise<unknown> | unknown
 }
 

@@ -12,7 +12,6 @@ const preloadConfig = resolve(rootDir, 'vite.preload.config.ts')
 const builtinPluginZipDir = resolve(rootDir, 'out/main/builtin-plugins')
 const builtinPluginZipNames = [
   'silly_tavern_compat.zip',
-  'character_card_tool_calls.zip',
   'st_prompt_template_compat.zip'
 ]
 

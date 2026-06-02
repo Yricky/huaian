@@ -7,7 +7,7 @@ import { ensureProject, getCurrentProject } from './state'
 import { extractZipFile } from './zip'
 
 const PLUGIN_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
-const BUILTIN_PLUGIN_IDS = ['silly_tavern_compat', 'character_card_tool_calls', 'st_prompt_template_compat']
+const BUILTIN_PLUGIN_IDS = ['silly_tavern_compat', 'st_prompt_template_compat']
 
 function isInDirectory(filePath: string, directoryPath: string): boolean {
   const directoryRelativePath = relative(directoryPath, filePath)
@@ -35,27 +35,6 @@ function normalizePluginManifest(value: unknown): PluginManifest | null {
       : [],
     entry: Object.keys(entry).length ? {
       initGlobal: asString(entry.initGlobal) || undefined,
-      toolCalls: Array.isArray(entry.toolCalls)
-        ? entry.toolCalls.map(item => {
-            const toolCall = asRecord(item)
-            return {
-              name: asString(toolCall.name),
-              label: asString(toolCall.label) || undefined,
-              prompt: asString(toolCall.prompt) || undefined,
-              settingsHtml: asString(toolCall.settingsHtml) || undefined,
-              tools: Array.isArray(toolCall.tools)
-                ? toolCall.tools.map(tool => {
-                    const schema = asRecord(tool)
-                    return {
-                      name: asString(schema.name),
-                      description: asString(schema.description),
-                      inputSchema: asRecord(schema.inputSchema)
-                    }
-                  }).filter(tool => tool.name)
-                : []
-            }
-          }).filter(toolCall => toolCall.name)
-        : [],
       settingsHtml: asString(entry.settingsHtml) || undefined,
       chatHtml: asString(entry.chatHtml) || undefined
     } : undefined

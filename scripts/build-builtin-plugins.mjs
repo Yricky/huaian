@@ -128,7 +128,10 @@ async function createZip(sourceDir) {
 }
 
 async function readPluginPackage(packageDir) {
-  const packageJson = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'))
+  const packageJsonPath = join(packageDir, 'package.json')
+  const packageJsonText = await readFile(packageJsonPath, 'utf8').catch(() => null)
+  if (!packageJsonText) return null
+  const packageJson = JSON.parse(packageJsonText)
   const staticDir = resolve(packageDir, packageJson.huaianPlugin?.source ?? 'plugin')
   const outDir = resolve(packageDir, packageJson.huaianPlugin?.out ?? 'out')
   const manifest = await readPluginManifest(staticDir)
@@ -194,6 +197,7 @@ async function main() {
     const stats = await stat(packageDir).catch(() => null)
     if (!stats?.isDirectory()) continue
     const plugin = await readPluginPackage(packageDir)
+    if (!plugin) continue
     if (!onlyIds.size || onlyIds.has(plugin.id)) packages.push(plugin)
   }
 

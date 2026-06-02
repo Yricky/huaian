@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { MdAdd, MdClose, MdCode, MdDeleteOutline } from 'vue-icons-plus/md'
-import type { ChatToolDefinition, JsonRecord, PluginDescriptor, PluginToolCallManifest } from '../../../shared/types'
+import type { ChatToolDefinition, JsonRecord, PluginDescriptor, PluginToolCallDefinition } from '../../../shared/types'
+import type { AvailablePluginToolCall } from '../pluginRuntime'
 import PluginFrame from './PluginFrame.vue'
 
 interface ToolOption {
   key: string
   plugin: PluginDescriptor
-  toolCall: PluginToolCallManifest
+  toolCall: PluginToolCallDefinition
 }
 
 interface ToolDefinitionItem {
@@ -15,7 +16,7 @@ interface ToolDefinitionItem {
   index: number
   key: string
   plugin: PluginDescriptor | null
-  toolCall: PluginToolCallManifest | null
+  toolCall: PluginToolCallDefinition | null
   available: boolean
 }
 
@@ -23,6 +24,7 @@ const props = defineProps<{
   activePluginIds: string[]
   canEdit: boolean
   plugins: PluginDescriptor[]
+  toolCalls: AvailablePluginToolCall[]
   toolDefinitions: ChatToolDefinition[]
 }>()
 
@@ -36,17 +38,21 @@ const openTools = ref<Record<string, boolean>>({})
 
 const activePluginIdSet = computed(() => new Set(props.activePluginIds))
 const definitionKeys = computed(() => new Set(props.toolDefinitions.map(toolDefinitionKey)))
-const toolOptions = computed<ToolOption[]>(() => props.plugins
-  .filter(plugin => activePluginIdSet.value.has(plugin.manifest.id))
-  .flatMap(plugin => (plugin.manifest.entry?.toolCalls ?? []).map(toolCall => ({
+const toolOptions = computed<ToolOption[]>(() => props.toolCalls
+  .filter(item => activePluginIdSet.value.has(item.plugin.manifest.id))
+  .map(({ plugin, toolCall }) => ({
     key: toolDefinitionKey({ pluginId: plugin.manifest.id, toolCallName: toolCall.name }),
     plugin,
     toolCall
-  }))))
+  })))
 const availableToolOptions = computed(() => toolOptions.value.filter(option => !definitionKeys.value.has(option.key)))
 const definitionItems = computed<ToolDefinitionItem[]>(() => props.toolDefinitions.map((definition, index) => {
-  const plugin = props.plugins.find(item => item.manifest.id === definition.pluginId) ?? null
-  const toolCall = plugin?.manifest.entry?.toolCalls?.find(item => item.name === definition.toolCallName) ?? null
+  const availableTool = props.toolCalls.find(item => (
+    item.plugin.manifest.id === definition.pluginId &&
+    item.toolCall.name === definition.toolCallName
+  )) ?? null
+  const plugin = availableTool?.plugin ?? props.plugins.find(item => item.manifest.id === definition.pluginId) ?? null
+  const toolCall = availableTool?.toolCall ?? null
   const available = Boolean(plugin && toolCall && activePluginIdSet.value.has(definition.pluginId))
   return {
     definition,

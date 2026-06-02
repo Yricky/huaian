@@ -17,13 +17,19 @@ function setError(error: unknown): void {
 }
 
 async function boot(): Promise<void> {
-  const files = await api.storage.listFor('silly_tavern_compat', 'worldbooks')
+  const files = await api.storage.list('worldbooks')
   const select = element<HTMLSelectElement>('worldBook')
-  const options = files
-    .filter(file => file.name.endsWith('.json'))
-    .map(file => `<option value="${file.name}">${file.name}</option>`)
-    .join('')
-  select.innerHTML = `<option value="">未选择</option>${options}`
+  select.replaceChildren()
+  const emptyOption = document.createElement('option')
+  emptyOption.value = ''
+  emptyOption.textContent = '未选择'
+  select.append(emptyOption)
+  for (const file of files.filter(file => file.name.endsWith('.json'))) {
+    const option = document.createElement('option')
+    option.value = file.name
+    option.textContent = file.name
+    select.append(option)
+  }
   const current = await api.toolSettings!.getCommonArgs() as JsonRecord
   select.value = typeof current.worldBookFile === 'string' ? current.worldBookFile : ''
   select.addEventListener('change', () => {

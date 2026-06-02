@@ -23,8 +23,10 @@ import type {
   JsonRecord,
   LlmInstance,
   ProcessingChat,
-  PluginDescriptor
+  PluginDescriptor,
+  ProjectSnapshot
 } from '../../../shared/types'
+import { availableToolCalls as loadAvailableToolCalls, type AvailablePluginToolCall } from '../pluginRuntime'
 import ChatBlockRow from './ChatBlockRow.vue'
 import ChatToolDefinitionsDialog from './ChatToolDefinitionsDialog.vue'
 import ChatVirtualList from './ChatVirtualList.vue'
@@ -54,6 +56,7 @@ const props = defineProps<{
   llmInstances: LlmInstance[]
   plugins: PluginDescriptor[]
   processingChat: ProcessingChat | null
+  project: ProjectSnapshot | null
   previewChatGeneration: (payload: ChatGenerationRequest) => Promise<ChatGenerationPreviewMessage[] | null>
   saveChat: (chat: ChatSession) => Promise<void>
   saveChatBlock: (block: DbChatBlock) => Promise<void>
@@ -76,6 +79,7 @@ const replyButtonRef = ref<HTMLButtonElement | null>(null)
 const replyPanelRef = ref<HTMLElement | null>(null)
 const replyPanelStyle = ref<Record<string, string>>({})
 const toolDefinitionsDialogOpen = ref(false)
+const availableToolCallOptions = ref<AvailablePluginToolCall[]>([])
 const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const chatHtmlPlugin = ref<PluginDescriptor | null>(null)
 const contextPreviewMessages = ref<ChatGenerationPreviewMessage[] | null>(null)
@@ -170,6 +174,16 @@ watch(replyPanelOpen, (open) => {
   }
 
   removeReplyPanelListeners()
+})
+
+watch([
+  toolDefinitionsDialogOpen,
+  () => props.chat.id,
+  () => props.chat.runtimeConfig.enabledPluginIds.join('\u0000'),
+  () => props.project?.path ?? '',
+  () => props.plugins.map(plugin => `${plugin.manifest.id}:${plugin.manifest.versionCode}`).join('\u0000')
+], () => {
+  if (toolDefinitionsDialogOpen.value) void refreshAvailableToolCalls()
 })
 
 onBeforeUnmount(() => {
@@ -369,6 +383,19 @@ function toggleReplyPanel() {
   if (replyPanelOpen.value) {
     nextTick(updateReplyPanelPosition)
   }
+}
+
+async function refreshAvailableToolCalls(): Promise<void> {
+  if (!props.project) {
+    availableToolCallOptions.value = []
+    return
+  }
+  availableToolCallOptions.value = await loadAvailableToolCalls(props.project, props.chat)
+}
+
+function openToolDefinitionsDialog(): void {
+  toolDefinitionsDialogOpen.value = true
+  void refreshAvailableToolCalls()
 }
 
 function updateReplyPanelPosition() {
@@ -620,7 +647,7 @@ async function removeBlock(block: DbChatBlock) {
               </span>
               <span class="model-pill-label">{{ replyButtonLabel }}</span>
             </button>
-            <button class="model-pill tool-pill" type="button" @click.stop="toolDefinitionsDialogOpen = true">
+            <button class="model-pill tool-pill" type="button" @click.stop="openToolDefinitionsDialog">
               <span class="model-pill-icon" aria-hidden="true">
                 <MdCode class="model-pill-symbol" />
               </span>
@@ -674,6 +701,7 @@ async function removeBlock(block: DbChatBlock) {
       :active-plugin-ids="chat.runtimeConfig.enabledPluginIds"
       :can-edit="!frozen"
       :plugins="plugins"
+      :tool-calls="availableToolCallOptions"
       :tool-definitions="configuredToolDefinitions"
       @close="toolDefinitionsDialogOpen = false"
       @update:tool-definitions="saveToolDefinitions"

@@ -8,6 +8,7 @@ import type {
   PluginManifest,
   PluginRuntimeContext,
   PluginStorageApi,
+  PluginToolCallDefinition,
   PluginToolCallRequest,
   ProcessingChat
 } from '../../../shared/types'
@@ -170,6 +171,44 @@ function registry(): PluginGlobalRegistry {
   }
 }
 
+function normalizeToolSchemas(value: unknown): PluginToolCallDefinition['tools'] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map(item => {
+      const schema = asRecord(item)
+      return {
+        name: asString(schema.name),
+        description: asString(schema.description),
+        inputSchema: asRecord(schema.inputSchema)
+      }
+    })
+    .filter(schema => schema.name)
+}
+
+function toolCallDefinitionFromHandler(key: string, value: unknown): PluginToolCallDefinition | null {
+  const handler = value as { handle?: unknown }
+  if (typeof handler?.handle !== 'function') return null
+  const record = asRecord(value)
+  const name = asString(record.name) || key
+  if (!name) return null
+  return {
+    name,
+    label: asString(record.label) || undefined,
+    prompt: asString(record.prompt) || undefined,
+    settingsHtml: asString(record.settingsHtml) || undefined,
+    tools: normalizeToolSchemas(record.tools)
+  }
+}
+
+function toolHandlerByName(pluginId: string, toolCallName: string): NonNullable<PluginGlobalExport['toolCalls']>[string] | null {
+  const toolCalls = asRecord(pluginGlobals[pluginId]?.toolCalls)
+  for (const [key, value] of Object.entries(toolCalls)) {
+    const definition = toolCallDefinitionFromHandler(key, value)
+    if (definition?.name === toolCallName) return value as NonNullable<PluginGlobalExport['toolCalls']>[string]
+  }
+  return null
+}
+
 function normalizePluginGlobalExport(value: unknown, pluginId: string): PluginGlobalExport {
   const record = asRecord(value)
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -271,6 +310,22 @@ async function preparePluginChatProcessing(input: unknown): Promise<ProcessingCh
   return processingChat
 }
 
+async function listPluginToolCalls(input: unknown): Promise<Record<string, PluginToolCallDefinition[]>> {
+  const record = asRecord(input)
+  await ensurePluginRuntime(record.runtime)
+  const runtime = asRecord(record.runtime)
+  const activePlugins = Array.isArray(runtime.activePlugins) ? runtime.activePlugins as PluginDescriptor[] : []
+  const result: Record<string, PluginToolCallDefinition[]> = {}
+  for (const descriptor of activePlugins) {
+    const toolCalls = asRecord(pluginGlobals[descriptor.manifest.id]?.toolCalls)
+    const definitions = Object.entries(toolCalls)
+      .map(([key, value]) => toolCallDefinitionFromHandler(key, value))
+      .filter((definition): definition is PluginToolCallDefinition => definition !== null)
+    if (definitions.length) result[descriptor.manifest.id] = definitions
+  }
+  return result
+}
+
 async function handlePluginToolCallRequest(input: unknown): Promise<unknown> {
   const record = asRecord(input)
   await ensurePluginRuntime(record.runtime)
@@ -278,11 +333,9 @@ async function handlePluginToolCallRequest(input: unknown): Promise<unknown> {
   const plugins = Array.isArray(runtime.allPlugins) ? runtime.allPlugins as PluginDescriptor[] : []
   const request = asRecord(record.request) as unknown as PluginToolCallRequest
   const descriptor = plugins.find(plugin => plugin.manifest.id === request.pluginId)
-  const toolCalls = descriptor?.manifest.entry?.toolCalls
-  const toolCall = Array.isArray(toolCalls) ? toolCalls.find(item => item.name === request.toolCallName) : null
-  if (!descriptor || !toolCall) throw new Error('插件工具不存在。')
+  if (!descriptor) throw new Error('插件工具不存在。')
 
-  const handler = pluginGlobals[descriptor.manifest.id]?.toolCalls?.[asString(request.toolCallName)]
+  const handler = toolHandlerByName(descriptor.manifest.id, asString(request.toolCallName))
   if (typeof handler?.handle !== 'function') throw new Error('插件工具没有导出 handle。')
   return handler.handle({
     chatId: Number(request.chatId),
@@ -405,6 +458,7 @@ function disconnectFrame(data: JsonRecord): void {
 
 const methods: Record<string, (input: unknown) => Promise<unknown> | unknown> = {
   ensurePluginRuntime,
+  listPluginToolCalls,
   preparePluginChatProcessing,
   handlePluginToolCallRequest
 }

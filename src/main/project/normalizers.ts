@@ -62,7 +62,6 @@ export function defaultPluginProjectConfig(): PluginProjectConfig {
   return {
     enabledPluginIds: [
       'silly_tavern_compat',
-      'character_card_tool_calls',
       'st_prompt_template_compat'
     ]
   }

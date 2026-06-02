@@ -12,7 +12,8 @@ const scriptEntries: Record<string, string> = {
 
 const pageEntries: Record<string, { input: string; name: string }> = {
   settingsHtml: { input: 'src/pages/settings.html', name: 'settings' },
-  chatHtml: { input: 'src/pages/chat.html', name: 'chat' }
+  chatHtml: { input: 'src/pages/chat.html', name: 'chat' },
+  toolSettingsHtml: { input: 'src/pages/toolSettings.html', name: 'toolSettings' }
 }
 
 function flattenPageHtml(): Plugin {
@@ -20,12 +21,12 @@ function flattenPageHtml(): Plugin {
     name: 'huaian-flatten-page-html',
     enforce: 'post',
     generateBundle(_, bundle) {
+      const htmlOutputNames = new Map(Object.values(pageEntries).map(entry => [`${entry.name}.html`, `${entry.name}.html`]))
       for (const [fileName, file] of Object.entries(bundle)) {
         if (file.type !== 'asset' || !fileName.endsWith('.html')) continue
         const html = String(file.source)
-        const outputName = fileName.endsWith('/settings.html') ? 'settings.html'
-          : fileName.endsWith('/chat.html') ? 'chat.html'
-            : fileName
+        const leafName = fileName.split('/').pop() ?? fileName
+        const outputName = htmlOutputNames.get(leafName) ?? fileName
         if (outputName !== fileName) {
           file.source = html.replace(/((?:\.\.\/)+)assets\//g, './assets/')
           file.fileName = outputName

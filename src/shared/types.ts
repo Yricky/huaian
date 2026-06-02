@@ -32,7 +32,7 @@ export type {
   PluginManifestEntry,
   PluginRuntimeContext,
   PluginStorageApi,
-  PluginToolCallManifest,
+  PluginToolCallDefinition,
   PluginToolSchema,
   ReasoningContentPart,
   TextContentPart,
@@ -114,6 +114,7 @@ export interface LlmToolDefinition {
   description: string
   inputSchema: JsonRecord
   commonArgs: JsonRecord
+  prompt?: string
 }
 
 export interface ChatGenerationRequest {

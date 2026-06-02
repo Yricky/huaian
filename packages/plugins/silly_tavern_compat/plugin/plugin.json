@@ -2,7 +2,7 @@
   "id": "silly_tavern_compat",
   "name": "SillyTavern 兼容",
   "description": "用项目插件数据目录中的角色卡与世界书 JSON 构建 SillyTavern 风格上下文。",
-  "versionCode": 5,
+  "versionCode": 6,
   "dependencies": [],
   "entry": {
     "initGlobal": "initGlobal.js",

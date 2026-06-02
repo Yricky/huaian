@@ -29,28 +29,7 @@ Huaian 的插件是项目级资源：
   "entry": {
     "initGlobal": "initGlobal.js",
     "settingsHtml": "settings.html",
-    "chatHtml": "chat.html",
-    "toolCalls": [
-      {
-        "name": "my_tool_group",
-        "label": "我的工具",
-        "prompt": "需要时调用这些工具。",
-        "settingsHtml": "toolSettings.html",
-        "tools": [
-          {
-            "name": "my_tool",
-            "description": "执行一个插件工具。",
-            "inputSchema": {
-              "type": "object",
-              "properties": {
-                "text": { "type": "string" }
-              },
-              "required": ["text"]
-            }
-          }
-        ]
-      }
-    ]
+    "chatHtml": "chat.html"
   }
 }
 ```
@@ -67,7 +46,6 @@ Huaian 的插件是项目级资源：
 | `entry.initGlobal` | `string` | Worker 全局运行时入口。 |
 | `entry.settingsHtml` | `string` | 插件设置页。 |
 | `entry.chatHtml` | `string` | 聊天页可见插件页面。 |
-| `entry.toolCalls` | `PluginToolCallManifest[]` | 工具组声明。工具实现不再写在 manifest 中。 |
 
 所有路径都相对于插件目录。宿主会限制路径不能通过 `../` 离开对应插件目录。
 
@@ -121,6 +99,11 @@ interface PluginGlobalExport {
     process(chat: ProcessingChat): ProcessingChat | Promise<ProcessingChat>
   }
   toolCalls?: Record<string, {
+    name: string
+    label?: string
+    prompt?: string
+    settingsHtml?: string
+    tools?: PluginToolSchema[]
     handle(request: PluginToolCallRequest): unknown | Promise<unknown>
   }>
   exports?: Record<string, unknown>
@@ -285,7 +268,7 @@ export default function initGlobal(context: PluginRuntimeContext): PluginGlobalE
 
 ## 工具调用
 
-manifest 只声明工具组和 schema，不再声明 `handler` 文件。工具实现由 `initGlobal` 返回的 `toolCalls` 对象提供。`toolCalls` 的 key 必须与 manifest 中的 `entry.toolCalls[].name` 一致。
+manifest 不声明工具组。工具组的名称、schema、设置页和实现都由 `initGlobal` 返回的 `toolCalls` 对象提供。`toolCalls` 的 key 建议与 handler 的 `name` 一致；运行时实际使用 handler 上的 `name` 作为 `toolCallName`。
 
 ```ts
 import type { PluginGlobalExport, PluginRuntimeContext } from '@huaian/plugin-api'
@@ -294,6 +277,23 @@ export default function initGlobal(context: PluginRuntimeContext): PluginGlobalE
   return {
     toolCalls: {
       my_tool_group: {
+        name: 'my_tool_group',
+        label: '我的工具',
+        prompt: '需要时调用这些工具。',
+        settingsHtml: 'toolSettings.html',
+        tools: [
+          {
+            name: 'my_tool',
+            description: '执行一个插件工具。',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                text: { type: 'string' }
+              },
+              required: ['text']
+            }
+          }
+        ],
         async handle(request) {
           const settings = request.commonArgs
           const input = request.input
@@ -311,6 +311,19 @@ export default function initGlobal(context: PluginRuntimeContext): PluginGlobalE
 }
 ```
 
+工具 handler 结构：
+
+```ts
+interface PluginToolHandler {
+  name: string
+  label?: string
+  prompt?: string
+  settingsHtml?: string
+  tools?: PluginToolSchema[]
+  handle(request: PluginToolCallRequest): unknown | Promise<unknown>
+}
+```
+
 工具请求结构：
 
 ```ts
@@ -323,7 +336,7 @@ interface PluginToolCallRequest {
 }
 ```
 
-`toolCallName` 是插件工具组名，`toolName` 是该工具组内模型实际调用的工具名。工具设置页保存的公共参数会作为 `commonArgs` 传入 `handle`。
+`toolCallName` 是插件工具组名，`toolName` 是该工具组内模型实际调用的工具名。工具设置页保存的公共参数会作为 `commonArgs` 传入 `handle`。如果 handler 提供 `prompt`，生成时会把同一工具组的 prompt 去重后作为额外 system 工具说明发送给模型。
 
 ## 构建建议
 

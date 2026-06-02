@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --mode initGlobal && vite build --mode settingsHtml && vite build --mode chatHtml"
+    "build": "vite build --mode initGlobal && vite build --mode settingsHtml && vite build --mode chatHtml && vite build --mode toolSettingsHtml"
   },
   "dependencies": {
     "@huaian/plugin-api": "workspace:*",

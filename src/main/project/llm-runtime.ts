@@ -214,6 +214,21 @@ function pluginToolsForDefinitions(webContents: WebContents, chatId: number, def
   return tools
 }
 
+function messagesWithToolPrompts(messages: ModelMessage[], definitions: LlmToolDefinition[]): ModelMessage[] {
+  const seen = new Set<string>()
+  const prompts = definitions.flatMap(definition => {
+    const prompt = typeof definition.prompt === 'string' ? definition.prompt.trim() : ''
+    if (!prompt) return []
+    const key = `${definition.pluginId}\u0000${definition.toolCallName}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [prompt]
+  })
+  return prompts.length
+    ? [{ role: 'system', content: prompts.join('\n\n') }, ...messages]
+    : messages
+}
+
 function generatedText(parts: ChatContentPart[]): string {
   return parts.filter(part => part.type === 'text').map(part => part.text).join('')
 }
@@ -316,7 +331,7 @@ async function runGeneration(
     const result = streamText({
       ...settings,
       model,
-      messages: messages.map(streamTextMessage)
+      messages: messagesWithToolPrompts(messages, toolDefinitions).map(streamTextMessage)
     } as any)
 
     for await (const part of result.fullStream) {

@@ -235,6 +235,7 @@ async function deleteContextChat() {
       :llm-instances="llmInstances"
       :plugins="plugins"
       :processing-chat="selectedProcessingChat"
+      :project="project"
       :preview-chat-generation="previewChatGeneration"
       :save-chat="saveChat"
       :save-chat-block="saveChatBlock"
