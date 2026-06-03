@@ -108,7 +108,7 @@ watch(frameCapabilities, capabilities => {
 <template>
   <div class="plugin-frame-shell">
     <iframe class="plugin-frame" :data-plugin-frame="frameId" :name="frameId"
-      sandbox="allow-scripts allow-downloads allow-same-origin" :src="frameSrc" @load="connectFrame" />
+      sandbox="allow-scripts allow-downloads allow-same-origin allow-modals" :src="frameSrc" @load="connectFrame" />
     <span v-if="debugMode" class="plugin-frame-debug-label">{{ debugFrameUrl }}</span>
   </div>
 </template>

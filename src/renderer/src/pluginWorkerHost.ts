@@ -17,7 +17,7 @@ import type {
   PluginWorkerHostCallMethod,
   PluginWorkerToHostMessage
 } from '../../shared/types'
-import { asRecord, asString } from '../../shared/value-utils'
+import { asRecord, asString, toStructuredCloneable } from '../../shared/value-utils'
 import PluginRuntimeWorker from './plugin-worker/worker.ts?worker'
 
 const HOST_SOURCE = 'ha-ext-worker-host'
@@ -48,10 +48,6 @@ let nextMessageId = 0
 const pendingInvocations = new Map<number, PendingInvocation>()
 const frameRegistrations = new Map<string, PluginFrameRegistration>()
 
-function cloneForMessage<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value ?? null))
-}
-
 function dispatchPluginDataChanged(pluginId: string): void {
   window.dispatchEvent(new CustomEvent('huaian-plugin-data-changed', { detail: { pluginId } }))
 }
@@ -63,13 +59,23 @@ function dispatchProjectSnapshotChanged(): void {
 function publicChatSession(chat: ChatSession | null): JsonRecord | null {
   return chat
     ? {
-        id: chat.id,
-        title: chat.title,
-        pluginData: asRecord(chat.runtimeConfig.pluginData),
-        createdAt: chat.createdAt,
-        updatedAt: chat.updatedAt
-      }
+      id: chat.id,
+      title: chat.title,
+      pluginData: asRecord(chat.runtimeConfig.pluginData),
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt
+    }
     : null
+}
+
+function asBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value
+  throw new Error('二进制内容必须是 Uint8Array。')
+}
+
+function transferForValue(value: JsonRecordValue): Transferable[] | undefined {
+  if (!(value instanceof Uint8Array) || value.byteLength === 0) return undefined
+  return value.buffer instanceof ArrayBuffer ? [value.buffer] : undefined
 }
 
 function postToWorker(message: PluginHostToWorkerPayload, transfer?: Transferable[]): void {
@@ -77,7 +83,7 @@ function postToWorker(message: PluginHostToWorkerPayload, transfer?: Transferabl
     source: HOST_SOURCE,
     ...message
   } as PluginHostToWorkerMessage
-  worker?.postMessage(cloneForMessage(payload), transfer ?? [])
+  worker?.postMessage(toStructuredCloneable(payload), transfer ?? [])
 }
 
 function reconnectRegisteredFrames(): void {
@@ -127,16 +133,16 @@ async function handleHostMethod(method: PluginWorkerHostCallMethod, argsValue: J
   if (method === 'storage.readText') {
     return window.electronAPI.readPluginDataFile(pluginId, asString(args.path))
   }
-  if (method === 'storage.readBase64') {
-    return window.electronAPI.readPluginDataFileBase64(pluginId, asString(args.path))
+  if (method === 'storage.readBytes') {
+    return window.electronAPI.readPluginDataFileBytes(pluginId, asString(args.path))
   }
   if (method === 'storage.writeText') {
     await window.electronAPI.writePluginDataFile(pluginId, asString(args.path), String(args.content ?? ''))
     dispatchPluginDataChanged(pluginId)
     return null
   }
-  if (method === 'storage.writeBase64') {
-    await window.electronAPI.writePluginDataFileBase64(pluginId, asString(args.path), String(args.content ?? ''))
+  if (method === 'storage.writeBytes') {
+    await window.electronAPI.writePluginDataFileBytes(pluginId, asString(args.path), asBytes(args.content))
     dispatchPluginDataChanged(pluginId)
     return null
   }
@@ -165,7 +171,7 @@ async function handleHostMethod(method: PluginWorkerHostCallMethod, argsValue: J
   if (method === 'frame.toolSettings.getCommonArgs') {
     const frame = frameRegistrations.get(asString(args.frameId))
     if (!frame?.capabilities.toolSettings || !frame.getCommonArgs) throw new Error('当前插件页面没有工具设置 API。')
-    return cloneForMessage(frame.getCommonArgs())
+    return toStructuredCloneable(frame.getCommonArgs())
   }
   if (method === 'frame.toolSettings.setCommonArgs') {
     const frame = frameRegistrations.get(asString(args.frameId))
@@ -183,7 +189,7 @@ function replyToWorkerHostCall(id: number, ok: boolean, value: JsonRecordValue =
     ok,
     value: value === undefined ? null : value,
     error
-  })
+  }, ok ? transferForValue(value) : undefined)
 }
 
 async function handleWorkerHostCall(data: Extract<PluginWorkerToHostMessage, { type: 'host-call' }>): Promise<void> {

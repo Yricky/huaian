@@ -53,10 +53,10 @@ const electronAPI: ElectronApi = {
   readPluginFile: (pluginId, path) => invokeIpc('plugin:readFile', pluginId, path),
   listPluginDataFiles: (pluginId, path = '') => invokeIpc('plugin:listDataFiles', pluginId, path),
   readPluginDataFile: (pluginId, path) => invokeIpc('plugin:readDataFile', pluginId, path),
-  readPluginDataFileBase64: (pluginId, path) => invokeIpc('plugin:readDataFileBase64', pluginId, path),
+  readPluginDataFileBytes: (pluginId, path) => invokeIpc('plugin:readDataFileBytes', pluginId, path),
   writePluginDataFile: (pluginId, path, content) => invokeIpc('plugin:writeDataFile', pluginId, path, content),
-  writePluginDataFileBase64: (pluginId, path, content) => (
-    invokeIpc('plugin:writeDataFileBase64', pluginId, path, content)
+  writePluginDataFileBytes: (pluginId, path, content) => (
+    invokeIpc('plugin:writeDataFileBytes', pluginId, path, content)
   ),
   deletePluginDataFile: (pluginId, path) => invokeIpc('plugin:deleteDataFile', pluginId, path),
   pluginAssetUrl: (pluginId, path) => {

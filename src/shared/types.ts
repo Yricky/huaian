@@ -307,9 +307,9 @@ export type IpcInvokeChannel =
   | 'plugin:readFile'
   | 'plugin:listDataFiles'
   | 'plugin:readDataFile'
-  | 'plugin:readDataFileBase64'
+  | 'plugin:readDataFileBytes'
   | 'plugin:writeDataFile'
-  | 'plugin:writeDataFileBase64'
+  | 'plugin:writeDataFileBytes'
   | 'plugin:deleteDataFile'
   | 'plugin:toolCallResponse'
   | 'app:getVersion'
@@ -346,9 +346,9 @@ export interface ElectronApi {
   readPluginFile(pluginId: string, path: string): Promise<string>
   listPluginDataFiles(pluginId: string, path?: string): Promise<PluginFileEntry[]>
   readPluginDataFile(pluginId: string, path: string): Promise<string>
-  readPluginDataFileBase64(pluginId: string, path: string): Promise<string>
+  readPluginDataFileBytes(pluginId: string, path: string): Promise<Uint8Array>
   writePluginDataFile(pluginId: string, path: string, content: string): Promise<void>
-  writePluginDataFileBase64(pluginId: string, path: string, content: string): Promise<void>
+  writePluginDataFileBytes(pluginId: string, path: string, content: Uint8Array): Promise<void>
   deletePluginDataFile(pluginId: string, path: string): Promise<void>
   pluginAssetUrl(pluginId: string, path: string): string
   onPluginToolCallRequest(callback: (request: PluginToolCallRequest) => void): () => void
@@ -384,9 +384,9 @@ export type PluginWorkerHostCallMethod =
   | 'plugin.readFile'
   | 'storage.list'
   | 'storage.readText'
-  | 'storage.readBase64'
+  | 'storage.readBytes'
   | 'storage.writeText'
-  | 'storage.writeBase64'
+  | 'storage.writeBytes'
   | 'storage.delete'
   | 'frame.chat.getSession'
   | 'frame.chat.getPluginData'

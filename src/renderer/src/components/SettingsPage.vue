@@ -78,14 +78,14 @@ const instanceBoundProvider = computed(() => {
 const providerInitial = computed(() => providerTitle.value.trim().slice(0, 1).toUpperCase() || '?')
 
 watch(selectedLlmProvider, (provider) => {
-  providerDraft.value = provider ? clone(provider) : null
+  providerDraft.value = provider
   providerConfigJson.value = JSON.stringify(providerDraft.value?.config ?? {}, null, 2)
   modelDraft.value = providerDraft.value?.modelsCache[0]?.id ?? ''
   providerDirty.value = false
 }, { immediate: true })
 
 watch(selectedLlmInstance, (instance) => {
-  instanceDraft.value = instance ? clone(instance) : null
+  instanceDraft.value = instance
   instanceExtraJson.value = JSON.stringify(requestConfigFromInstance(instanceDraft.value), null, 2)
   if (instanceDraft.value?.modelId) modelDraft.value = instanceDraft.value.modelId
   instanceDirty.value = false
@@ -94,10 +94,6 @@ watch(selectedLlmInstance, (instance) => {
 watch(llmProviders, (providers) => {
   if (!selectedLlmProvider.value && providers[0]) selectLlmProvider(providers[0])
 }, { immediate: true })
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value))
-}
 
 function markProviderDirty() { providerDirty.value = true }
 function markInstanceDirty() { instanceDirty.value = true }
@@ -306,21 +302,13 @@ function selectModel(modelId: string) {
   <section class="settings-page">
     <aside class="settings-primary-pane">
       <nav class="settings-primary-nav" aria-label="设置分类">
-        <button
-          class="primary-nav-item"
-          :class="{ active: settingsSection === 'general' }"
-          type="button"
-          @click="selectSection('general')"
-        >
+        <button class="primary-nav-item" :class="{ active: settingsSection === 'general' }" type="button"
+          @click="selectSection('general')">
           <MdSettings class="nav-icon" aria-hidden="true" />
           <span>通用</span>
         </button>
-        <button
-          class="primary-nav-item"
-          :class="{ active: settingsSection === 'models' }"
-          type="button"
-          @click="selectSection('models')"
-        >
+        <button class="primary-nav-item" :class="{ active: settingsSection === 'models' }" type="button"
+          @click="selectSection('models')">
           <MdCloudQueue class="nav-icon" aria-hidden="true" />
           <span>模型服务</span>
         </button>
@@ -344,14 +332,9 @@ function selectModel(modelId: string) {
       <template v-else>
         <div class="secondary-title">模型供应商</div>
         <div class="provider-list">
-          <button
-            v-for="provider in llmProviders"
-            :key="provider.id"
-            class="secondary-item provider-item"
-            :class="{ selected: selectedLlmProvider?.id === provider.id }"
-            type="button"
-            @click="editLlmProvider(provider)"
-          >
+          <button v-for="provider in llmProviders" :key="provider.id" class="secondary-item provider-item"
+            :class="{ selected: selectedLlmProvider?.id === provider.id }" type="button"
+            @click="editLlmProvider(provider)">
             <span class="provider-avatar">{{ (provider.name || provider.type).trim().slice(0, 1).toUpperCase() }}</span>
             <span class="secondary-copy">
               <strong>{{ provider.name || provider.type }}</strong>
@@ -381,11 +364,8 @@ function selectModel(modelId: string) {
               <strong>调试模式</strong>
               <small>插件 iframe URL 标签</small>
             </span>
-            <input
-              type="checkbox"
-              :checked="debugMode"
-              @change="setDebugMode(($event.target as HTMLInputElement).checked)"
-            />
+            <input type="checkbox" :checked="debugMode"
+              @change="setDebugMode(($event.target as HTMLInputElement).checked)" />
           </label>
         </div>
       </section>
@@ -401,31 +381,16 @@ function selectModel(modelId: string) {
               </span>
             </div>
             <div class="button-row">
-              <button
-                class="toolbar-button"
-                type="button"
-                aria-label="拉取模型"
-                data-tooltip="拉取模型"
-                @click="fetchSelectedLlmProviderModels"
-              >
+              <button class="toolbar-button" type="button" aria-label="拉取模型" data-tooltip="拉取模型"
+                @click="fetchSelectedLlmProviderModels">
                 <MdRefresh class="toolbar-icon" aria-hidden="true" />
               </button>
-              <button
-                class="toolbar-button"
-                type="button"
-                aria-label="保存供应商"
-                data-tooltip="保存供应商"
-                @click="saveProviderDraft"
-              >
+              <button class="toolbar-button" type="button" aria-label="保存供应商" data-tooltip="保存供应商"
+                @click="saveProviderDraft">
                 <MdSave class="toolbar-icon" aria-hidden="true" />
               </button>
-              <button
-                class="toolbar-button danger"
-                type="button"
-                aria-label="删除供应商"
-                data-tooltip="删除供应商"
-                @click="deleteSelectedLlmProvider"
-              >
+              <button class="toolbar-button danger" type="button" aria-label="删除供应商" data-tooltip="删除供应商"
+                @click="deleteSelectedLlmProvider">
                 <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
               </button>
             </div>
@@ -444,38 +409,27 @@ function selectModel(modelId: string) {
                 </label>
                 <label>类型
                   <select v-model="providerDraft.type" @change="markProviderDirty">
-                    <option v-for="type in providerTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                    <option v-for="type in providerTypes" :key="type.value" :value="type.value">{{ type.label }}
+                    </option>
                   </select>
                 </label>
                 <label>API Key
-                  <input
-                    v-model="providerDraft.apiKey"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="仅保存在当前项目数据库"
-                    @input="markProviderDirty"
-                  />
+                  <input v-model="providerDraft.apiKey" type="password" autocomplete="off" placeholder="仅保存在当前项目数据库"
+                    @input="markProviderDirty" />
                 </label>
               </div>
 
               <div class="form-grid">
                 <label>Base URL
-                  <input
-                    :value="providerBaseURL(providerDraft)"
-                    placeholder="按 provider 默认值留空"
-                    @input="setProviderBaseURL(($event.target as HTMLInputElement).value)"
-                  />
+                  <input :value="providerBaseURL(providerDraft)" placeholder="按 provider 默认值留空"
+                    @input="setProviderBaseURL(($event.target as HTMLInputElement).value)" />
                 </label>
                 <label>
                   高级 JSON
                   <span v-if="providerJsonError" class="json-status error">{{ providerJsonError }}</span>
                   <span v-else-if="providerConfigJson !== '{}'" class="json-status ok">有效</span>
-                  <JsonEditor
-                    v-model="providerConfigJson"
-                    :rows="6"
-                    aria-label="提供商高级 JSON"
-                    @update:model-value="markProviderDirty"
-                  />
+                  <JsonEditor v-model="providerConfigJson" :rows="6" aria-label="提供商高级 JSON"
+                    @update:model-value="markProviderDirty" />
                 </label>
               </div>
             </section>
@@ -488,7 +442,8 @@ function selectModel(modelId: string) {
                   <small>{{ providerDraft.modelsCache.length }}</small>
                 </span>
                 <span class="inline-actions">
-                  <button class="outline-button compact-button" type="button" @click="clearSelectedLlmProviderModelsCache">
+                  <button class="outline-button compact-button" type="button"
+                    @click="clearSelectedLlmProviderModelsCache">
                     清空缓存
                   </button>
                   <button class="outline-button compact-button" type="button" @click="fetchSelectedLlmProviderModels">
@@ -509,16 +464,11 @@ function selectModel(modelId: string) {
               </div>
 
               <div v-if="providerDraft.modelsCache.length" class="model-list">
-                <button
-                  v-for="model in providerDraft.modelsCache"
-                  :key="model.id"
-                  type="button"
-                  class="model-row"
-                  :class="{ selected: modelDraft === model.id }"
-                  @click="selectModel(model.id)"
-                  @dblclick="createInstanceFromProvider(model.id)"
-                >
-                  <span class="provider-avatar small">{{ model.displayName.trim().slice(0, 1).toUpperCase() || 'M' }}</span>
+                <button v-for="model in providerDraft.modelsCache" :key="model.id" type="button" class="model-row"
+                  :class="{ selected: modelDraft === model.id }" @click="selectModel(model.id)"
+                  @dblclick="createInstanceFromProvider(model.id)">
+                  <span class="provider-avatar small">{{ model.displayName.trim().slice(0, 1).toUpperCase() || 'M'
+                    }}</span>
                   <span>{{ model.displayName }}</span>
                 </button>
               </div>
@@ -532,21 +482,17 @@ function selectModel(modelId: string) {
                   <h3>LLM 实例</h3>
                   <small>{{ selectedProviderInstances.length }}</small>
                 </span>
-                <button class="outline-button compact-button" type="button" @click="createLlmInstanceForSelectedProvider">
+                <button class="outline-button compact-button" type="button"
+                  @click="createLlmInstanceForSelectedProvider">
                   <MdAdd class="inline-icon" aria-hidden="true" />
                   新建实例
                 </button>
               </div>
 
               <div v-if="selectedProviderInstances.length" class="instance-list">
-                <button
-                  v-for="instance in selectedProviderInstances"
-                  :key="instance.id"
-                  class="instance-row"
-                  :class="{ selected: selectedLlmInstance?.id === instance.id }"
-                  type="button"
-                  @click="editLlmInstance(instance)"
-                >
+                <button v-for="instance in selectedProviderInstances" :key="instance.id" class="instance-row"
+                  :class="{ selected: selectedLlmInstance?.id === instance.id }" type="button"
+                  @click="editLlmInstance(instance)">
                   <strong>{{ instance.name }}</strong>
                   <span>{{ instance.modelId || '无模型' }}</span>
                 </button>
@@ -557,31 +503,16 @@ function selectModel(modelId: string) {
                 <div class="instance-editor-header">
                   <h4>{{ instanceDraft.name || 'LLM 实例' }}</h4>
                   <div class="button-row">
-                    <button
-                      class="toolbar-button"
-                      type="button"
-                      aria-label="恢复供应商"
-                      data-tooltip="恢复供应商"
-                      @click="restoreProviderForEditing"
-                    >
+                    <button class="toolbar-button" type="button" aria-label="恢复供应商" data-tooltip="恢复供应商"
+                      @click="restoreProviderForEditing">
                       <MdContentCopy class="toolbar-icon" aria-hidden="true" />
                     </button>
-                    <button
-                      class="toolbar-button"
-                      type="button"
-                      aria-label="保存实例"
-                      data-tooltip="保存实例"
-                      @click="saveInstanceDraft"
-                    >
+                    <button class="toolbar-button" type="button" aria-label="保存实例" data-tooltip="保存实例"
+                      @click="saveInstanceDraft">
                       <MdSave class="toolbar-icon" aria-hidden="true" />
                     </button>
-                    <button
-                      class="toolbar-button danger"
-                      type="button"
-                      aria-label="删除实例"
-                      data-tooltip="删除实例"
-                      @click="deleteSelectedLlmInstance"
-                    >
+                    <button class="toolbar-button danger" type="button" aria-label="删除实例" data-tooltip="删除实例"
+                      @click="deleteSelectedLlmInstance">
                       <MdDeleteOutline class="toolbar-icon" aria-hidden="true" />
                     </button>
                   </div>
@@ -592,12 +523,11 @@ function selectModel(modelId: string) {
                     <input v-model="instanceDraft.name" @input="markInstanceDirty" />
                   </label>
                   <label>API Key 来源
-                    <select
-                      :value="instanceDraft.providerId ?? ''"
-                      @change="instanceDraft.providerId = ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null; markInstanceDirty()"
-                    >
+                    <select :value="instanceDraft.providerId ?? ''"
+                      @change="instanceDraft.providerId = ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null; markInstanceDirty()">
                       <option value="">未绑定</option>
-                      <option v-for="provider in llmProviders" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                      <option v-for="provider in llmProviders" :key="provider.id" :value="provider.id">{{ provider.name
+                        }}</option>
                     </select>
                   </label>
                   <label>模型 ID
@@ -606,7 +536,8 @@ function selectModel(modelId: string) {
                 </div>
 
                 <div class="instance-snapshot">
-                  <span>行为快照：{{ instanceDraft.providerSnapshot.type }} · {{ instanceDraft.providerSnapshot.providerName || '未命名供应商' }}</span>
+                  <span>行为快照：{{ instanceDraft.providerSnapshot.type }} · {{ instanceDraft.providerSnapshot.providerName
+                    || '未命名供应商' }}</span>
                   <span>当前密钥来源：{{ instanceBoundProvider?.name || '无' }}</span>
                 </div>
 
@@ -614,12 +545,8 @@ function selectModel(modelId: string) {
                   请求配置 JSON
                   <span v-if="instanceJsonError" class="json-status error">{{ instanceJsonError }}</span>
                   <span v-else-if="instanceExtraJson !== '{}'" class="json-status ok">有效</span>
-                  <JsonEditor
-                    v-model="instanceExtraJson"
-                    :rows="10"
-                    aria-label="LLM 实例请求配置 JSON"
-                    @update:model-value="markInstanceDirty"
-                  />
+                  <JsonEditor v-model="instanceExtraJson" :rows="10" aria-label="LLM 实例请求配置 JSON"
+                    @update:model-value="markInstanceDirty" />
                 </label>
               </div>
             </section>

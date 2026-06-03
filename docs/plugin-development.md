@@ -164,12 +164,12 @@ interface PluginStorageApi {
   listFor(pluginId: string, path?: string): Promise<PluginFileEntry[]>
   readText(path: string): Promise<string>
   readTextFor(pluginId: string, path: string): Promise<string>
-  readBase64(path: string): Promise<string>
-  readBase64For(pluginId: string, path: string): Promise<string>
+  readBytes(path: string): Promise<Uint8Array>
+  readBytesFor(pluginId: string, path: string): Promise<Uint8Array>
   writeText(path: string, content: string): Promise<void>
   writeTextFor(pluginId: string, path: string, content: string): Promise<void>
-  writeBase64(path: string, content: string): Promise<void>
-  writeBase64For(pluginId: string, path: string, content: string): Promise<void>
+  writeBytes(path: string, content: Uint8Array): Promise<void>
+  writeBytesFor(pluginId: string, path: string, content: Uint8Array): Promise<void>
   delete(path: string): Promise<void>
   deleteFor(pluginId: string, path: string): Promise<void>
   readJson(path: string, fallback?: unknown): Promise<unknown>

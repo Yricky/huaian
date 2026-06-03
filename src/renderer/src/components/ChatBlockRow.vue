@@ -18,6 +18,7 @@ import AssistantBlockBody from './chat-blocks/AssistantBlockBody.vue'
 import InjectionBlockBody from './chat-blocks/InjectionBlockBody.vue'
 import SystemUserBlockBody from './chat-blocks/SystemUserBlockBody.vue'
 import JsonDialog from './JsonDialog.vue'
+import { toStructuredCloneable } from '@huaian/plugin-api'
 
 const props = defineProps<{
   block: DbChatBlock
@@ -224,7 +225,7 @@ function cancelEdit() {
 }
 
 function editedBlock(): DbChatBlock {
-  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as DbChatBlock
+  const next = toStructuredCloneable(sourceBlock.value) as DbChatBlock
   const partIndex = editingPartIndex.value ?? firstTextPartIndex()
   if (next.contentParts[partIndex]?.type === 'text') {
     next.contentParts[partIndex] = { type: 'text', text: draft.value }
@@ -267,7 +268,7 @@ function isEmptyChatBlock(block: DbChatBlock): boolean {
 
 function toggleEnabled() {
   if (!canEdit.value) return
-  const next = JSON.parse(JSON.stringify(sourceBlock.value)) as DbChatBlock
+  const next = toStructuredCloneable(sourceBlock.value) as DbChatBlock
   next.enabled = !next.enabled
   menuOpen.value = false
   emit('save', next)
@@ -337,40 +338,14 @@ defineExpose({
     </header>
 
     <template v-if="!isCollapsed">
-      <InjectionBlockBody
-        v-if="block.kind === 'injection'"
-        v-model:draft="draft"
-        :block="block"
-        :display-text="displayText"
-        :editing="editing"
-        @auto-save-edit="autoSaveEdit"
-        @editor-ref="setEditorElement"
-      />
-      <AssistantBlockBody
-        v-else-if="block.kind === 'assistant'"
-        v-model:draft="draft"
-        :block="block"
-        :can-edit="canEdit"
-        :editing="editing"
-        :editing-part-index="editingPartIndex"
-        :source-block="sourceBlock"
-        @auto-save-edit="autoSaveEdit"
-        @editor-ref="setEditorElement"
-        @save="saveBodyBlock"
-        @start-edit="startEdit"
-      />
-      <SystemUserBlockBody
-        v-else
-        v-model:draft="draft"
-        :block="block"
-        :can-edit="canEdit"
-        :editing="editing"
-        :editing-part-index="editingPartIndex"
-        :source-block="sourceBlock"
-        @auto-save-edit="autoSaveEdit"
-        @editor-ref="setEditorElement"
-        @start-edit="startEdit"
-      />
+      <InjectionBlockBody v-if="block.kind === 'injection'" v-model:draft="draft" :block="block"
+        :display-text="displayText" :editing="editing" @auto-save-edit="autoSaveEdit" @editor-ref="setEditorElement" />
+      <AssistantBlockBody v-else-if="block.kind === 'assistant'" v-model:draft="draft" :block="block"
+        :can-edit="canEdit" :editing="editing" :editing-part-index="editingPartIndex" :source-block="sourceBlock"
+        @auto-save-edit="autoSaveEdit" @editor-ref="setEditorElement" @save="saveBodyBlock" @start-edit="startEdit" />
+      <SystemUserBlockBody v-else v-model:draft="draft" :block="block" :can-edit="canEdit" :editing="editing"
+        :editing-part-index="editingPartIndex" :source-block="sourceBlock" @auto-save-edit="autoSaveEdit"
+        @editor-ref="setEditorElement" @start-edit="startEdit" />
     </template>
 
     <footer v-if="!isCollapsed && block.errorText" class="block-footer">
@@ -394,8 +369,8 @@ defineExpose({
           <component :is="block.enabled ? MdVisibilityOff : MdVisibility" class="menu-icon" aria-hidden="true" />
           {{ block.enabled ? '禁用' : '启用' }}
         </button>
-        <button v-if="canUseSourceBlock && block.kind === 'assistant' && block.status !== 'generating'" type="button" :disabled="frozen"
-          @click="regenerate">
+        <button v-if="canUseSourceBlock && block.kind === 'assistant' && block.status !== 'generating'" type="button"
+          :disabled="frozen" @click="regenerate">
           <MdReplay class="menu-icon" aria-hidden="true" />重新生成
         </button>
         <button type="button" @click="openDetails">

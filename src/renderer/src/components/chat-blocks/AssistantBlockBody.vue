@@ -10,6 +10,7 @@ import type {
   ToolCallContentPart
 } from '../../../../shared/types'
 import MarkdownView from '../MarkdownView.vue'
+import { toStructuredCloneable } from '@huaian/plugin-api'
 
 interface VisibleContentPart {
   part: ChatContentPart
@@ -79,7 +80,7 @@ function startEdit(partIndex: number) {
 }
 
 function cloneSourceBlock(): DbChatBlock {
-  return JSON.parse(JSON.stringify(props.sourceBlock)) as DbChatBlock
+  return toStructuredCloneable(props.sourceBlock) as DbChatBlock
 }
 
 function reasoningSendsAsContext(part: ReasoningContentPart): boolean {
@@ -201,32 +202,15 @@ function toggleToolCallContext(partIndex: number) {
         <pre v-if="isToolCallOpen(part)" class="tool-call-body">{{ JSON.stringify(toolCallJson(part), null, 2) }}</pre>
       </section>
 
-      <section
-        v-else
-        class="text-segment content-segment"
-        :class="{ editable: canEdit }"
-        @dblclick="startEdit(index)"
-      >
-        <textarea
-          v-if="editing && editingPartIndex === index"
-          :ref="setEditorElement"
-          v-model="draftModel"
-          class="block-editor embedded"
-          rows="6"
-          @blur="autoSaveEdit"
-        />
+      <section v-else class="text-segment content-segment" :class="{ editable: canEdit }" @dblclick="startEdit(index)">
+        <textarea v-if="editing && editingPartIndex === index" :ref="setEditorElement" v-model="draftModel"
+          class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
         <MarkdownView v-else :markdown="displayTextMarkdown(part.text)" />
       </section>
     </template>
 
-    <textarea
-      v-if="editing && editingPartIndex === sourceBlock.contentParts.length"
-      :ref="setEditorElement"
-      v-model="draftModel"
-      class="block-editor embedded"
-      rows="6"
-      @blur="autoSaveEdit"
-    />
+    <textarea v-if="editing && editingPartIndex === sourceBlock.contentParts.length" :ref="setEditorElement"
+      v-model="draftModel" class="block-editor embedded" rows="6" @blur="autoSaveEdit" />
   </div>
 </template>
 

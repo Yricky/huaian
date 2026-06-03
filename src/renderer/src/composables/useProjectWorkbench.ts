@@ -26,7 +26,7 @@ import {
   processingChatFromDbBlocks,
   startPluginToolBridge
 } from '../pluginRuntime'
-import { asRecord } from '../../../shared/value-utils'
+import { asRecord, toStructuredCloneable } from '../../../shared/value-utils'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -98,7 +98,7 @@ export function createProjectWorkbench() {
   ))
 
   function clone<T>(value: T): T {
-    return JSON.parse(JSON.stringify(value))
+    return toStructuredCloneable(value) as T
   }
 
   function toIpcPayload<T>(value: T): T {

@@ -67,14 +67,18 @@ function postToHost(message: PluginWorkerToHostPayload, transfer?: Transferable[
   globalThis.postMessage(payload, transfer ? { transfer } : undefined)
 }
 
-function callHost<T = JsonRecordValue>(method: PluginWorkerHostCallMethod, args: JsonRecord): Promise<T> {
+function callHost<T = JsonRecordValue>(
+  method: PluginWorkerHostCallMethod,
+  args: JsonRecord,
+  transfer?: Transferable[]
+): Promise<T> {
   const id = ++nextHostCallId
   postToHost({
     type: 'host-call',
     id,
     method,
     args
-  })
+  }, transfer)
   return new Promise<T>((resolve, reject) => (
     pendingHostCalls.set(id, { resolve: resolve as (value: JsonRecordValue) => void, reject })
   ))
@@ -93,6 +97,18 @@ function cleanAssetPath(path: string): string {
 
 function pluginAssetUrl(pluginId: string, path: string): string {
   return `ha-ext://${encodeURIComponent(pluginId)}/${cleanAssetPath(path)}`
+}
+
+function asBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value
+  if (value instanceof ArrayBuffer) return new Uint8Array(value)
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  throw new Error('二进制内容必须是 Uint8Array。')
+}
+
+function transferForValue(value: JsonRecordValue): Transferable[] | undefined {
+  if (!(value instanceof Uint8Array) || value.byteLength === 0) return undefined
+  return value.buffer instanceof ArrayBuffer ? [value.buffer] : undefined
 }
 
 function storageApi(pluginId: string): PluginStorageApi {
@@ -117,22 +133,22 @@ function storageApi(pluginId: string): PluginStorageApi {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
-    readBase64: (path: string) => callHost<string>('storage.readBase64', { pluginId, path: String(path ?? '') }),
-    readBase64For: (targetPluginId: string, path: string) => callHost<string>('storage.readBase64', {
+    readBytes: (path: string) => callHost<Uint8Array>('storage.readBytes', { pluginId, path: String(path ?? '') }),
+    readBytesFor: (targetPluginId: string, path: string) => callHost<Uint8Array>('storage.readBytes', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? '')
     }),
     writeText,
     writeTextFor,
-    writeBase64: (path, content) => callHost<void>('storage.writeBase64', {
+    writeBytes: (path, content) => callHost<void>('storage.writeBytes', {
       pluginId,
       path: String(path ?? ''),
-      content: String(content ?? '')
+      content: asBytes(content)
     }),
-    writeBase64For: (targetPluginId, path, content) => callHost<void>('storage.writeBase64', {
+    writeBytesFor: (targetPluginId, path, content) => callHost<void>('storage.writeBytes', {
       pluginId: String(targetPluginId ?? ''),
       path: String(path ?? ''),
-      content: String(content ?? '')
+      content: asBytes(content)
     }),
     delete: (path: string) => callHost<void>('storage.delete', { pluginId, path: String(path ?? '') }),
     deleteFor: (targetPluginId: string, path: string) => callHost<void>('storage.delete', {
@@ -356,19 +372,29 @@ async function callFrameMethod(frameId: string, method: PluginFrameApiMethod, ar
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_LIST_FOR) return callHost('storage.list', { pluginId: String(args[0]), path: String(args[1] ?? '') })
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT) return callHost('storage.readText', { pluginId: frame.pluginId, path: String(args[0]) })
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT_FOR) return callHost('storage.readText', { pluginId: String(args[0]), path: String(args[1]) })
-  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64) return callHost('storage.readBase64', { pluginId: frame.pluginId, path: String(args[0]) })
-  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64_FOR) return callHost('storage.readBase64', { pluginId: String(args[0]), path: String(args[1]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BYTES) return callHost('storage.readBytes', { pluginId: frame.pluginId, path: String(args[0]) })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_READ_BYTES_FOR) return callHost('storage.readBytes', { pluginId: String(args[0]), path: String(args[1]) })
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT) {
     return callHost('storage.writeText', { pluginId: frame.pluginId, path: String(args[0]), content: String(args[1] ?? '') })
   }
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT_FOR) {
     return callHost('storage.writeText', { pluginId: String(args[0]), path: String(args[1]), content: String(args[2] ?? '') })
   }
-  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64) {
-    return callHost('storage.writeBase64', { pluginId: frame.pluginId, path: String(args[0]), content: String(args[1] ?? '') })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BYTES) {
+    const content = asBytes(args[1])
+    return callHost('storage.writeBytes', {
+      pluginId: frame.pluginId,
+      path: String(args[0]),
+      content
+    }, transferForValue(content))
   }
-  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64_FOR) {
-    return callHost('storage.writeBase64', { pluginId: String(args[0]), path: String(args[1]), content: String(args[2] ?? '') })
+  if (method === PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BYTES_FOR) {
+    const content = asBytes(args[2])
+    return callHost('storage.writeBytes', {
+      pluginId: String(args[0]),
+      path: String(args[1]),
+      content
+    }, transferForValue(content))
   }
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_DELETE) return callHost('storage.delete', { pluginId: frame.pluginId, path: String(args[0]) })
   if (method === PLUGIN_FRAME_API_METHODS.STORAGE_DELETE_FOR) return callHost('storage.delete', { pluginId: String(args[0]), path: String(args[1]) })
@@ -428,7 +454,7 @@ function replyToFrame(port: MessagePort, id: number, ok: boolean, value: JsonRec
     value: value === undefined ? null : value,
     error
   }
-  port.postMessage(message)
+  port.postMessage(message, ok ? transferForValue(value) ?? [] : [])
 }
 
 function connectFrame(data: Extract<PluginHostToWorkerMessage, { type: 'connect-frame' }>, port: MessagePort): void {

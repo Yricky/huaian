@@ -226,11 +226,11 @@ export async function readPluginDataFile(pluginId: string, path: string): Promis
   }
 }
 
-export async function readPluginDataFileBase64(pluginId: string, path: string): Promise<string> {
+export async function readPluginDataFileBytes(pluginId: string, path: string): Promise<Uint8Array> {
   try {
-    return (await readFile(safeChildPath(pluginDataRoot(pluginId), path))).toString('base64')
+    return new Uint8Array(await readFile(safeChildPath(pluginDataRoot(pluginId), path)))
   } catch (error) {
-    if (asRecord(error).code === 'ENOENT') return ''
+    if (asRecord(error).code === 'ENOENT') return new Uint8Array()
     throw error
   }
 }
@@ -241,10 +241,10 @@ export async function writePluginDataFile(pluginId: string, path: string, conten
   await writeFile(filePath, content, 'utf-8')
 }
 
-export async function writePluginDataFileBase64(pluginId: string, path: string, content: string): Promise<void> {
+export async function writePluginDataFileBytes(pluginId: string, path: string, content: Uint8Array): Promise<void> {
   const filePath = safeChildPath(pluginDataRoot(pluginId), path)
   await mkdir(dirname(filePath), { recursive: true })
-  await writeFile(filePath, Buffer.from(content, 'base64'))
+  await writeFile(filePath, Buffer.from(content))
 }
 
 export async function deletePluginDataFile(pluginId: string, path: string): Promise<void> {

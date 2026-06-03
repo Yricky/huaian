@@ -133,12 +133,12 @@ export interface PluginStorageApi {
   listFor(pluginId: string, path?: string): Promise<PluginFileEntry[]>
   readText(path: string): Promise<string>
   readTextFor(pluginId: string, path: string): Promise<string>
-  readBase64(path: string): Promise<string>
-  readBase64For(pluginId: string, path: string): Promise<string>
+  readBytes(path: string): Promise<Uint8Array>
+  readBytesFor(pluginId: string, path: string): Promise<Uint8Array>
   writeText(path: string, content: string): Promise<void>
   writeTextFor(pluginId: string, path: string, content: string): Promise<void>
-  writeBase64(path: string, content: string): Promise<void>
-  writeBase64For(pluginId: string, path: string, content: string): Promise<void>
+  writeBytes(path: string, content: Uint8Array): Promise<void>
+  writeBytesFor(pluginId: string, path: string, content: Uint8Array): Promise<void>
   delete(path: string): Promise<void>
   deleteFor(pluginId: string, path: string): Promise<void>
   readJson(path: string, fallback?: unknown): Promise<unknown>
@@ -175,12 +175,12 @@ export const PLUGIN_FRAME_API_METHODS = {
   STORAGE_LIST_FOR: 'storage.listFor',
   STORAGE_READ_TEXT: 'storage.readText',
   STORAGE_READ_TEXT_FOR: 'storage.readTextFor',
-  STORAGE_READ_BASE64: 'storage.readBase64',
-  STORAGE_READ_BASE64_FOR: 'storage.readBase64For',
+  STORAGE_READ_BYTES: 'storage.readBytes',
+  STORAGE_READ_BYTES_FOR: 'storage.readBytesFor',
   STORAGE_WRITE_TEXT: 'storage.writeText',
   STORAGE_WRITE_TEXT_FOR: 'storage.writeTextFor',
-  STORAGE_WRITE_BASE64: 'storage.writeBase64',
-  STORAGE_WRITE_BASE64_FOR: 'storage.writeBase64For',
+  STORAGE_WRITE_BYTES: 'storage.writeBytes',
+  STORAGE_WRITE_BYTES_FOR: 'storage.writeBytesFor',
   STORAGE_DELETE: 'storage.delete',
   STORAGE_DELETE_FOR: 'storage.deleteFor',
   STORAGE_READ_JSON: 'storage.readJson',

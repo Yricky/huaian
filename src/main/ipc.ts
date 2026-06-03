@@ -27,10 +27,10 @@ import {
   deletePluginDataFile,
   listPluginDataFiles,
   listProjectPlugins,
-  readPluginDataFileBase64,
+  readPluginDataFileBytes,
   readPluginDataFile,
   readPluginFile,
-  writePluginDataFileBase64,
+  writePluginDataFileBytes,
   writePluginDataFile
 } from './project/plugins'
 import {
@@ -141,12 +141,12 @@ export function registerIpcHandlers(): void {
     listPluginDataFiles(pluginId, path)
   ))
   handleIpc('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
-  handleIpc('plugin:readDataFileBase64', (_, pluginId: string, path: string) => readPluginDataFileBase64(pluginId, path))
+  handleIpc('plugin:readDataFileBytes', (_, pluginId: string, path: string) => readPluginDataFileBytes(pluginId, path))
   handleIpc('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
     writePluginDataFile(pluginId, path, content)
   ))
-  handleIpc('plugin:writeDataFileBase64', (_, pluginId: string, path: string, content: string) => (
-    writePluginDataFileBase64(pluginId, path, content)
+  handleIpc('plugin:writeDataFileBytes', (_, pluginId: string, path: string, content: Uint8Array) => (
+    writePluginDataFileBytes(pluginId, path, content)
   ))
   handleIpc('plugin:deleteDataFile', (_, pluginId: string, path: string) => deletePluginDataFile(pluginId, path))
   handleIpc('plugin:toolCallResponse', (_, payload: PluginToolCallResponse) => resolvePluginToolCall(payload))

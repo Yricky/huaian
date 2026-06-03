@@ -111,9 +111,9 @@ export function createHaExtApiClient(options: InstallOptions = {}): HaExtApi {
       readTextFor: (targetPluginId: string, path: string) => (
         call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_TEXT_FOR, [targetPluginId, path]) as Promise<string>
       ),
-      readBase64: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64, [path]) as Promise<string>,
-      readBase64For: (targetPluginId: string, path: string) => (
-        call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BASE64_FOR, [targetPluginId, path]) as Promise<string>
+      readBytes: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BYTES, [path]) as Promise<Uint8Array>,
+      readBytesFor: (targetPluginId: string, path: string) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_READ_BYTES_FOR, [targetPluginId, path]) as Promise<Uint8Array>
       ),
       writeText: (path: string, content: string) => (
         call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT, [path, content]) as Promise<void>
@@ -121,11 +121,11 @@ export function createHaExtApiClient(options: InstallOptions = {}): HaExtApi {
       writeTextFor: (targetPluginId: string, path: string, content: string) => (
         call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_TEXT_FOR, [targetPluginId, path, content]) as Promise<void>
       ),
-      writeBase64: (path: string, content: string) => (
-        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64, [path, content]) as Promise<void>
+      writeBytes: (path: string, content: Uint8Array) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BYTES, [path, content]) as Promise<void>
       ),
-      writeBase64For: (targetPluginId: string, path: string, content: string) => (
-        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BASE64_FOR, [targetPluginId, path, content]) as Promise<void>
+      writeBytesFor: (targetPluginId: string, path: string, content: Uint8Array) => (
+        call(PLUGIN_FRAME_API_METHODS.STORAGE_WRITE_BYTES_FOR, [targetPluginId, path, content]) as Promise<void>
       ),
       delete: (path: string) => call(PLUGIN_FRAME_API_METHODS.STORAGE_DELETE, [path]) as Promise<void>,
       deleteFor: (targetPluginId: string, path: string) => (

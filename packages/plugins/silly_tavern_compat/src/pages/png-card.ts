@@ -109,10 +109,6 @@ function decodeBase64Bytes(bytes: Uint8Array, start: number, end: number): Uint8
   return decodeBase64(end - start, index => bytes[start + index])
 }
 
-function decodeBase64String(text: string): Uint8Array {
-  return decodeBase64(text.length, index => text.charCodeAt(index))
-}
-
 function encodeBase64(bytes: Uint8Array): string {
   const chunks: string[] = []
   let chunk = ''
@@ -150,14 +146,6 @@ function encodeBase64Utf8(text: string): string {
 
 function decodeBase64Utf8Bytes(bytes: Uint8Array, start: number, end: number): string {
   return textDecoder.decode(decodeBase64Bytes(bytes, start, end))
-}
-
-export function bytesToBase64(bytes: Uint8Array): string {
-  return encodeBase64(bytes)
-}
-
-export function base64ToBytes(text: string): Uint8Array {
-  return decodeBase64String(text)
 }
 
 function chunkTypeEquals(bytes: Uint8Array, offset: number, type: string): boolean {

@@ -15,7 +15,7 @@ import {
   type JsonRecord,
   type PluginFileEntry
 } from './bridge'
-import { base64ToBytes, bytesToBase64, readPngCharacterJson, writePngCharacterJson } from './png-card'
+import { readPngCharacterJson, writePngCharacterJson } from './png-card'
 
 interface CharacterItem {
   file: PluginFileEntry
@@ -142,7 +142,7 @@ async function importCharacterPng(): Promise<void> {
     if ((exists(files, jsonName) || exists(files, pngName)) && !window.confirm(`角色卡 ${fileBase(file.name)} 已存在，是否覆盖 JSON 和 PNG？`)) return
     await Promise.all([
       api.storage.writeText(`characters/${jsonName}`, `${JSON.stringify(card, null, 2)}\n`),
-      api.storage.writeBase64(`characters/${pngName}`, bytesToBase64(pngBytes))
+      api.storage.writeBytes(`characters/${pngName}`, pngBytes)
     ])
     await refresh()
     setStatus(`已导入角色卡 ${jsonName} 和 ${pngName}`)
@@ -176,12 +176,12 @@ async function exportCharacterJson(item: CharacterItem): Promise<void> {
 async function exportCharacterPng(item: CharacterItem): Promise<void> {
   if (!item.hasPng) return
   await runTask(async () => {
-    const [jsonText, pngBase64] = await Promise.all([
+    const [jsonText, pngBytes] = await Promise.all([
       api.storage.readText(item.file.path),
-      api.storage.readBase64(`characters/${item.pngName}`)
+      api.storage.readBytes(`characters/${item.pngName}`)
     ])
-    if (!pngBase64) throw new Error('没有找到原始 PNG 文件。')
-    const nextPng = writePngCharacterJson(base64ToBytes(pngBase64), jsonText)
+    if (!pngBytes.length) throw new Error('没有找到原始 PNG 文件。')
+    const nextPng = writePngCharacterJson(pngBytes, jsonText)
     downloadBytes(item.pngName, nextPng, 'image/png')
     setStatus(`已导出 ${item.pngName}`)
   })
