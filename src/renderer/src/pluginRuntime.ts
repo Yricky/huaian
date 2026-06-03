@@ -22,7 +22,7 @@ import type {
   PluginToolCallRequest,
   ProjectSnapshot
 } from '../../shared/types'
-import { asRecord, cloneJson } from '../../shared/value-utils'
+import { asRecord, toStructuredCloneable } from '../../shared/value-utils'
 import { chatBlockTargetRole } from '../../shared/chat-blocks'
 import { invokePluginWorker } from './pluginWorkerHost'
 
@@ -81,7 +81,7 @@ function pluginChatSession(chat: ChatSession): ProcessingChat['chatSession'] {
   return {
     id: chat.id,
     title: chat.title,
-    pluginData: cloneJson(chat.runtimeConfig.pluginData),
+    pluginData: toStructuredCloneable(chat.runtimeConfig.pluginData) ?? {},
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt
   }
@@ -91,8 +91,8 @@ export function originalFromDbChatBlock(block: DbChatBlock): OriginalChatBlock {
   return {
     id: block.id,
     enabled: block.enabled,
-    contentParts: cloneJson(block.contentParts),
-    metadata: cloneJson(block.metadata)
+    contentParts: toStructuredCloneable(block.contentParts) ?? [],
+    metadata: toStructuredCloneable(block.metadata) ?? {}
   }
 }
 
@@ -187,7 +187,7 @@ function normalizeMixedBlock(value: JsonRecordValue, canonicalOriginals: Map<num
   const originalId = typeof rawOriginal.id === 'number' ? rawOriginal.id : null
   const original = originalId === null
     ? undefined
-    : cloneJson((canonicalOriginals.get(originalId) ?? rawOriginal) as OriginalChatBlock)
+    : toStructuredCloneable((canonicalOriginals.get(originalId) ?? rawOriginal) as OriginalChatBlock)
   const rawLlm = asRecord(record.llm)
   const rawUser = asRecord(record.user)
   return {

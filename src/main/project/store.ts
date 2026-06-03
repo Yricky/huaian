@@ -24,6 +24,7 @@ import type {
   RecentProject
 } from '../../shared/types'
 import { chatBlockMetadataForStorage } from '../../shared/chat-blocks'
+import { toStructuredCloneable } from '../../shared/value-utils'
 import { readConfig, saveConfig } from './app-config'
 import { app } from 'electron'
 import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PLUGIN_DATA_DIR, PLUGINS_DIR, PROJECT_FILE } from './constants'
@@ -289,10 +290,6 @@ function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRunt
   }
 }
 
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value))
-}
-
 function normalizeName(value: string, fallback: string): string {
   return value.trim() || fallback
 }
@@ -301,7 +298,7 @@ export function providerSnapshotFromProvider(provider: LlmProvider): LlmProvider
   return {
     providerName: provider.name,
     type: provider.type,
-    config: cloneJson(provider.config)
+    config: toStructuredCloneable(provider.config) ?? {}
   }
 }
 

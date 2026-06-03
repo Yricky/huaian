@@ -23,7 +23,7 @@ import type {
   ProcessingChat
 } from '../../../shared/types'
 import { PLUGIN_FRAME_API_METHODS } from '../../../shared/types'
-import { asRecord, asString } from '../../../shared/value-utils'
+import { asRecord, asString, toStructuredCloneable } from '../../../shared/value-utils'
 
 const HOST_SOURCE = 'ha-ext-worker-host'
 const WORKER_SOURCE = 'ha-ext-worker'
@@ -51,13 +51,9 @@ const frames = new Map<string, FrameRuntimeContext>()
 let loadedProjectSignature = ''
 let nextHostCallId = 0
 
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value ?? null))
-}
-
 function safeResponseValue(value: JsonRecordValue): CloneableValue {
   try {
-    return cloneJson(value) as CloneableValue
+    return toStructuredCloneable(value) as CloneableValue
   } catch {
     return null
   }
@@ -110,16 +106,6 @@ function storageApi(pluginId: string): PluginStorageApi {
     path: String(path ?? ''),
     content: String(content ?? '')
   })
-  const writeBase64: PluginStorageApi['writeBase64'] = (path, content) => callHost<void>('storage.writeBase64', {
-    pluginId,
-    path: String(path ?? ''),
-    content: String(content ?? '')
-  })
-  const writeBase64For: PluginStorageApi['writeBase64For'] = (targetPluginId, path, content) => callHost<void>('storage.writeBase64', {
-    pluginId: String(targetPluginId ?? ''),
-    path: String(path ?? ''),
-    content: String(content ?? '')
-  })
   return {
     list: (path = '') => callHost<PluginFileEntry[]>('storage.list', { pluginId, path: String(path ?? '') }),
     listFor: (targetPluginId: string, path = '') => callHost<PluginFileEntry[]>('storage.list', {
@@ -138,8 +124,16 @@ function storageApi(pluginId: string): PluginStorageApi {
     }),
     writeText,
     writeTextFor,
-    writeBase64,
-    writeBase64For,
+    writeBase64: (path, content) => callHost<void>('storage.writeBase64', {
+      pluginId,
+      path: String(path ?? ''),
+      content: String(content ?? '')
+    }),
+    writeBase64For: (targetPluginId, path, content) => callHost<void>('storage.writeBase64', {
+      pluginId: String(targetPluginId ?? ''),
+      path: String(path ?? ''),
+      content: String(content ?? '')
+    }),
     delete: (path: string) => callHost<void>('storage.delete', { pluginId, path: String(path ?? '') }),
     deleteFor: (targetPluginId: string, path: string) => callHost<void>('storage.delete', {
       pluginId: String(targetPluginId ?? ''),
@@ -149,7 +143,7 @@ function storageApi(pluginId: string): PluginStorageApi {
       try {
         return JSON.parse(await callHost<string>('storage.readText', { pluginId, path: String(path ?? '') }))
       } catch {
-        return cloneJson(fallback)
+        return toStructuredCloneable(fallback)
       }
     },
     readJsonFor: async (targetPluginId: string, path: string, fallback = {}) => {
@@ -159,7 +153,7 @@ function storageApi(pluginId: string): PluginStorageApi {
           path: String(path ?? '')
         }))
       } catch {
-        return cloneJson(fallback)
+        return toStructuredCloneable(fallback)
       }
     },
     writeJson: (path: string, value: JsonRecordValue) => writeText(path, `${JSON.stringify(value, null, 2)}\n`),
@@ -272,7 +266,7 @@ function sanitizeProcessingChatFactory(processingChat: ProcessingChat) {
   const canonicalOriginals = new Map((Array.isArray(processingChat.chatBlocks) ? processingChat.chatBlocks : [])
     .map(block => asRecord(block).original)
     .filter(original => typeof asRecord(original).id === 'number')
-    .map(original => [asRecord(original).id, cloneJson(original)]))
+    .map(original => [asRecord(original).id, toStructuredCloneable(original)]))
 
   return (value: JsonRecordValue): ProcessingChat => {
     const chatValue = asRecord(value)
@@ -286,7 +280,7 @@ function sanitizeProcessingChatFactory(processingChat: ProcessingChat) {
         const originalId = typeof original.id === 'number' ? original.id : null
         return originalId === null || !canonicalOriginals.has(originalId)
           ? blockValue
-          : { ...block, original: cloneJson(canonicalOriginals.get(originalId)) }
+          : { ...block, original: toStructuredCloneable(canonicalOriginals.get(originalId)) }
       }) as ProcessingChat['chatBlocks']
     }
   }

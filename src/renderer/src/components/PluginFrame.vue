@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import type { ChatSession, JsonRecord } from '../../../shared/types'
-import { asRecord, cloneJson } from '../../../shared/value-utils'
+import { asRecord, toStructuredCloneable } from '../../../shared/value-utils'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import { connectPluginFrame, registerPluginFrame, type PluginFrameRegistration } from '../pluginWorkerHost'
 
@@ -58,15 +58,16 @@ async function setChatPluginData(value: JsonRecord): Promise<JsonRecord> {
       }
     }
   })
-  currentChat.value = cloneJson(nextChat)
-  emit('update:chat', nextChat)
+  const clonedChat = toStructuredCloneable(nextChat) ?? nextChat
+  currentChat.value = clonedChat
+  emit('update:chat', clonedChat)
   dispatchPluginDataChanged(props.pluginId)
   dispatchProjectSnapshotChanged()
-  return asRecord(asRecord(nextChat.runtimeConfig.pluginData)[props.pluginId])
+  return asRecord(asRecord(clonedChat.runtimeConfig.pluginData)[props.pluginId])
 }
 
 function setCommonArgs(value: JsonRecord): JsonRecord {
-  const nextCommonArgs = cloneJson(asRecord(value))
+  const nextCommonArgs = toStructuredCloneable(asRecord(value)) ?? {}
   emit('update:commonArgs', nextCommonArgs)
   return nextCommonArgs
 }
@@ -76,7 +77,7 @@ function connectFrame(): void {
 }
 
 watch(() => props.chat, (chat) => {
-  currentChat.value = chat ? cloneJson(chat) : null
+  currentChat.value = chat ? (toStructuredCloneable(chat) ?? null) : null
 }, { immediate: true })
 
 onMounted(() => {
@@ -84,7 +85,7 @@ onMounted(() => {
     capabilities: frameCapabilities.value,
     frameId,
     getChat: () => currentChat.value,
-    getCommonArgs: () => cloneJson(currentCommonArgs.value),
+    getCommonArgs: () => toStructuredCloneable(currentCommonArgs.value) ?? {},
     getWindow: () => pluginFrame()?.contentWindow ?? null,
     pluginId: props.pluginId,
     setChatPluginData,

@@ -1,5 +1,5 @@
 import type { ChatSession, JsonRecord, PluginStorageApi } from '@huaian/plugin-api'
-import { asRecord, asString, cloneJson } from '@huaian/plugin-api'
+import { asRecord, asString, toStructuredCloneable } from '@huaian/plugin-api'
 import type { CharacterEntry, LoreBook, PluginFileRecord, WorldEntry } from './types'
 
 const DEFAULT_DEPTH = 4
@@ -308,7 +308,7 @@ export function roleToNumber(value: unknown): number | null {
 }
 
 export function applyToolInput(entry: JsonRecord, input: JsonRecord): JsonRecord {
-  const next = cloneJson(entry)
+  const next = toStructuredCloneable(entry) ?? {}
   const extensions = asRecord(next.extensions)
   if (input.title !== undefined) next.comment = String(input.title)
   if (input.content !== undefined) next.content = String(input.content)

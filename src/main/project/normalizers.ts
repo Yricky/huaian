@@ -20,10 +20,6 @@ export function defaultProjectConfig(): ProjectConfig {
   }
 }
 
-export function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value))
-}
-
 export function toString(value: JsonRecordValue, fallback = ''): string {
   return asString(value, fallback)
 }
