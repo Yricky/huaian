@@ -239,7 +239,7 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
       </div>
     </section>
 
-    <section class="runtime-layer" :class="{ visible: activeRuntime }">
+    <section class="runtime-layer" :class="{ visible: activeRuntime, 'panel-open': activeRuntime?.chatPanelOpen && activeChatSession }">
       <aside v-if="activeRuntime?.chatPanelOpen && activeChatSession" class="chat-panel">
         <header class="chat-panel-header">
           <span>
@@ -637,7 +637,10 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 58px;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: 0;
+  overflow: hidden;
   visibility: hidden;
   pointer-events: none;
   background: #ffffff;
@@ -648,12 +651,21 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   pointer-events: auto;
 }
 
+.runtime-layer.panel-open {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, min(420px, 36vw)) 36px;
+}
+
 .chat-panel {
-  width: min(420px, 36vw);
-  min-width: 300px;
+  grid-column: 2;
+  grid-row: 1;
+  width: auto;
+  min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid #dfe5ed;
+  border-left: 1px solid #dfe5ed;
   background: #fbfcfd;
 }
 
@@ -844,8 +856,11 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 
 .frame-stage {
   position: relative;
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #ffffff;
 }
 
@@ -890,19 +905,27 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 }
 
 .chat-rail {
+  grid-column: 2;
+  grid-row: 1;
+  width: 36px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border-left: 1px solid #dfe5ed;
   background: #f8fafc;
-  padding: 10px 6px;
+  padding: 8px 3px;
+}
+
+.runtime-layer.panel-open .chat-rail {
+  grid-column: 3;
 }
 
 .chat-rail-item {
   position: relative;
-  width: 40px;
-  height: 46px;
+  width: 30px;
+  height: 36px;
   display: grid;
   place-items: center;
   border: 1px solid transparent;
@@ -914,8 +937,8 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 }
 
 .chat-rail-item svg {
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
 }
 
 .chat-rail-item.active,
@@ -986,12 +1009,15 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 
 @media (max-width: 900px) {
   .runtime-layer {
-    grid-template-columns: auto minmax(0, 1fr) 52px;
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+
+  .runtime-layer.panel-open {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 48vw) 36px;
   }
 
   .chat-panel {
-    width: min(360px, 48vw);
-    min-width: 260px;
+    min-width: 0;
   }
 
   .header-actions {

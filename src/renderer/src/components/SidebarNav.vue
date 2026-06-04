@@ -4,6 +4,7 @@ import { MdApps, MdFolderOpen, MdPlayCircleFilled, MdSettings } from 'vue-icons-
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
 const {
+  activeRuntime,
   activeView,
   appIconUrl,
   openApp,
@@ -12,7 +13,8 @@ const {
   project,
   recentApps,
   recentProjects,
-  refreshRecentProjects
+  refreshRecentProjects,
+  selectedAppId
 } = useProjectWorkbench()
 
 const isProjectPopupOpen = ref(false)
@@ -36,6 +38,13 @@ function projectName(path: string): string {
 
 function appInitial(name: string | undefined, id: string): string {
   return (name || id).trim().slice(0, 1).toUpperCase() || 'A'
+}
+
+function isAppActive(appId: string): boolean {
+  return activeView.value === 'apps' && (
+    activeRuntime.value?.app.manifest.id === appId ||
+    (!activeRuntime.value && selectedAppId.value === appId)
+  )
 }
 
 function toggleProjectPopup() {
@@ -73,8 +82,8 @@ onBeforeUnmount(() => {
 <template>
   <aside class="sidebar" aria-label="主导航">
     <div class="sidebar-top">
-      <button class="sidebar-nav-item" :class="{ active: activeView === 'apps' }"
-        :aria-current="activeView === 'apps' ? 'page' : undefined" @click="activeView = 'apps'">
+      <button class="sidebar-nav-item" :class="{ active: activeView === 'apps' && !activeRuntime }"
+        :aria-current="activeView === 'apps' && !activeRuntime ? 'page' : undefined" @click="activeView = 'apps'">
         <span class="sidebar-icon-shell">
           <MdApps class="sidebar-icon" aria-hidden="true" />
         </span>
@@ -84,6 +93,8 @@ onBeforeUnmount(() => {
 
     <div class="recent-apps" aria-label="最近应用">
       <button v-for="item in recentApps" :key="item.app.manifest.id" class="recent-app-button" type="button"
+        :class="{ active: isAppActive(item.app.manifest.id) }"
+        :aria-current="isAppActive(item.app.manifest.id) ? 'page' : undefined"
         :title="item.app.manifest.name || item.app.manifest.id" @click="openApp(item.app.manifest.id)">
         <img v-if="appIconUrl(item.app)" :src="appIconUrl(item.app)" alt="" />
         <span v-else>{{ appInitial(item.app.manifest.name, item.app.manifest.id) }}</span>
@@ -183,9 +194,15 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
-.recent-app-button:hover {
+.recent-app-button:hover,
+.recent-app-button.active {
   border-color: #c8d3e0;
   background: #f1f5fb;
+}
+
+.recent-app-button.active {
+  border-color: #9eb9ef;
+  box-shadow: 0 0 0 3px #dce6ff;
 }
 
 .recent-app-button img {
