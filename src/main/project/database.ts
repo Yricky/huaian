@@ -1,10 +1,6 @@
 import Database from 'better-sqlite3'
 import type {
-  DbChatBlock,
-  ChatBlockKind,
-  ChatBlockStatus,
-  ChatContentPart,
-  ChatSession,
+  AppSessionRecord,
   JsonRecord,
   JsonRecordValue,
   LlmGenerationParameters,
@@ -15,10 +11,7 @@ import type {
   ProviderModelCacheItem
 } from '../../shared/types'
 import { asString } from '../../shared/value-utils'
-import {
-  asRecord,
-  normalizeChatRuntimeConfig
-} from './normalizers'
+import { asRecord } from './normalizers'
 
 export function initDatabase(dbPath: string): any {
   const db = new Database(dbPath)
@@ -48,6 +41,17 @@ export function initDatabase(dbPath: string): any {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS app_sessions (
+      app_id TEXT NOT NULL,
+      id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_opened_at TEXT NOT NULL,
+      PRIMARY KEY (app_id, id)
+    );
+
     CREATE TABLE IF NOT EXISTS chat_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -71,15 +75,7 @@ export function initDatabase(dbPath: string): any {
       updated_at TEXT NOT NULL
     );
   `)
-  ensureColumn(db, 'chat_sessions', 'runtime_config_json', 'TEXT NOT NULL DEFAULT \'{}\'')
-  db.prepare("UPDATE chat_blocks SET status = 'idle' WHERE status = 'generating'").run()
   return db
-}
-
-function ensureColumn(db: any, tableName: string, columnName: string, definition: string): void {
-  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all()
-  if (rows.some((row: any) => row.name === columnName)) return
-  db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`).run()
 }
 
 function parseJsonColumn(value: string): JsonRecordValue {
@@ -93,10 +89,6 @@ function parseJsonColumn(value: string): JsonRecordValue {
 function parseJsonArray<T>(value: string): T[] {
   const parsed = parseJsonColumn(value)
   return Array.isArray(parsed) ? parsed as T[] : []
-}
-
-function asBoolean(value: JsonRecordValue): boolean {
-  return Boolean(value)
 }
 
 function normalizeProviderType(value: JsonRecordValue): LlmProviderType {
@@ -142,58 +134,6 @@ function normalizeParameters(value: JsonRecordValue): LlmGenerationParameters {
   }
 }
 
-function normalizeContentParts(value: JsonRecordValue): ChatContentPart[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .map(part => asRecord(part))
-    .filter(part => part.type === 'text' || part.type === 'reasoning' || part.type === 'tool_call')
-    .map(part => {
-      if (part.type === 'tool_call') {
-        const now = new Date().toISOString()
-        const status = part.status === 'success' || part.status === 'error' ? part.status : 'pending'
-        return {
-          type: 'tool_call',
-          toolCallId: asString(part.toolCallId),
-          toolName: asString(part.toolName),
-          status,
-          input: asRecord(part.input),
-          output: part.output,
-          error: asString(part.error),
-          sendAsContext: part.sendAsContext === true,
-          createdAt: asString(part.createdAt, now),
-          updatedAt: asString(part.updatedAt, now),
-          extensions: asRecord(part.extensions)
-        }
-      }
-
-      if (part.type === 'reasoning') {
-        return {
-          type: 'reasoning',
-          text: asString(part.text),
-          sendAsContext: part.sendAsContext === true
-        }
-      }
-
-      return {
-        type: 'text',
-        text: asString(part.text)
-      }
-    })
-}
-
-function normalizeBlockKind(value: JsonRecordValue): ChatBlockKind {
-  return (
-    value === 'system' ||
-    value === 'user' ||
-    value === 'assistant' ||
-    value === 'injection'
-  ) ? value : 'user'
-}
-
-function normalizeBlockStatus(value: JsonRecordValue): ChatBlockStatus {
-  return value === 'stopped' || value === 'error' ? value : 'idle'
-}
-
 export function rowToLlmProvider(row: any): LlmProvider {
   return {
     id: row.id,
@@ -221,50 +161,14 @@ export function rowToLlmInstance(row: any): LlmInstance {
   }
 }
 
-export function rowToChatSession(row: any): ChatSession {
+export function rowToAppSession(row: any): AppSessionRecord {
   return {
-    id: row.id,
+    id: Number(row.id),
+    appId: row.app_id,
     title: row.title,
-    runtimeConfig: normalizeChatRuntimeConfig(parseJsonColumn(row.runtime_config_json ?? '{}')),
+    version: Number(row.version),
     createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }
-}
-
-export function rowToChatBlock(row: any): DbChatBlock {
-  const llmSnapshot = row.llm_instance_snapshot_json
-    ? normalizeLlmInstanceSnapshot(parseJsonColumn(row.llm_instance_snapshot_json))
-    : null
-
-  return {
-    id: row.id,
-    chatId: row.chat_id,
-    kind: normalizeBlockKind(row.kind),
-    enabled: asBoolean(row.enabled),
-    status: normalizeBlockStatus(row.status),
-    orderIndex: row.order_index,
-    contentParts: normalizeContentParts(parseJsonColumn(row.content_parts_json)),
-    metadata: asRecord(parseJsonColumn(row.metadata_json)),
-    llmInstanceSnapshot: llmSnapshot,
-    errorText: row.error_text,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }
-}
-
-function normalizeLlmInstanceSnapshot(value: JsonRecordValue): LlmInstance | null {
-  const record = asRecord(value)
-  const id = Number(record.id)
-  if (!Number.isFinite(id)) return null
-  return {
-    id,
-    name: asString(record.name),
-    providerId: record.providerId === null || record.providerId === undefined ? null : Number(record.providerId),
-    modelId: asString(record.modelId),
-    providerSnapshot: normalizeProviderSnapshot(record.providerSnapshot),
-    parameters: normalizeParameters(record.parameters),
-    extra: asRecord(record.extra),
-    createdAt: asString(record.createdAt),
-    updatedAt: asString(record.updatedAt)
+    updatedAt: row.updated_at,
+    lastOpenedAt: row.last_opened_at
   }
 }

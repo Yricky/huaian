@@ -1,32 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, type Component } from 'vue'
-import { MdChat, MdExtension, MdFolderOpen, MdSettings } from 'vue-icons-plus/md'
-import type { SidebarView } from '@/shared/types'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { MdApps, MdFolderOpen, MdPlayCircleFilled, MdSettings } from 'vue-icons-plus/md'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 
 const {
   activeView,
+  appIconUrl,
+  openApp,
   openProject,
   openRecentProject,
   project,
+  recentApps,
   recentProjects,
   refreshRecentProjects
 } = useProjectWorkbench()
 
 const isProjectPopupOpen = ref(false)
 const projectSwitcherRef = ref<HTMLElement | null>(null)
-
-interface NavItem {
-  view: SidebarView
-  label: string
-  icon: Component
-}
-
-const navItems: NavItem[] = [
-  { view: 'chat', label: '聊天', icon: MdChat },
-  { view: 'settings', label: '设置', icon: MdSettings },
-  { view: 'plugins', label: '插件', icon: MdExtension }
-]
 
 const recentProjectItems = computed(() => {
   const currentPath = project.value?.path
@@ -42,6 +32,10 @@ const recentProjectItems = computed(() => {
 
 function projectName(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+}
+
+function appInitial(name: string | undefined, id: string): string {
+  return (name || id).trim().slice(0, 1).toUpperCase() || 'A'
 }
 
 function toggleProjectPopup() {
@@ -78,46 +72,64 @@ onBeforeUnmount(() => {
 
 <template>
   <aside class="sidebar" aria-label="主导航">
-    <div class="sidebar-main">
-      <button v-for="item in navItems" :key="item.view" class="sidebar-nav-item"
-        :class="{ active: activeView === item.view }" :aria-current="activeView === item.view ? 'page' : undefined"
-        @click="activeView = item.view">
+    <div class="sidebar-top">
+      <button class="sidebar-nav-item" :class="{ active: activeView === 'apps' }"
+        :aria-current="activeView === 'apps' ? 'page' : undefined" @click="activeView = 'apps'">
         <span class="sidebar-icon-shell">
-          <component :is="item.icon" class="sidebar-icon" aria-hidden="true" />
+          <MdApps class="sidebar-icon" aria-hidden="true" />
         </span>
-        <span class="sidebar-label">{{ item.label }}</span>
+        <span class="sidebar-label">应用</span>
       </button>
     </div>
 
-    <div ref="projectSwitcherRef" class="project-switcher" @keydown.escape="isProjectPopupOpen = false">
-      <button class="sidebar-nav-item project-switcher-button" type="button" :aria-expanded="isProjectPopupOpen"
-        aria-haspopup="menu" aria-label="项目" @click.stop="toggleProjectPopup">
+    <div class="recent-apps" aria-label="最近应用">
+      <button v-for="item in recentApps" :key="item.app.manifest.id" class="recent-app-button" type="button"
+        :title="item.app.manifest.name || item.app.manifest.id" @click="openApp(item.app.manifest.id)">
+        <img v-if="appIconUrl(item.app)" :src="appIconUrl(item.app)" alt="" />
+        <span v-else>{{ appInitial(item.app.manifest.name, item.app.manifest.id) }}</span>
+        <MdPlayCircleFilled v-if="item.running" class="running-icon" aria-label="运行中" />
+      </button>
+    </div>
+
+    <div class="sidebar-bottom">
+      <button class="sidebar-nav-item" :class="{ active: activeView === 'settings' }"
+        :aria-current="activeView === 'settings' ? 'page' : undefined" @click="activeView = 'settings'">
         <span class="sidebar-icon-shell">
-          <MdFolderOpen class="sidebar-icon" aria-hidden="true" />
+          <MdSettings class="sidebar-icon" aria-hidden="true" />
         </span>
-        <span class="sidebar-label">项目</span>
+        <span class="sidebar-label">设置</span>
       </button>
 
-      <section v-if="isProjectPopupOpen" class="project-popup" role="menu" aria-label="最近项目" @click.stop>
-        <header class="project-popup-header">
-          <strong>最近项目</strong>
-        </header>
-
-        <div class="project-list">
-          <button v-for="item in recentProjectItems" :key="item.path" class="project-list-item" type="button"
-            :class="{ current: item.path === project?.path }" :disabled="item.path === project?.path"
-            :title="item.path" role="menuitem" @click="chooseRecentProject(item.path)">
-            <span class="project-list-name">{{ item.name }}</span>
-            <span class="project-list-path">{{ item.path }}</span>
-            <em v-if="item.path === project?.path">当前</em>
-          </button>
-        </div>
-
-        <button class="project-open-other" type="button" role="menuitem" @click="chooseOtherProject">
-          <MdFolderOpen class="project-open-icon" aria-hidden="true" />
-          <span>打开其他项目...</span>
+      <div ref="projectSwitcherRef" class="project-switcher" @keydown.escape="isProjectPopupOpen = false">
+        <button class="sidebar-nav-item project-switcher-button" type="button" :aria-expanded="isProjectPopupOpen"
+          aria-haspopup="menu" aria-label="项目" @click.stop="toggleProjectPopup">
+          <span class="sidebar-icon-shell">
+            <MdFolderOpen class="sidebar-icon" aria-hidden="true" />
+          </span>
+          <span class="sidebar-label">项目</span>
         </button>
-      </section>
+
+        <section v-if="isProjectPopupOpen" class="project-popup" role="menu" aria-label="最近项目" @click.stop>
+          <header class="project-popup-header">
+            <strong>最近项目</strong>
+          </header>
+
+          <div class="project-list">
+            <button v-for="item in recentProjectItems" :key="item.path" class="project-list-item" type="button"
+              :class="{ current: item.path === project?.path }" :disabled="item.path === project?.path"
+              :title="item.path" role="menuitem" @click="chooseRecentProject(item.path)">
+              <span class="project-list-name">{{ item.name }}</span>
+              <span class="project-list-path">{{ item.path }}</span>
+              <em v-if="item.path === project?.path">当前</em>
+            </button>
+          </div>
+
+          <button class="project-open-other" type="button" role="menuitem" @click="chooseOtherProject">
+            <MdFolderOpen class="project-open-icon" aria-hidden="true" />
+            <span>打开其他项目...</span>
+          </button>
+        </section>
+      </div>
     </div>
   </aside>
 </template>
@@ -136,15 +148,64 @@ onBeforeUnmount(() => {
   background: #f8fafc;
 }
 
-.sidebar-main {
+.sidebar-top,
+.sidebar-bottom {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
 }
 
+.recent-apps {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.recent-app-button {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #dbe2eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #273446;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.recent-app-button:hover {
+  border-color: #c8d3e0;
+  background: #f1f5fb;
+}
+
+.recent-app-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.running-icon {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 15px;
+  height: 15px;
+  color: #2f9d63;
+  filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.95));
+}
+
 .sidebar-nav-item {
-  width: 72px;
+  width: 76px;
   min-height: 64px;
   display: flex;
   flex-direction: column;
@@ -153,7 +214,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   text-align: center;
   border: 0;
-  border-radius: 18px;
+  border-radius: 8px;
   background: transparent;
   color: #465465;
   font-size: 12px;
@@ -166,7 +227,8 @@ onBeforeUnmount(() => {
   color: #233246;
 }
 
-.sidebar-nav-item:focus-visible {
+.sidebar-nav-item:focus-visible,
+.recent-app-button:focus-visible {
   outline: 2px solid #446bd7;
   outline-offset: 2px;
 }
@@ -176,11 +238,11 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-icon-shell {
-  width: 56px;
+  width: 54px;
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 16px;
+  border-radius: 8px;
   transition: background 140ms ease;
 }
 
@@ -207,7 +269,6 @@ onBeforeUnmount(() => {
 
 .project-switcher {
   position: relative;
-  margin-top: auto;
 }
 
 .project-switcher-button[aria-expanded="true"] {
@@ -222,7 +283,7 @@ onBeforeUnmount(() => {
   position: absolute;
   bottom: 0;
   left: calc(100% + 8px);
-  width: min(360px, calc(100vw - 96px));
+  width: min(360px, calc(100vw - 108px));
   max-height: min(420px, calc(100vh - 20px));
   display: flex;
   flex-direction: column;
@@ -257,7 +318,7 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  padding: 8px 8px;
+  padding: 8px;
   color: #243041;
 }
 
@@ -265,75 +326,57 @@ onBeforeUnmount(() => {
   background: #f1f5fb;
 }
 
-.project-list-item:focus-visible,
-.project-open-other:focus-visible {
-  outline: 2px solid #446bd7;
-  outline-offset: 2px;
-}
-
 .project-list-item.current {
   background: #eef4ff;
   cursor: default;
 }
 
-.project-list-name {
+.project-list-name,
+.project-list-path {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-list-name {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .project-list-path {
   grid-column: 1 / -1;
-  min-width: 0;
-  overflow: hidden;
-  color: #667386;
+  color: #708096;
   font-size: 11px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-list-item em {
   align-self: start;
-  border-radius: 999px;
-  background: #d8e6ff;
-  padding: 2px 6px;
-  color: #174f99;
+  color: #4169c8;
   font-size: 11px;
   font-style: normal;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .project-open-other {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  text-align: left;
   border: 0;
   border-top: 1px solid #edf0f4;
   background: #ffffff;
+  color: #233246;
   padding: 10px 12px;
-  color: #174f99;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .project-open-other:hover {
-  background: #f4f8ff;
+  background: #f4f7fb;
 }
 
 .project-open-icon {
   width: 18px;
   height: 18px;
-}
-
-@media (max-width: 980px) {
-  .sidebar-nav-item {
-    width: 72px;
-  }
 }
 </style>

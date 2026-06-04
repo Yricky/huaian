@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process'
-import { access } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import electronPath from 'electron'
@@ -9,11 +8,6 @@ const rootDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url
 const rendererConfig = resolve(rootDir, 'vite.renderer.config.ts')
 const mainConfig = resolve(rootDir, 'vite.main.config.ts')
 const preloadConfig = resolve(rootDir, 'vite.preload.config.ts')
-const builtinPluginZipDir = resolve(rootDir, 'out/main/builtin-plugins')
-const builtinPluginZipNames = [
-  'silly_tavern_compat.zip',
-  'st_prompt_template_compat.zip'
-]
 
 let electronProcess = null
 let mainReady = false
@@ -21,21 +15,6 @@ let preloadReady = false
 let shuttingDown = false
 let restartTimer = null
 const watchers = []
-
-async function ensureBuiltinPluginZips() {
-  const missing = []
-  for (const name of builtinPluginZipNames) {
-    try {
-      await access(resolve(builtinPluginZipDir, name))
-    } catch {
-      missing.push(name)
-    }
-  }
-  if (missing.length) {
-    console.error(`缺少内置插件 zip：${missing.join(', ')}。请先运行 pnpm build:plugins。`)
-    process.exit(1)
-  }
-}
 
 function spawnElectron() {
   if (!mainReady || !preloadReady || shuttingDown) return
@@ -105,7 +84,6 @@ const rendererServer = await createServer({
   mode: 'development'
 })
 
-await ensureBuiltinPluginZips()
 await rendererServer.listen()
 rendererServer.printUrls()
 

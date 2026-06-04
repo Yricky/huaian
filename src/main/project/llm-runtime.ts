@@ -1,76 +1,83 @@
 import type { WebContents } from 'electron'
 import { randomUUID } from 'crypto'
 import { jsonSchema, stepCountIs, streamText, tool, type LanguageModelUsage } from 'ai'
-import { asRecord } from '../../shared/value-utils'
 import type {
-  DbChatBlock,
-  ChatBlockTokenUsage,
-  ChatContentPart,
-  ChatGenerationEvent,
-  ChatGenerationPreviewMessage,
-  ChatGenerationRequest,
-  ChatGenerationStartResult,
+  AppChatContentPart,
+  AppChatMessage,
+  AppLlmGenerationEvent,
+  AppLlmGenerationRequest,
+  AppLlmGenerationStartResult,
+  AppToolCallRequest,
+  AppToolCallResponse,
+  AppToolDefinition,
   CloneableValue,
-  LlmGenerationParameters,
-  LlmInstance,
-  LlmProvider,
-  LlmToolDefinition,
   JsonRecord,
   JsonRecordValue,
-  PluginToolCallRequest,
-  PluginToolCallResponse,
-  ProjectSnapshot
+  LlmGenerationParameters,
+  LlmInstance,
+  LlmProvider
 } from '../../shared/types'
-import {
-  createAssistantGenerationBlock,
-  getChat,
-  listChatBlocksForChat,
-  prepareAssistantBlockForRegeneration,
-  updateAssistantGenerationBlock
-} from './store'
+import { asRecord } from '../../shared/value-utils'
 import {
   createLanguageModel,
   providerOptionsKey,
   resolveLlmProviderForInstance
 } from './llm-provider'
 
-type ModelMessage = ChatGenerationPreviewMessage
-type StreamTextMessage = Omit<ModelMessage, 'blockId'>
+type StreamTextMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 interface ActiveGeneration {
   abortController: AbortController
-  blockId: number
-  chatId: number
+  appId: string
+  appSessionId: number
+  chatSessionId: number
 }
 
-const activeGenerations = new Map<number, ActiveGeneration>()
-const pendingPluginToolCalls = new Map<string, {
+interface ToolResult {
+  ok: boolean
+  output?: CloneableValue
+  error?: string
+}
+
+interface TokenUsage {
+  inputTokens?: number | null
+  inputTokenDetails?: {
+    noCacheTokens?: number | null
+    cacheReadTokens?: number | null
+    cacheWriteTokens?: number | null
+  }
+  outputTokens?: number | null
+  outputTokenDetails?: {
+    textTokens?: number | null
+    reasoningTokens?: number | null
+  }
+  totalTokens?: number | null
+  raw?: JsonRecord
+}
+
+const TOOL_ERROR_FLAG = '__huaianToolError'
+const activeGenerations = new Map<string, ActiveGeneration>()
+const pendingAppToolCalls = new Map<string, {
   reject: (error: Error) => void
-  resolve: (value: CloneableValue) => void
+  resolve: (value: ToolResult) => void
   timeout: ReturnType<typeof setTimeout>
 }>()
 
-export function withActiveGenerationBlockStatus(block: DbChatBlock): DbChatBlock {
-  const generation = activeGenerations.get(block.chatId)
-  if (!generation || generation.blockId !== block.id) return block
-  return block.status === 'generating' ? block : { ...block, status: 'generating' }
+function generationKey(appId: string, appSessionId: number, chatSessionId: number): string {
+  return `${appId}\u0000${appSessionId}\u0000${chatSessionId}`
 }
 
-export function withActiveGenerationSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
-  if (!activeGenerations.size) return snapshot
-  return {
-    ...snapshot,
-    chatBlocks: snapshot.chatBlocks.map(withActiveGenerationBlockStatus)
-  }
+function generationKeyForRequest(request: Pick<AppLlmGenerationRequest, 'appId' | 'appSessionId' | 'chatSessionId'>): string {
+  return generationKey(request.appId, request.appSessionId, request.chatSessionId)
 }
 
 function usageNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function normalizeUsage(usage: LanguageModelUsage | null | undefined): ChatBlockTokenUsage | null {
+function normalizeUsage(usage: LanguageModelUsage | null | undefined): TokenUsage | null {
   if (!usage) return null
-  const normalized: ChatBlockTokenUsage = {
+  const normalized: TokenUsage = {
     inputTokens: usageNumber(usage.inputTokens),
     inputTokenDetails: {
       noCacheTokens: usageNumber(usage.inputTokenDetails?.noCacheTokens),
@@ -86,24 +93,12 @@ function normalizeUsage(usage: LanguageModelUsage | null | undefined): ChatBlock
   }
   const raw = asRecord(usage.raw)
   if (Object.keys(raw).length > 0) normalized.raw = raw
-
-  const hasTokenCount = [
-    normalized.inputTokens,
-    normalized.inputTokenDetails?.noCacheTokens,
-    normalized.inputTokenDetails?.cacheReadTokens,
-    normalized.inputTokenDetails?.cacheWriteTokens,
-    normalized.outputTokens,
-    normalized.outputTokenDetails?.textTokens,
-    normalized.outputTokenDetails?.reasoningTokens,
-    normalized.totalTokens
-  ].some(value => typeof value === 'number')
-
-  return hasTokenCount || normalized.raw ? normalized : null
+  return normalized
 }
 
-function sendEvent(webContents: WebContents, event: ChatGenerationEvent): void {
+function sendEvent(webContents: WebContents, event: AppLlmGenerationEvent): void {
   if (!webContents.isDestroyed()) {
-    webContents.send('chat:generationEvent', event)
+    webContents.send('haAppChat:generationEvent', event)
   }
 }
 
@@ -112,28 +107,13 @@ function errorText(error: unknown): string {
   return String(error)
 }
 
-export function resolvePluginToolCall(response: PluginToolCallResponse): void {
-  const pending = pendingPluginToolCalls.get(response.requestId)
+export function resolveAppToolCall(response: AppToolCallResponse): void {
+  const pending = pendingAppToolCalls.get(response.requestId)
   if (!pending) return
-  pendingPluginToolCalls.delete(response.requestId)
+  pendingAppToolCalls.delete(response.requestId)
   clearTimeout(pending.timeout)
-  if (response.ok) pending.resolve(response.output)
-  else pending.reject(new Error(response.error || '插件工具调用失败。'))
-}
-
-function messageHasSendableContent(message: ModelMessage): boolean {
-  if (typeof message.content === 'string') return message.content.trim().length > 0
-  return message.content.some(part => {
-    if (part.type === 'text' || part.type === 'reasoning') return part.text.trim().length > 0
-    return true
-  })
-}
-
-function streamTextMessage(message: ModelMessage): StreamTextMessage {
-  return {
-    role: message.role,
-    content: message.content
-  }
+  if (response.ok) pending.resolve({ ok: true, output: response.output })
+  else pending.resolve({ ok: false, error: response.error || '应用工具调用失败。' })
 }
 
 function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): JsonRecord {
@@ -181,82 +161,73 @@ function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): Js
   return settings
 }
 
-function pluginToolCallExtensions(definition: LlmToolDefinition | null): JsonRecord {
-  if (!definition) return {}
-  return {
-    pluginTool: {
-      pluginId: definition.pluginId,
-      toolCallName: definition.toolCallName,
-      commonArgs: definition.commonArgs
-    }
-  }
-}
-
-function invokePluginTool(
+function invokeAppTool(
   webContents: WebContents,
-  chatId: number,
-  definition: LlmToolDefinition,
-  input: JsonRecordValue
-): Promise<CloneableValue> {
-  const requestId = randomUUID()
-  const request: PluginToolCallRequest = {
+  request: Omit<AppToolCallRequest, 'requestId'> & { requestId?: string }
+): Promise<ToolResult> {
+  const requestId = request.requestId ?? randomUUID()
+  const toolRequest: AppToolCallRequest = {
     requestId,
-    chatId,
-    pluginId: definition.pluginId,
-    toolCallName: definition.toolCallName,
-    toolName: definition.toolName,
-    input: asRecord(input),
-    commonArgs: asRecord(definition.commonArgs)
+    appId: request.appId,
+    appSessionId: request.appSessionId,
+    chatSessionId: request.chatSessionId,
+    toolName: request.toolName,
+    input: request.input
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     const timeout = setTimeout(() => {
-      pendingPluginToolCalls.delete(requestId)
-      reject(new Error(`插件工具调用超时：${definition.toolName}`))
+      pendingAppToolCalls.delete(requestId)
+      resolve({ ok: false, error: `应用工具调用超时：${request.toolName}` })
     }, 120_000)
-    pendingPluginToolCalls.set(requestId, { resolve, reject, timeout })
-    webContents.send('plugin:toolCallRequest', request)
+    pendingAppToolCalls.set(requestId, {
+      resolve,
+      reject: error => resolve({ ok: false, error: error.message }),
+      timeout
+    })
+    webContents.send('haAppChat:toolCallRequest', toolRequest)
   })
 }
 
-function pluginToolsForDefinitions(webContents: WebContents, chatId: number, definitions: LlmToolDefinition[]) {
+function appToolsForDefinitions(
+  webContents: WebContents,
+  request: AppLlmGenerationRequest
+) {
   const tools: Record<string, ReturnType<typeof tool>> = {}
-  for (const definition of definitions) {
-    tools[definition.toolName] = tool({
+  for (const definition of request.tools) {
+    tools[definition.name] = tool({
       description: definition.description,
       inputSchema: jsonSchema(definition.inputSchema as any),
-      execute: async (input: JsonRecordValue) => invokePluginTool(webContents, chatId, definition, input)
+      execute: async (input: JsonRecordValue) => {
+        const result = await invokeAppTool(webContents, {
+          appId: request.appId,
+          appSessionId: request.appSessionId,
+          chatSessionId: request.chatSessionId,
+          toolName: definition.name,
+          input: asRecord(input)
+        })
+        if (result.ok) return result.output ?? null
+        return {
+          [TOOL_ERROR_FLAG]: true,
+          error: result.error || '应用工具调用失败。'
+        }
+      }
     } as any)
   }
   return tools
 }
 
-function messagesWithToolPrompts(messages: ModelMessage[], definitions: LlmToolDefinition[]): ModelMessage[] {
-  const seen = new Set<string>()
-  const prompts = definitions.flatMap(definition => {
-    const prompt = typeof definition.prompt === 'string' ? definition.prompt.trim() : ''
-    if (!prompt) return []
-    const key = `${definition.pluginId}\u0000${definition.toolCallName}`
-    if (seen.has(key)) return []
-    seen.add(key)
-    return [prompt]
-  })
-  return prompts.length
-    ? [{ role: 'system', content: prompts.join('\n\n') }, ...messages]
-    : messages
-}
-
-function generatedText(parts: ChatContentPart[]): string {
+function generatedText(parts: AppChatContentPart[]): string {
   return parts.filter(part => part.type === 'text').map(part => part.text).join('')
 }
 
-function hasVisibleGenerationParts(parts: ChatContentPart[]): boolean {
+function hasVisibleGenerationParts(parts: AppChatContentPart[]): boolean {
   return parts.some(part => (
     (part.type === 'text' || part.type === 'reasoning') ? part.text.trim().length > 0 : true
   ))
 }
 
-function appendTextDelta(parts: ChatContentPart[], type: 'text' | 'reasoning', text: string): ChatContentPart[] {
+function appendTextDelta(parts: AppChatContentPart[], type: 'text' | 'reasoning', text: string): AppChatContentPart[] {
   const next = [...parts]
   const last = next.at(-1)
   if (last?.type === type) {
@@ -268,7 +239,7 @@ function appendTextDelta(parts: ChatContentPart[], type: 'text' | 'reasoning', t
 }
 
 function upsertToolCallPart(
-  parts: ChatContentPart[],
+  parts: AppChatContentPart[],
   patch: {
     toolCallId: string
     toolName: string
@@ -276,9 +247,8 @@ function upsertToolCallPart(
     input?: JsonRecordValue
     output?: CloneableValue
     error?: string
-    extensions?: JsonRecord
   }
-): ChatContentPart[] {
+): AppChatContentPart[] {
   const now = new Date().toISOString()
   const next = [...parts]
   const index = next.findIndex(part => part.type === 'tool_call' && part.toolCallId === patch.toolCallId)
@@ -291,10 +261,9 @@ function upsertToolCallPart(
     input: patch.input === undefined ? current?.input ?? {} : asRecord(patch.input),
     output: patch.output === undefined ? current?.output : patch.output,
     error: patch.error === undefined ? current?.error : patch.error,
-    sendAsContext: current?.sendAsContext === true,
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
-    extensions: patch.extensions ?? current?.extensions ?? {}
+    extensions: current?.extensions ?? {}
   }
 
   if (index >= 0) next[index] = part
@@ -302,53 +271,71 @@ function upsertToolCallPart(
   return next
 }
 
-function contextBlocksForGeneration(chatId: number, regenerateBlockId?: number | null): DbChatBlock[] {
-  const blocks = listChatBlocksForChat(chatId)
-  if (!regenerateBlockId) return blocks
-  const target = blocks.find(block => block.id === regenerateBlockId)
-  if (!target) throw new Error('要重新生成的助手块不存在。')
-  if (target.kind !== 'assistant') throw new Error('只能重新生成助手块。')
-  return blocks.filter(block => block.orderIndex < target.orderIndex)
+function toolCallContext(part: Extract<AppChatContentPart, { type: 'tool_call' }>): string {
+  return [
+    `Tool call: ${part.toolName}`,
+    `Status: ${part.status}`,
+    `Input: ${JSON.stringify(part.input)}`,
+    part.status === 'error'
+      ? `Error: ${part.error ?? ''}`
+      : `Output: ${JSON.stringify(part.output ?? null)}`
+  ].join('\n')
+}
+
+function messageText(message: AppChatMessage): string {
+  return message.contentParts.map(part => {
+    if (part.type === 'text') return part.text
+    if (part.type === 'reasoning') return part.sendAsContext ? part.text : ''
+    return toolCallContext(part)
+  }).filter(Boolean).join('\n')
+}
+
+function preparedMessages(messages: AppChatMessage[]): StreamTextMessage[] {
+  const prepared = messages
+    .map(message => ({
+      role: message.role,
+      content: messageText(message).trim()
+    }))
+    .filter(message => message.content.length > 0)
+  if (!prepared.length) throw new Error('当前 chatSession 没有可发送给 LLM 的上下文。')
+  return prepared
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted|abort/i.test(error.message))
 }
 
+function toolErrorFromOutput(output: unknown): string {
+  const record = asRecord(output)
+  return record[TOOL_ERROR_FLAG] === true ? String(record.error ?? '应用工具调用失败。') : ''
+}
+
 async function runGeneration(
   webContents: WebContents,
-  chatId: number,
+  request: AppLlmGenerationRequest,
   instance: LlmInstance,
   provider: LlmProvider,
-  messages: ModelMessage[],
-  generationBlock: DbChatBlock,
-  abortController: AbortController,
-  toolDefinitions: LlmToolDefinition[]
+  messages: StreamTextMessage[],
+  abortController: AbortController
 ): Promise<void> {
-  let contentParts: ChatContentPart[] = []
-  let lastPersistAt = 0
+  const key = generationKeyForRequest(request)
+  let contentParts: AppChatContentPart[] = []
   let finishReason = ''
-  let totalUsage: ChatBlockTokenUsage | null = null
-  const persist = (force = false) => {
-    const now = Date.now()
-    if (!force && now - lastPersistAt < 500) return
-    lastPersistAt = now
-    updateAssistantGenerationBlock(generationBlock.id, contentParts, 'generating', false)
-  }
+  let totalUsage: TokenUsage | null = null
 
   try {
     const model = await createLanguageModel(instance, provider)
     const settings = generationSettings(instance, abortController.signal)
-    if (toolDefinitions.length > 0) {
-      settings.tools = pluginToolsForDefinitions(webContents, chatId, toolDefinitions)
-      settings.activeTools = toolDefinitions.map(definition => definition.toolName)
+    if (request.tools.length > 0) {
+      settings.tools = appToolsForDefinitions(webContents, request)
+      settings.activeTools = request.tools.map(definition => definition.name)
       if (!settings.stopWhen) settings.stopWhen = stepCountIs(8)
     }
 
     const result = streamText({
       ...settings,
       model,
-      messages: messagesWithToolPrompts(messages, toolDefinitions).map(streamTextMessage)
+      messages
     } as any)
 
     for await (const part of result.fullStream) {
@@ -358,63 +345,60 @@ async function runGeneration(
         continue
       }
       if (part.type === 'tool-call') {
-        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           status: 'pending',
-          input: part.input,
-          extensions: pluginToolCallExtensions(pluginDefinition)
+          input: part.input
         })
-        persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId,
-          blockId: generationBlock.id,
+          appId: request.appId,
+          appSessionId: request.appSessionId,
+          chatSessionId: request.chatSessionId,
+          assistantMessageId: request.assistantMessageId,
           text: '',
-          content: generatedText(contentParts),
           contentParts
         })
         continue
       }
       if (part.type === 'tool-result') {
-        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
+        const toolError = toolErrorFromOutput(part.output)
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
-          status: 'success',
+          status: toolError ? 'error' : 'success',
           input: part.input,
           output: part.output as CloneableValue,
-          extensions: pluginToolCallExtensions(pluginDefinition)
+          error: toolError || undefined
         })
-        persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId,
-          blockId: generationBlock.id,
+          appId: request.appId,
+          appSessionId: request.appSessionId,
+          chatSessionId: request.chatSessionId,
+          assistantMessageId: request.assistantMessageId,
           text: '',
-          content: generatedText(contentParts),
           contentParts
         })
         continue
       }
       if (part.type === 'tool-error') {
-        const pluginDefinition = toolDefinitions.find(definition => definition.toolName === part.toolName) ?? null
         contentParts = upsertToolCallPart(contentParts, {
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           status: 'error',
           input: (part as any).input,
-          error: errorText((part as any).error),
-          extensions: pluginToolCallExtensions(pluginDefinition)
+          output: { [TOOL_ERROR_FLAG]: true, error: errorText((part as any).error) },
+          error: errorText((part as any).error)
         })
-        persist(true)
         sendEvent(webContents, {
           type: 'delta',
-          chatId,
-          blockId: generationBlock.id,
+          appId: request.appId,
+          appSessionId: request.appSessionId,
+          chatSessionId: request.chatSessionId,
+          assistantMessageId: request.assistantMessageId,
           text: '',
-          content: generatedText(contentParts),
           contentParts
         })
         continue
@@ -422,13 +406,13 @@ async function runGeneration(
       if (part.type !== 'text-delta' && part.type !== 'reasoning-delta') continue
       const text = part.text
       contentParts = appendTextDelta(contentParts, part.type === 'reasoning-delta' ? 'reasoning' : 'text', text)
-      persist()
       sendEvent(webContents, {
         type: 'delta',
-        chatId,
-        blockId: generationBlock.id,
+        appId: request.appId,
+        appSessionId: request.appSessionId,
+        chatSessionId: request.chatSessionId,
+        assistantMessageId: request.assistantMessageId,
         text,
-        content: generatedText(contentParts),
         contentParts
       })
     }
@@ -441,116 +425,108 @@ async function runGeneration(
       }
     }
 
-    const finishedAt = new Date().toISOString()
-    const metadataPatch: JsonRecord = {
-      generationFinishedAt: finishedAt,
-      usageRecordedAt: finishedAt
+    if (finishReason || totalUsage) {
+      const metadata: JsonRecord = {}
+      if (finishReason) metadata.finishReason = finishReason
+      if (totalUsage) metadata.usage = totalUsage
+      const visible = hasVisibleGenerationParts(contentParts)
+      if (!visible) contentParts = [{ type: 'text', text: '' }]
     }
-    if (finishReason) metadataPatch.finishReason = finishReason
-    if (totalUsage) metadataPatch.usage = totalUsage
 
-    const block = updateAssistantGenerationBlock(
-      generationBlock.id,
-      contentParts,
-      'idle',
-      hasVisibleGenerationParts(contentParts),
-      '',
-      metadataPatch
-    )
-    activeGenerations.delete(chatId)
-    sendEvent(webContents, { type: 'finished', chatId, block })
+    activeGenerations.delete(key)
+    sendEvent(webContents, {
+      type: 'finished',
+      appId: request.appId,
+      appSessionId: request.appSessionId,
+      chatSessionId: request.chatSessionId,
+      assistantMessageId: request.assistantMessageId,
+      contentParts
+    })
   } catch (error) {
     if (isAbortError(error) || abortController.signal.aborted) {
-      const block = updateAssistantGenerationBlock(
-        generationBlock.id,
-        contentParts,
-        'stopped',
-        hasVisibleGenerationParts(contentParts),
-        '',
-        { generationFinishedAt: new Date().toISOString() }
-      )
-      activeGenerations.delete(chatId)
-      sendEvent(webContents, { type: 'stopped', chatId, block })
+      activeGenerations.delete(key)
+      sendEvent(webContents, {
+        type: 'stopped',
+        appId: request.appId,
+        appSessionId: request.appSessionId,
+        chatSessionId: request.chatSessionId,
+        assistantMessageId: request.assistantMessageId,
+        contentParts
+      })
       return
     }
 
     const message = errorText(error)
-    const block = updateAssistantGenerationBlock(
-      generationBlock.id,
+    activeGenerations.delete(key)
+    if (!contentParts.length) contentParts = [{ type: 'text', text: '' }]
+    sendEvent(webContents, {
+      type: 'error',
+      appId: request.appId,
+      appSessionId: request.appSessionId,
+      chatSessionId: request.chatSessionId,
+      assistantMessageId: request.assistantMessageId,
       contentParts,
-      'error',
-      false,
-      message,
-      { generationFinishedAt: new Date().toISOString() }
-    )
-    activeGenerations.delete(chatId)
-    sendEvent(webContents, { type: 'error', chatId, block, error: message })
+      error: message
+    })
   } finally {
-    activeGenerations.delete(chatId)
+    activeGenerations.delete(key)
   }
 }
 
-function preparedMessages(request: ChatGenerationRequest): ModelMessage[] {
-  const messages = request.messages?.filter(messageHasSendableContent) ?? []
-  if (!messages.length) {
-    throw new Error('插件管线没有提供可发送上下文。')
-  }
-  return messages
-}
-
-export async function previewChatGeneration(request: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[]> {
-  getChat(request.chatId)
-  contextBlocksForGeneration(request.chatId, request.regenerateBlockId)
-  return preparedMessages(request)
-}
-
-export async function startChatGeneration(
-  request: ChatGenerationRequest,
+export async function startAppChatGeneration(
+  request: AppLlmGenerationRequest,
   webContents: WebContents
-): Promise<ChatGenerationStartResult> {
-  const chat = getChat(request.chatId)
-  if (activeGenerations.has(chat.id)) {
-    throw new Error('当前聊天已有正在生成的块。')
+): Promise<AppLlmGenerationStartResult> {
+  const key = generationKeyForRequest(request)
+  if (activeGenerations.has(key)) {
+    throw new Error('当前 chatSession 已在生成回复。')
   }
-  const { instance, provider } = resolveLlmProviderForInstance(chat.runtimeConfig.llmInstanceId)
-  contextBlocksForGeneration(chat.id, request.regenerateBlockId)
-  const messages = preparedMessages(request)
-
-  const generationBlock = request.regenerateBlockId
-    ? prepareAssistantBlockForRegeneration(request.regenerateBlockId, instance)
-    : createAssistantGenerationBlock(chat.id, instance)
+  const { instance, provider } = resolveLlmProviderForInstance(request.llmInstanceId)
+  const messages = preparedMessages(request.messages)
   const abortController = new AbortController()
 
-  activeGenerations.set(chat.id, {
+  activeGenerations.set(key, {
     abortController,
-    blockId: generationBlock.id,
-    chatId: chat.id
+    appId: request.appId,
+    appSessionId: request.appSessionId,
+    chatSessionId: request.chatSessionId
   })
-  const currentGenerationBlock = withActiveGenerationBlockStatus(generationBlock)
-  sendEvent(webContents, { type: 'started', chatId: chat.id, block: currentGenerationBlock })
+  sendEvent(webContents, {
+    type: 'started',
+    appId: request.appId,
+    appSessionId: request.appSessionId,
+    chatSessionId: request.chatSessionId,
+    assistantMessageId: request.assistantMessageId
+  })
 
-  void runGeneration(
-    webContents,
-    chat.id,
-    instance,
-    provider,
-    messages,
-    currentGenerationBlock,
-    abortController,
-    request.toolDefinitions ?? []
-  )
+  void runGeneration(webContents, request, instance, provider, messages, abortController)
 
-  return { block: currentGenerationBlock }
+  return {
+    appId: request.appId,
+    appSessionId: request.appSessionId,
+    chatSessionId: request.chatSessionId,
+    assistantMessageId: request.assistantMessageId
+  }
 }
 
-export function stopChatGeneration(chatId: number): boolean {
-  const generation = activeGenerations.get(chatId)
-  if (!generation) return false
-  generation.abortController.abort(new Error('用户停止生成'))
-  return true
+export function stopAppChatGeneration(appId: string, appSessionId: number, chatSessionId?: number): boolean {
+  let stopped = false
+  for (const [key, generation] of activeGenerations.entries()) {
+    if (generation.appId !== appId || generation.appSessionId !== appSessionId) continue
+    if (chatSessionId !== undefined && generation.chatSessionId !== chatSessionId) continue
+    generation.abortController.abort(new Error('用户停止生成'))
+    activeGenerations.delete(key)
+    stopped = true
+  }
+  return stopped
 }
 
-export function hasActiveGeneration(chatId?: number): boolean {
-  if (chatId !== undefined) return activeGenerations.has(chatId)
-  return activeGenerations.size > 0
+export function hasActiveGeneration(appId?: string, appSessionId?: number): boolean {
+  if (appId === undefined) return activeGenerations.size > 0
+  for (const generation of activeGenerations.values()) {
+    if (generation.appId !== appId) continue
+    if (appSessionId !== undefined && generation.appSessionId !== appSessionId) continue
+    return true
+  }
+  return false
 }

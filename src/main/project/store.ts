@@ -1,14 +1,10 @@
-import { access, mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
+import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { app } from 'electron'
 import type {
-  DbChatBlock,
-  ChatCreatePayload,
-  DbChatBlockCreatePayload,
-  DbChatBlockUpdatePayload,
-  ChatContentPart,
-  ChatRuntimeConfig,
-  ChatSession,
-  ChatUpdatePayload,
+  AppSessionCreatePayload,
+  AppSessionRecord,
+  AppSessionUpdatePayload,
   JsonRecord,
   LlmInstance,
   LlmInstanceCreatePayload,
@@ -23,25 +19,21 @@ import type {
   ProjectSnapshot,
   RecentProject
 } from '../../shared/types'
-import { chatBlockMetadataForStorage } from '../../shared/chat-blocks'
 import { toStructuredCloneable } from '../../shared/value-utils'
 import { readConfig, saveConfig } from './app-config'
-import { app } from 'electron'
-import { ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PLUGIN_DATA_DIR, PLUGINS_DIR, PROJECT_FILE } from './constants'
+import { APP_DATA_DIR, APP_DIR, APP_SAVE_DIR, ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
 import {
   initDatabase,
-  rowToChatBlock,
-  rowToChatSession,
+  rowToAppSession,
   rowToLlmInstance,
   rowToLlmProvider
 } from './database'
 import {
   asRecord,
   defaultProjectConfig,
-  normalizeChatRuntimeConfig,
   normalizeProjectConfig
 } from './normalizers'
-import { ensureProjectPlugins, listProjectPluginsSync } from './plugins'
+import { appSessionSaveRoot, appSaveRoot, ensureProjectApps, listProjectAppsSync } from './apps'
 import { ensureProject, getCurrentProject, setCurrentProject, type ProjectContext } from './state'
 
 const MAX_RECENT_PROJECTS = 20
@@ -164,38 +156,47 @@ export async function openProjectAt(projectPath: string): Promise<ProjectSnapsho
   const dbPath = join(projectPath, DATABASE_FILE)
   const exportsPath = join(projectPath, EXPORTS_DIR)
   const assetsPath = join(projectPath, ASSETS_DIR)
-  const pluginsPath = join(projectPath, PLUGINS_DIR)
-  const pluginDataPath = join(projectPath, PLUGIN_DATA_DIR)
+  const appPath = join(projectPath, APP_DIR)
+  const appDataPath = join(projectPath, APP_DATA_DIR)
+  const appSavePath = join(projectPath, APP_SAVE_DIR)
 
   if (!await isValidProject(projectPath)) {
     if (!await isEmptyDirectory(projectPath)) {
       throw new Error('请选择空目录，或已包含 forge.db 与 forge.project.json 的项目目录。')
     }
-    await mkdir(exportsPath, { recursive: true })
-    await mkdir(assetsPath, { recursive: true })
-    await mkdir(pluginsPath, { recursive: true })
-    await mkdir(pluginDataPath, { recursive: true })
+    await Promise.all([
+      mkdir(exportsPath, { recursive: true }),
+      mkdir(assetsPath, { recursive: true }),
+      mkdir(appPath, { recursive: true }),
+      mkdir(appDataPath, { recursive: true }),
+      mkdir(appSavePath, { recursive: true })
+    ])
     await writeFile(configPath, JSON.stringify(defaultProjectConfig(), null, 2), 'utf-8')
   }
 
-  await mkdir(exportsPath, { recursive: true })
-  await mkdir(assetsPath, { recursive: true })
-  await mkdir(pluginsPath, { recursive: true })
-  await mkdir(pluginDataPath, { recursive: true })
+  await Promise.all([
+    mkdir(exportsPath, { recursive: true }),
+    mkdir(assetsPath, { recursive: true }),
+    mkdir(appPath, { recursive: true }),
+    mkdir(appDataPath, { recursive: true }),
+    mkdir(appSavePath, { recursive: true })
+  ])
+
   const project: ProjectContext = {
     path: projectPath,
     dbPath,
     configPath,
     exportsPath,
     assetsPath,
-    pluginsPath,
-    pluginDataPath,
+    appPath,
+    appDataPath,
+    appSavePath,
     db: initDatabase(dbPath),
     config: await readProjectConfig(configPath)
   }
 
   setCurrentProject(project)
-  await ensureProjectPlugins()
+  await ensureProjectApps()
   await writeProjectConfig(project)
   await rememberProjectPath(projectPath)
   return getProjectSnapshot()
@@ -211,21 +212,47 @@ export function listLlmInstances(): LlmInstance[] {
   return project.db.prepare('SELECT * FROM llm_instances ORDER BY updated_at DESC, id DESC').all().map(rowToLlmInstance)
 }
 
-export function listChats(): ChatSession[] {
+export function listAppSessions(): AppSessionRecord[] {
   const project = ensureProject()
-  return project.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC, id DESC').all().map(rowToChatSession)
+  return project.db.prepare('SELECT * FROM app_sessions ORDER BY last_opened_at DESC, app_id ASC, id DESC').all().map(rowToAppSession)
 }
 
-export function listChatBlocks(): DbChatBlock[] {
+export function listAppSessionsForApp(appId: string): AppSessionRecord[] {
   const project = ensureProject()
-  return project.db.prepare('SELECT * FROM chat_blocks ORDER BY chat_id ASC, order_index ASC, id ASC').all().map(rowToChatBlock)
+  return project.db.prepare('SELECT * FROM app_sessions WHERE app_id = ? ORDER BY last_opened_at DESC, id DESC').all(appId).map(rowToAppSession)
 }
 
-export function listChatBlocksForChat(chatId: number): DbChatBlock[] {
+export function getProjectSnapshot(): ProjectSnapshot {
   const project = ensureProject()
-  return project.db.prepare(`
-    SELECT * FROM chat_blocks WHERE chat_id = ? ORDER BY order_index ASC, id ASC
-  `).all(chatId).map(rowToChatBlock)
+  const appIds = new Set(listProjectAppsSync().map(item => item.manifest.id))
+  return {
+    path: project.path,
+    config: project.config,
+    apps: listProjectAppsSync(),
+    appSessions: listAppSessions().filter(session => appIds.has(session.appId)),
+    llmProviders: listLlmProviders(),
+    llmInstances: listLlmInstances()
+  }
+}
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function json<T>(value: T): string {
+  return JSON.stringify(value ?? null)
+}
+
+function normalizeName(value: string, fallback: string): string {
+  return value.trim() || fallback
+}
+
+export function providerSnapshotFromProvider(provider: LlmProvider): LlmProviderSnapshot {
+  return {
+    providerName: provider.name,
+    type: provider.type,
+    config: toStructuredCloneable(provider.config) ?? {}
+  }
 }
 
 export function getLlmProvider(id: number): LlmProvider {
@@ -240,66 +267,6 @@ export function getLlmInstance(id: number): LlmInstance {
   const row = project.db.prepare('SELECT * FROM llm_instances WHERE id = ?').get(id)
   if (!row) throw new Error('LLM 实例不存在。')
   return rowToLlmInstance(row)
-}
-
-export function getChat(id: number): ChatSession {
-  const project = ensureProject()
-  const row = project.db.prepare('SELECT * FROM chat_sessions WHERE id = ?').get(id)
-  if (!row) throw new Error('聊天不存在。')
-  return rowToChatSession(row)
-}
-
-export function getChatBlock(id: number): DbChatBlock {
-  const project = ensureProject()
-  const row = project.db.prepare('SELECT * FROM chat_blocks WHERE id = ?').get(id)
-  if (!row) throw new Error('聊天块不存在。')
-  return rowToChatBlock(row)
-}
-
-export function getProjectSnapshot(): ProjectSnapshot {
-  const project = ensureProject()
-  return {
-    path: project.path,
-    config: project.config,
-    plugins: listProjectPluginsSync(),
-    llmProviders: listLlmProviders(),
-    llmInstances: listLlmInstances(),
-    chats: listChats(),
-    chatBlocks: listChatBlocks()
-  }
-}
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
-function json<T>(value: T): string {
-  return JSON.stringify(value ?? null)
-}
-
-function chatBlockStatusForStorage(status: DbChatBlock['status']): Exclude<DbChatBlock['status'], 'generating'> {
-  return status === 'generating' ? 'idle' : status
-}
-
-function defaultChatRuntimeConfig(llmInstanceId: number | null = null): ChatRuntimeConfig {
-  return {
-    llmInstanceId,
-    enabledPluginIds: [...ensureProject().config.plugins.enabledPluginIds],
-    pluginData: {},
-    toolDefinitions: []
-  }
-}
-
-function normalizeName(value: string, fallback: string): string {
-  return value.trim() || fallback
-}
-
-export function providerSnapshotFromProvider(provider: LlmProvider): LlmProviderSnapshot {
-  return {
-    providerName: provider.name,
-    type: provider.type,
-    config: toStructuredCloneable(provider.config) ?? {}
-  }
 }
 
 export function createLlmProvider(payload: LlmProviderCreatePayload): LlmProvider {
@@ -360,32 +327,34 @@ export function restoreLlmProviderFromInstance(id: number): LlmProvider {
   const model: ProviderModelCacheItem = {
     id: instance.modelId,
     displayName: instance.modelId,
-    metadata: { source: 'restored' },
+    metadata: {},
     fetchedAt: now
   }
   const result = project.db.prepare(`
     INSERT INTO llm_providers (name, type, api_key, created_at, updated_at, config_json, models_cache_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, '', ?, ?, ?, ?)
   `).run(
-    `${instance.providerSnapshot.providerName || instance.name}（恢复）`,
+    normalizeName(instance.providerSnapshot.providerName, `${instance.name} 来源`),
     instance.providerSnapshot.type,
-    '',
     now,
     now,
     json(instance.providerSnapshot.config),
-    json([model])
+    json(instance.modelId ? [model] : [])
   )
-  return getLlmProvider(Number(result.lastInsertRowid))
+  const provider = getLlmProvider(Number(result.lastInsertRowid))
+  updateLlmInstance({
+    ...instance,
+    providerId: provider.id,
+    providerSnapshot: providerSnapshotFromProvider(provider)
+  })
+  return provider
 }
 
 export async function deleteLlmProvider(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
   getLlmProvider(id)
-  const transaction = project.db.transaction(() => {
-    project.db.prepare('UPDATE llm_instances SET provider_id = NULL, updated_at = ? WHERE provider_id = ?').run(nowIso(), id)
-    project.db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id)
-  })
-  transaction()
+  project.db.prepare('UPDATE llm_instances SET provider_id = NULL WHERE provider_id = ?').run(id)
+  project.db.prepare('DELETE FROM llm_providers WHERE id = ?').run(id)
   return getProjectSnapshot()
 }
 
@@ -393,16 +362,14 @@ export function createLlmInstance(payload: LlmInstanceCreatePayload): LlmInstanc
   const project = ensureProject()
   const now = nowIso()
   const result = project.db.prepare(`
-    INSERT INTO llm_instances (
-      name, provider_id, model_id, provider_snapshot_json, parameters_json, extra_json, created_at, updated_at
-    )
+    INSERT INTO llm_instances (name, provider_id, model_id, provider_snapshot_json, parameters_json, extra_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    normalizeName(payload.name, '新 LLM 实例'),
-    payload.providerId,
-    payload.modelId.trim(),
+    normalizeName(payload.name, '新实例'),
+    payload.providerId ?? null,
+    payload.modelId ?? '',
     json(payload.providerSnapshot),
-    json(payload.parameters),
+    json(payload.parameters ?? {}),
     json(asRecord(payload.extra)),
     now,
     now
@@ -413,17 +380,19 @@ export function createLlmInstance(payload: LlmInstanceCreatePayload): LlmInstanc
 export function updateLlmInstance(payload: LlmInstanceUpdatePayload): LlmInstance {
   const project = ensureProject()
   getLlmInstance(payload.id)
+  const provider = payload.providerId === null || payload.providerId === undefined ? null : getLlmProvider(payload.providerId)
+  const snapshot = provider ? providerSnapshotFromProvider(provider) : payload.providerSnapshot
   const now = nowIso()
   project.db.prepare(`
     UPDATE llm_instances
     SET name = ?, provider_id = ?, model_id = ?, provider_snapshot_json = ?, parameters_json = ?, extra_json = ?, updated_at = ?
     WHERE id = ?
   `).run(
-    normalizeName(payload.name, '新 LLM 实例'),
-    payload.providerId,
-    payload.modelId.trim(),
-    json(payload.providerSnapshot),
-    json(payload.parameters),
+    normalizeName(payload.name, '新实例'),
+    provider?.id ?? null,
+    payload.modelId ?? '',
+    json(snapshot),
+    json(payload.parameters ?? {}),
     json(asRecord(payload.extra)),
     now,
     payload.id
@@ -434,243 +403,73 @@ export function updateLlmInstance(payload: LlmInstanceUpdatePayload): LlmInstanc
 export async function deleteLlmInstance(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
   getLlmInstance(id)
-  const transaction = project.db.transaction(() => {
-    const now = nowIso()
-    const update = project.db.prepare('UPDATE chat_sessions SET runtime_config_json = ?, updated_at = ? WHERE id = ?')
-    for (const chat of listChats()) {
-      if (chat.runtimeConfig.llmInstanceId !== id) continue
-      update.run(
-        json({ ...chat.runtimeConfig, llmInstanceId: null }),
-        now,
-        chat.id
-      )
-    }
-    project.db.prepare('DELETE FROM llm_instances WHERE id = ?').run(id)
-  })
-  transaction()
+  project.db.prepare('DELETE FROM llm_instances WHERE id = ?').run(id)
   return getProjectSnapshot()
 }
 
-function touchChat(chatId: number): void {
+export function getAppSession(appId: string, id: number): AppSessionRecord {
   const project = ensureProject()
-  project.db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(nowIso(), chatId)
+  const row = project.db.prepare('SELECT * FROM app_sessions WHERE app_id = ? AND id = ?').get(appId, id)
+  if (!row) throw new Error('存档不存在。')
+  return rowToAppSession(row)
 }
 
-export function createChat(payload: ChatCreatePayload = {}): ChatSession {
+function nextAppSessionId(appId: string): number {
   const project = ensureProject()
+  const row = project.db.prepare('SELECT MAX(id) AS max_id FROM app_sessions WHERE app_id = ?').get(appId) as { max_id?: number | null }
+  return Number(row?.max_id ?? -1) + 1
+}
+
+function appVersion(appId: string): number {
+  const app = listProjectAppsSync().find(item => item.manifest.id === appId)
+  if (!app) throw new Error('应用不存在。')
+  return app.manifest.version
+}
+
+export async function createAppSession(payload: AppSessionCreatePayload): Promise<AppSessionRecord> {
+  const project = ensureProject()
+  const id = nextAppSessionId(payload.appId)
+  const version = appVersion(payload.appId)
   const now = nowIso()
-  const recentInstance = listLlmInstances()[0] ?? null
-  const runtimeConfig = normalizeChatRuntimeConfig({
-    ...defaultChatRuntimeConfig(recentInstance?.id ?? null),
-    ...asRecord(payload.runtimeConfig)
-  })
-  const transaction = project.db.transaction(() => {
-    const result = project.db.prepare(`
-      INSERT INTO chat_sessions (title, runtime_config_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-    `).run(normalizeName(payload.title ?? '新聊天', '新聊天'), json(runtimeConfig), now, now)
-    return Number(result.lastInsertRowid)
-  })
-  return getChat(transaction())
+  const title = normalizeName(payload.title ?? '', `存档 ${id}`)
+  project.db.prepare(`
+    INSERT INTO app_sessions (app_id, id, title, version, created_at, updated_at, last_opened_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(payload.appId, id, title, version, now, now, now)
+  await mkdir(appSessionSaveRoot(payload.appId, id), { recursive: true })
+  return getAppSession(payload.appId, id)
 }
 
-export function updateChat(payload: ChatUpdatePayload): ChatSession {
+export async function updateAppSession(payload: AppSessionUpdatePayload): Promise<AppSessionRecord> {
   const project = ensureProject()
-  const chat = getChat(payload.id)
+  getAppSession(payload.appId, payload.id)
   const now = nowIso()
   project.db.prepare(`
-    UPDATE chat_sessions SET title = ?, runtime_config_json = ?, updated_at = ? WHERE id = ?
-  `).run(
-    payload.title === undefined ? chat.title : normalizeName(payload.title, '新聊天'),
-    json(normalizeChatRuntimeConfig(payload.runtimeConfig ?? chat.runtimeConfig)),
-    now,
-    payload.id
-  )
-  return getChat(payload.id)
+    UPDATE app_sessions SET title = ?, updated_at = ? WHERE app_id = ? AND id = ?
+  `).run(normalizeName(payload.title, `存档 ${payload.id}`), now, payload.appId, payload.id)
+  return getAppSession(payload.appId, payload.id)
 }
 
-export async function deleteChat(id: number): Promise<ProjectSnapshot> {
+export async function touchAppSession(appId: string, id: number): Promise<AppSessionRecord> {
   const project = ensureProject()
-  getChat(id)
-  project.db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id)
+  getAppSession(appId, id)
+  const now = nowIso()
+  project.db.prepare(`
+    UPDATE app_sessions SET last_opened_at = ?, updated_at = ? WHERE app_id = ? AND id = ?
+  `).run(now, now, appId, id)
+  return getAppSession(appId, id)
+}
+
+export async function deleteAppSession(appId: string, id: number): Promise<ProjectSnapshot> {
+  const project = ensureProject()
+  getAppSession(appId, id)
+  project.db.prepare('DELETE FROM app_sessions WHERE app_id = ? AND id = ?').run(appId, id)
+  await rm(appSessionSaveRoot(appId, id), { recursive: true, force: true })
   return getProjectSnapshot()
 }
 
-function nextChatBlockOrder(chatId: number): number {
+export async function deleteAppSessionsForApp(appId: string): Promise<void> {
   const project = ensureProject()
-  const row = project.db.prepare('SELECT COALESCE(MAX(order_index), 0) AS value FROM chat_blocks WHERE chat_id = ?').get(chatId) as { value: number }
-  return Number(row.value) + 1
-}
-
-function renumberChatBlocks(chatId: number): void {
-  const project = ensureProject()
-  const rows = project.db.prepare('SELECT id FROM chat_blocks WHERE chat_id = ? ORDER BY order_index ASC, id ASC').all(chatId) as { id: number }[]
-  const update = project.db.prepare('UPDATE chat_blocks SET order_index = ?, updated_at = ? WHERE id = ?')
-  const now = nowIso()
-  rows.forEach((row, index) => update.run(index + 1, now, row.id))
-}
-
-function chatBlockInsertionOrder(payload: DbChatBlockCreatePayload): number {
-  const project = ensureProject()
-  if (payload.insertRelativeBlockId && payload.insertPlacement) {
-    const relative = getChatBlock(payload.insertRelativeBlockId)
-    if (relative.chatId !== payload.chatId) throw new Error('插入位置不属于当前聊天。')
-    const orderIndex = payload.insertPlacement === 'before'
-      ? relative.orderIndex
-      : relative.orderIndex + 1
-    project.db.prepare(`
-      UPDATE chat_blocks SET order_index = order_index + 1 WHERE chat_id = ? AND order_index >= ?
-    `).run(payload.chatId, orderIndex)
-    return orderIndex
-  }
-
-  if (payload.kind === 'system') {
-    project.db.prepare('UPDATE chat_blocks SET order_index = order_index + 1 WHERE chat_id = ?').run(payload.chatId)
-    return 1
-  }
-
-  return nextChatBlockOrder(payload.chatId)
-}
-
-export function createChatBlock(payload: DbChatBlockCreatePayload): DbChatBlock {
-  const project = ensureProject()
-  getChat(payload.chatId)
-  const now = nowIso()
-  const orderIndex = chatBlockInsertionOrder(payload)
-  const metadata = chatBlockMetadataForStorage(payload.kind, payload.metadata)
-  const result = project.db.prepare(`
-    INSERT INTO chat_blocks (
-      chat_id, kind, enabled, status, order_index,
-      content_parts_json, metadata_json, llm_instance_snapshot_json,
-      error_text, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    payload.chatId,
-    payload.kind,
-    payload.enabled === false ? 0 : 1,
-    'idle',
-    orderIndex,
-    json(payload.contentParts),
-    json(metadata),
-    null,
-    '',
-    now,
-    now
-  )
-  renumberChatBlocks(payload.chatId)
-  touchChat(payload.chatId)
-  return getChatBlock(Number(result.lastInsertRowid))
-}
-
-export function updateChatBlock(payload: DbChatBlockUpdatePayload): DbChatBlock {
-  const project = ensureProject()
-  const block = getChatBlock(payload.id)
-  const now = nowIso()
-  const metadata = payload.metadata === undefined
-    ? block.metadata
-    : chatBlockMetadataForStorage(block.kind, payload.metadata)
-  project.db.prepare(`
-    UPDATE chat_blocks
-    SET enabled = ?, content_parts_json = ?, metadata_json = ?, status = ?, error_text = ?, updated_at = ?
-    WHERE id = ?
-  `).run(
-    payload.enabled === undefined ? (block.enabled ? 1 : 0) : (payload.enabled ? 1 : 0),
-    json(payload.contentParts ?? block.contentParts),
-    json(metadata),
-    payload.preserveStatus ? chatBlockStatusForStorage(block.status) : 'idle',
-    payload.preserveStatus ? block.errorText : '',
-    now,
-    payload.id
-  )
-  touchChat(block.chatId)
-  return getChatBlock(payload.id)
-}
-
-export async function deleteChatBlock(id: number): Promise<ProjectSnapshot> {
-  const project = ensureProject()
-  const block = getChatBlock(id)
-  project.db.prepare('DELETE FROM chat_blocks WHERE id = ?').run(id)
-  renumberChatBlocks(block.chatId)
-  touchChat(block.chatId)
-  return getProjectSnapshot()
-}
-
-export function createAssistantGenerationBlock(chatId: number, llmInstance: LlmInstance): DbChatBlock {
-  const project = ensureProject()
-  getChat(chatId)
-  const now = nowIso()
-  const result = project.db.prepare(`
-    INSERT INTO chat_blocks (
-      chat_id, kind, enabled, status, order_index,
-      content_parts_json, metadata_json, llm_instance_snapshot_json,
-      error_text, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    chatId,
-    'assistant',
-    0,
-    'idle',
-    nextChatBlockOrder(chatId),
-    json([{ type: 'text', text: '' }]),
-    json({ generationStartedAt: now }),
-    json(llmInstance),
-    '',
-    now,
-    now
-  )
-  touchChat(chatId)
-  return getChatBlock(Number(result.lastInsertRowid))
-}
-
-export function prepareAssistantBlockForRegeneration(id: number, llmInstance: LlmInstance): DbChatBlock {
-  const project = ensureProject()
-  const block = getChatBlock(id)
-  if (block.kind !== 'assistant') throw new Error('只能重新生成助手块。')
-  const now = nowIso()
-  const metadata: JsonRecord = { ...block.metadata, generationStartedAt: now }
-  delete metadata.usage
-  delete metadata.finishReason
-  delete metadata.usageRecordedAt
-  delete metadata.generationFinishedAt
-  project.db.prepare(`
-    UPDATE chat_blocks
-    SET enabled = 0, status = 'idle', content_parts_json = ?, llm_instance_snapshot_json = ?,
-        metadata_json = ?, error_text = '', updated_at = ?
-    WHERE id = ?
-  `).run(json([{ type: 'text', text: '' }]), json(llmInstance), json(metadata), now, id)
-  touchChat(block.chatId)
-  return getChatBlock(id)
-}
-
-export function updateAssistantGenerationBlock(
-  id: number,
-  contentParts: ChatContentPart[],
-  status: 'generating' | 'idle' | 'stopped' | 'error',
-  enabled: boolean,
-  errorText = '',
-  metadataPatch?: JsonRecord
-): DbChatBlock {
-  const project = ensureProject()
-  const block = getChatBlock(id)
-  const now = nowIso()
-  const metadata = metadataPatch === undefined
-    ? block.metadata
-    : { ...block.metadata, ...metadataPatch }
-  project.db.prepare(`
-    UPDATE chat_blocks
-    SET content_parts_json = ?, metadata_json = ?, status = ?, enabled = ?, error_text = ?, updated_at = ?
-    WHERE id = ?
-  `).run(
-    json(contentParts),
-    json(metadata),
-    chatBlockStatusForStorage(status),
-    enabled ? 1 : 0,
-    errorText,
-    now,
-    id
-  )
-  touchChat(block.chatId)
-  return getChatBlock(id)
+  project.db.prepare('DELETE FROM app_sessions WHERE app_id = ?').run(appId)
+  await rm(appSaveRoot(appId), { recursive: true, force: true })
 }

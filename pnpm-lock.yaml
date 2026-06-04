@@ -23,9 +23,9 @@ importers:
       '@faker-js/faker':
         specifier: ^10.4.0
         version: 10.4.0
-      '@huaian/plugin-api':
+      '@huaian/app-api':
         specifier: workspace:*
-        version: link:packages/plugin-api
+        version: link:packages/app-api
       ai:
         specifier: ^6.0.193
         version: 6.0.193(zod@4.4.3)
@@ -91,7 +91,7 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(typescript@6.0.3)
 
-  packages/plugin-api:
+  packages/app-api:
     devDependencies:
       typescript:
         specifier: ^6.0.3
@@ -102,24 +102,6 @@ importers:
       vitest:
         specifier: ^4.0.15
         version: 4.1.7(@opentelemetry/api@1.9.1)(@types/node@25.2.2)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.2)(esbuild@0.27.3)(jiti@2.6.1)(less@4.5.1))
-
-  packages/plugins/silly_tavern_compat:
-    dependencies:
-      '@huaian/plugin-api':
-        specifier: workspace:*
-        version: link:../../plugin-api
-      vue:
-        specifier: ^3.5.27
-        version: 3.5.27(typescript@6.0.3)
-
-  packages/plugins/st_prompt_template_compat:
-    dependencies:
-      '@huaian/plugin-api':
-        specifier: workspace:*
-        version: link:../../plugin-api
-      ejs:
-        specifier: ^6.0.1
-        version: 6.0.1
 
   packages/streaming-markdown:
     dependencies:
@@ -1161,11 +1143,6 @@ packages:
   ejs@3.1.10:
     resolution: {integrity: sha512-UeJmFfOrAQS8OJWPZ4qtgHyWExa088/MtK5UEyoJGFH67cDEXkZSviOiKRCZ4Xij0zxI3JECgYs3oKx+AizQBA==}
     engines: {node: '>=0.10.0'}
-    hasBin: true
-
-  ejs@6.0.1:
-    resolution: {integrity: sha512-UaaM14yby8U3k02ihS1Bmj5Kz2d7CCQM1scxpgs4Mhkq8F1wR2gl3+Ts4h5Ne4Mnt7M9m4Dw7jsuMr3+xO4vZA==}
-    engines: {node: '>=0.12.18'}
     hasBin: true
 
   electron-builder-squirrel-windows@25.1.8:
@@ -3667,8 +3644,6 @@ snapshots:
     dependencies:
       jake: 10.9.4
 
-  ejs@6.0.1: {}
-
   electron-builder-squirrel-windows@25.1.8(dmg-builder@25.1.8):
     dependencies:
       app-builder-lib: 25.1.8(dmg-builder@25.1.8)(electron-builder-squirrel-windows@25.1.8)
@@ -3834,10 +3809,6 @@ snapshots:
   fd-slicer@1.1.0:
     dependencies:
       pend: 1.2.0
-
-  fdir@6.5.0(picomatch@4.0.3):
-    optionalDependencies:
-      picomatch: 4.0.3
 
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
@@ -4889,8 +4860,8 @@ snapshots:
 
   tinyglobby@0.2.15:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.3)
-      picomatch: 4.0.3
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
 
   tinyglobby@0.2.16:
     dependencies:

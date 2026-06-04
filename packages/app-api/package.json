@@ -1,18 +1,11 @@
 {
-  "name": "@huaian/plugin-api",
+  "name": "@huaian/app-api",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "test": "vitest run"
-  },
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
-    },
-    "./chat-blocks": {
-      "types": "./src/chat-blocks.ts",
-      "import": "./src/chat-blocks.ts"
     },
     "./client": {
       "types": "./src/client.ts",

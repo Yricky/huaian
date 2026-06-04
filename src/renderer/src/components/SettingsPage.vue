@@ -362,7 +362,7 @@ function selectModel(modelId: string) {
           <label class="switch-row">
             <span>
               <strong>调试模式</strong>
-              <small>插件 iframe URL 标签</small>
+              <small>应用 iframe 调试信息</small>
             </span>
             <input type="checkbox" :checked="debugMode"
               @change="setDebugMode(($event.target as HTMLInputElement).checked)" />

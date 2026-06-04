@@ -2,10 +2,10 @@ import { protocol } from 'electron'
 import { readFile, realpath } from 'fs/promises'
 import { extname, isAbsolute, relative, resolve } from 'path'
 import { getCurrentProject } from './project/state'
-import { pluginAssetPath, pluginAssetRoot } from './project/plugins'
+import { appAssetPath, appAssetRoot } from './project/apps'
 
 export const ASSET_PROTOCOL = 'ha-asset'
-export const PLUGIN_PROTOCOL = 'ha-ext'
+export const APP_PROTOCOL = 'ha-app'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.apng': 'image/apng',
@@ -34,14 +34,14 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2'
 }
 
-const PLUGIN_CONTENT_SECURITY_POLICY = [
-  "default-src 'self' 'unsafe-inline' data:",
-  "script-src 'self' 'unsafe-inline'",
+const APP_CONTENT_SECURITY_POLICY = [
+  "default-src 'self' 'unsafe-inline' data: blob:",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: ${PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
-  `font-src 'self' data: ${PLUGIN_PROTOCOL}:`,
-  `media-src 'self' data: ${PLUGIN_PROTOCOL}:`,
-  `connect-src 'self' data: ${PLUGIN_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  `img-src 'self' data: blob: ${APP_PROTOCOL}: ${ASSET_PROTOCOL}:`,
+  `font-src 'self' data: ${APP_PROTOCOL}:`,
+  `media-src 'self' data: blob: ${APP_PROTOCOL}:`,
+  `connect-src 'self' data: blob: ${APP_PROTOCOL}: ${ASSET_PROTOCOL}: http: https:`,
   "worker-src 'self' blob:"
 ].join('; ')
 
@@ -64,14 +64,16 @@ function decodeAssetPath(url: string): string | null {
   }
 }
 
-function decodePluginAssetUrl(url: string): { pluginId: string, path: string } | null {
+function decodeAppAssetUrl(url: string): { appId: string, path: string } | null {
   try {
     const parsed = new URL(url)
-    if (parsed.protocol !== `${PLUGIN_PROTOCOL}:` || !parsed.hostname) return null
-    const pathSegments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
+    if (parsed.protocol !== `${APP_PROTOCOL}:`) return null
+    const segments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
+    if (parsed.hostname !== 'app' || !segments.length) return null
+    const [appId, ...pathSegments] = segments
     return {
-      pluginId: decodeURIComponent(parsed.hostname),
-      path: pathSegments.join('/')
+      appId,
+      path: pathSegments.join('/') || 'index.html'
     }
   } catch {
     return null
@@ -95,7 +97,7 @@ export function registerAssetProtocolSchemes(): void {
       }
     },
     {
-      scheme: PLUGIN_PROTOCOL,
+      scheme: APP_PROTOCOL,
       privileges: {
         corsEnabled: true,
         secure: true,
@@ -135,32 +137,30 @@ export function registerAssetProtocol(): void {
     }
   })
 
-  const handlePluginAssetRequest = async (request: Request) => {
+  protocol.handle(APP_PROTOCOL, async request => {
     const project = getCurrentProject()
-    const asset = decodePluginAssetUrl(request.url)
-    if (!project || !asset?.pluginId) return notFound()
+    const asset = decodeAppAssetUrl(request.url)
+    if (!project || !asset?.appId) return notFound()
 
     try {
-      const requestedPath = pluginAssetPath(asset.pluginId, asset.path)
-      const [filePath, realPluginRoot] = await Promise.all([
+      const requestedPath = appAssetPath(asset.appId, asset.path)
+      const [filePath, realAppRoot] = await Promise.all([
         realpath(requestedPath),
-        realpath(pluginAssetRoot(asset.pluginId))
+        realpath(appAssetRoot(asset.appId))
       ])
-      if (!isInDirectory(filePath, realPluginRoot)) return notFound()
+      if (!isInDirectory(filePath, realAppRoot)) return notFound()
 
       const bytes = await readFile(filePath)
       return new Response(new Uint8Array(bytes), {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'no-store',
-          'Content-Security-Policy': PLUGIN_CONTENT_SECURITY_POLICY,
+          'Content-Security-Policy': APP_CONTENT_SECURITY_POLICY,
           'Content-Type': contentTypeForPath(filePath)
         }
       })
     } catch {
       return notFound()
     }
-  }
-
-  protocol.handle(PLUGIN_PROTOCOL, handlePluginAssetRequest)
+  })
 }

@@ -1,57 +1,55 @@
 import { app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
-  ChatCreatePayload,
-  ChatGenerationRequest,
-  ChatUpdatePayload,
-  DbChatBlockCreatePayload,
-  DbChatBlockUpdatePayload,
+  AppLlmGenerationRequest,
+  AppSessionCreatePayload,
+  AppSessionUpdatePayload,
+  AppStorageDeleteOptions,
+  AppStorageKind,
+  AppToolCallResponse,
+  AppUninstallOptions,
   IpcInvokeChannel,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
-  PluginToolCallResponse,
   ProjectConfigUpdatePayload
 } from '../shared/types'
 import {
   hasActiveGeneration,
-  previewChatGeneration,
-  resolvePluginToolCall,
-  startChatGeneration,
-  stopChatGeneration,
-  withActiveGenerationSnapshot
+  resolveAppToolCall,
+  startAppChatGeneration,
+  stopAppChatGeneration
 } from './project/llm-runtime'
 import { fetchProviderModels } from './project/llm-provider'
 import { hasProject } from './project/state'
 import {
-  deletePluginDataFile,
-  listPluginDataFiles,
-  listProjectPlugins,
-  readPluginDataFileBytes,
-  readPluginDataFile,
-  readPluginFile,
-  writePluginDataFileBytes,
-  writePluginDataFile
-} from './project/plugins'
+  deleteAppStoragePath,
+  installAppZip,
+  listAppStorageFiles,
+  makeAppStorageDirectory,
+  readAppStorageFile,
+  readAppStorageFileBytes,
+  uninstallApp,
+  writeAppStorageFile,
+  writeAppStorageFileBytes
+} from './project/apps'
 import {
   clearLlmProviderModelsCache,
-  createChat,
-  createChatBlock,
+  createAppSession,
   createLlmInstance,
   createLlmProvider,
-  deleteChat,
-  deleteChatBlock,
+  deleteAppSession,
+  deleteAppSessionsForApp,
   deleteLlmInstance,
   deleteLlmProvider,
   forgetRecentProject,
-  getChatBlock,
   getProjectSnapshot,
   listRecentProjects,
   openDefaultProject,
   openProjectAt,
   restoreLlmProviderFromInstance,
-  updateChat,
-  updateChatBlock,
+  touchAppSession,
+  updateAppSession,
   updateProjectConfig,
   updateLlmInstance,
   updateLlmProvider
@@ -59,7 +57,7 @@ import {
 
 function ensureCanSwitchProject(): void {
   if (hasActiveGeneration()) {
-    throw new Error('有聊天正在生成，请先停止生成后再切换项目。')
+    throw new Error('有应用正在生成回复，请先停止生成后再切换项目。')
   }
 }
 
@@ -71,14 +69,14 @@ function handleIpc<TArgs extends unknown[], TResult>(
 }
 
 export function registerIpcHandlers(): void {
-  handleIpc('project:get', async () => withActiveGenerationSnapshot(hasProject() ? getProjectSnapshot() : await openDefaultProject()))
+  handleIpc('project:get', async () => hasProject() ? getProjectSnapshot() : await openDefaultProject())
   handleIpc('project:listRecent', () => listRecentProjects())
   handleIpc('project:updateConfig', (_, payload: ProjectConfigUpdatePayload) => updateProjectConfig(payload))
   handleIpc('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) {
-      return withActiveGenerationSnapshot(hasProject() ? getProjectSnapshot() : await openDefaultProject())
+      return hasProject() ? getProjectSnapshot() : await openDefaultProject()
     }
     return openProjectAt(result.filePaths[0])
   })
@@ -94,62 +92,60 @@ export function registerIpcHandlers(): void {
 
   handleIpc('llm:createProvider', (_, payload: LlmProviderCreatePayload) => createLlmProvider(payload))
   handleIpc('llm:updateProvider', (_, payload: LlmProviderUpdatePayload) => updateLlmProvider(payload))
-  handleIpc('llm:deleteProvider', async (_, id: number) => withActiveGenerationSnapshot(await deleteLlmProvider(id)))
+  handleIpc('llm:deleteProvider', (_, id: number) => deleteLlmProvider(id))
   handleIpc('llm:fetchProviderModels', (_, id: number) => fetchProviderModels(id))
   handleIpc('llm:clearProviderModelsCache', (_, id: number) => clearLlmProviderModelsCache(id))
   handleIpc('llm:restoreProviderFromInstance', (_, id: number) => restoreLlmProviderFromInstance(id))
 
   handleIpc('llm:createInstance', (_, payload: LlmInstanceCreatePayload) => createLlmInstance(payload))
   handleIpc('llm:updateInstance', (_, payload: LlmInstanceUpdatePayload) => updateLlmInstance(payload))
-  handleIpc('llm:deleteInstance', async (_, id: number) => withActiveGenerationSnapshot(await deleteLlmInstance(id)))
+  handleIpc('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
 
-  handleIpc('chat:create', (_, payload?: ChatCreatePayload) => createChat(payload ?? {}))
-  handleIpc('chat:update', (_, payload: ChatUpdatePayload) => updateChat(payload))
-  handleIpc('chat:delete', (_, id: number) => {
-    if (hasActiveGeneration(id)) {
-      throw new Error('这个聊天正在生成，请先停止生成。')
-    }
-    return deleteChat(id)
+  handleIpc('haApp:install', async () => {
+    const result = await dialog.showOpenDialog({
+      filters: [{ name: 'Huaian App', extensions: ['zip'] }],
+      properties: ['openFile']
+    })
+    if (!result.filePaths[0] || result.canceled) return getProjectSnapshot()
+    await installAppZip(result.filePaths[0])
+    return getProjectSnapshot()
   })
-  handleIpc('chat:createBlock', (_, payload: DbChatBlockCreatePayload) => {
-    if (hasActiveGeneration(payload.chatId)) {
-      throw new Error('当前聊天正在生成，请等待结束或停止后再添加聊天块。')
-    }
-    return createChatBlock(payload)
+  handleIpc('haApp:uninstall', async (_, appId: string, options: AppUninstallOptions) => {
+    await uninstallApp(appId, options)
+    if (options.deleteAllSaves) await deleteAppSessionsForApp(appId)
+    return getProjectSnapshot()
   })
-  handleIpc('chat:updateBlock', (_, payload: DbChatBlockUpdatePayload) => {
-    const block = getChatBlock(payload.id)
-    if (hasActiveGeneration(block.chatId)) {
-      throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
-    }
-    return updateChatBlock(payload)
-  })
-  handleIpc('chat:deleteBlock', (_, id: number) => {
-    const block = getChatBlock(id)
-    if (hasActiveGeneration(block.chatId)) {
-      throw new Error('当前聊天正在生成，请等待结束或停止后再编辑聊天块。')
-    }
-    return deleteChatBlock(id)
-  })
-  handleIpc('chat:startGeneration', (event, payload: ChatGenerationRequest) => startChatGeneration(payload, event.sender))
-  handleIpc('chat:previewGeneration', (_, payload: ChatGenerationRequest) => previewChatGeneration(payload))
-  handleIpc('chat:stopGeneration', (_, chatId: number) => stopChatGeneration(chatId))
+  handleIpc('haApp:createSession', (_, payload: AppSessionCreatePayload) => createAppSession(payload))
+  handleIpc('haApp:updateSession', (_, payload: AppSessionUpdatePayload) => updateAppSession(payload))
+  handleIpc('haApp:deleteSession', (_, appId: string, id: number) => deleteAppSession(appId, id))
+  handleIpc('haApp:touchSession', (_, appId: string, id: number) => touchAppSession(appId, id))
+  handleIpc('haApp:listStorage', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string | undefined = '') => (
+    listAppStorageFiles(kind, appId, appSessionId, path)
+  ))
+  handleIpc('haApp:makeStorageDirectory', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string) => (
+    makeAppStorageDirectory(kind, appId, appSessionId, path)
+  ))
+  handleIpc('haApp:readStorageFile', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string) => (
+    readAppStorageFile(kind, appId, appSessionId, path)
+  ))
+  handleIpc('haApp:readStorageFileBytes', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string) => (
+    readAppStorageFileBytes(kind, appId, appSessionId, path)
+  ))
+  handleIpc('haApp:writeStorageFile', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: string) => (
+    writeAppStorageFile(kind, appId, appSessionId, path, content)
+  ))
+  handleIpc('haApp:writeStorageFileBytes', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: Uint8Array) => (
+    writeAppStorageFileBytes(kind, appId, appSessionId, path, content)
+  ))
+  handleIpc('haApp:deleteStoragePath', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, options?: AppStorageDeleteOptions) => (
+    deleteAppStoragePath(kind, appId, appSessionId, path, options)
+  ))
 
-  handleIpc('plugin:list', () => listProjectPlugins())
-  handleIpc('plugin:readFile', (_, pluginId: string, path: string) => readPluginFile(pluginId, path))
-  handleIpc('plugin:listDataFiles', (_, pluginId: string, path: string | undefined = '') => (
-    listPluginDataFiles(pluginId, path)
+  handleIpc('haAppChat:startGeneration', (event, payload: AppLlmGenerationRequest) => startAppChatGeneration(payload, event.sender))
+  handleIpc('haAppChat:stopGeneration', (_, appId: string, appSessionId: number, chatSessionId?: number) => (
+    stopAppChatGeneration(appId, appSessionId, chatSessionId)
   ))
-  handleIpc('plugin:readDataFile', (_, pluginId: string, path: string) => readPluginDataFile(pluginId, path))
-  handleIpc('plugin:readDataFileBytes', (_, pluginId: string, path: string) => readPluginDataFileBytes(pluginId, path))
-  handleIpc('plugin:writeDataFile', (_, pluginId: string, path: string, content: string) => (
-    writePluginDataFile(pluginId, path, content)
-  ))
-  handleIpc('plugin:writeDataFileBytes', (_, pluginId: string, path: string, content: Uint8Array) => (
-    writePluginDataFileBytes(pluginId, path, content)
-  ))
-  handleIpc('plugin:deleteDataFile', (_, pluginId: string, path: string) => deletePluginDataFile(pluginId, path))
-  handleIpc('plugin:toolCallResponse', (_, payload: PluginToolCallResponse) => resolvePluginToolCall(payload))
+  handleIpc('haAppChat:toolCallResponse', (_, payload: AppToolCallResponse) => resolveAppToolCall(payload))
 
   handleIpc('app:getVersion', () => app.getVersion())
   handleIpc('app:getName', () => app.getName())

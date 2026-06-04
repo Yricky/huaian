@@ -1,187 +1,78 @@
-import type {
-  ChatBlockKind,
-  ChatBlockStatus,
-  ChatContentPart,
-  ChatGenerationPreviewMessage,
-  JsonRecord,
-  OriginalChatBlock,
-  ProcessingChat,
-  PluginFrameApiMethod,
-  PluginManifest,
-  PluginToolCallRequest as PluginHandlerToolCallRequest,
-  PluginFileEntry
-} from '@huaian/plugin-api'
-
-export type {
-  ChatBlockKind,
-  ChatBlockStatus,
-  ChatBlockTargetRole,
-  ChatContentPart,
-  ChatGenerationPreviewMessage,
-  HaExtApi,
-  HaExtApiInstallOptions,
-  HaExtChatApi,
-  HaExtToolSettingsApi,
-  JsonRecord,
-  MixedChatBlock,
-  OriginalChatBlock,
-  ProcessingChat,
-  PluginFileEntry,
-  PluginFrameApiMethod,
-  PluginGlobalExport,
-  PluginGlobalRegistry,
-  PluginManifest,
-  PluginManifestEntry,
-  PluginRuntimeContext,
-  PluginStorageApi,
-  PluginToolCallDefinition,
-  PluginToolSchema,
-  ReasoningContentPart,
-  TextContentPart,
-  ToolCallContentPart,
-  ToolCallContentPartStatus
-} from '@huaian/plugin-api'
-
-export { PLUGIN_FRAME_API_METHODS } from '@huaian/plugin-api'
-
-export interface PluginDescriptor {
-  manifest: PluginManifest
-  source: 'project'
-}
-
-export interface PluginProjectConfig {
-  enabledPluginIds: string[]
-}
-
-export interface ChatCreationDefaults {
-  enabledPluginIds: string[]
-}
-
-export interface ChatRuntimeConfig {
-  llmInstanceId: number | null
-  enabledPluginIds: string[]
-  pluginData: JsonRecord
-  toolDefinitions: ChatToolDefinition[]
-}
-
-export interface ChatToolDefinition {
-  pluginId: string
-  toolCallName: string
-  commonArgs: JsonRecord
-}
-
-export interface ChatSession {
-  id: number
-  title: string
-  runtimeConfig: ChatRuntimeConfig
-  createdAt: string
-  updatedAt: string
-}
-
-export interface DbChatBlock {
-  id: number
-  chatId: number
-  kind: ChatBlockKind
-  enabled: boolean
-  status: ChatBlockStatus
-  orderIndex: number
-  contentParts: ChatContentPart[]
-  metadata: JsonRecord
-  llmInstanceSnapshot: LlmInstance | null
-  errorText: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface DbChatBlockCreatePayload {
-  chatId: number
-  kind: ChatBlockKind
-  enabled?: boolean
-  contentParts: ChatContentPart[]
-  metadata?: JsonRecord
-  insertRelativeBlockId?: number | null
-  insertPlacement?: 'before' | 'after' | null
-}
-
-export interface DbChatBlockUpdatePayload {
-  id: number
-  enabled?: boolean
-  contentParts?: ChatContentPart[]
-  metadata?: JsonRecord
-  preserveStatus?: boolean
-}
-
-export interface LlmToolDefinition {
-  pluginId: string
-  toolCallName: string
-  toolName: string
-  description: string
-  inputSchema: JsonRecord
-  commonArgs: JsonRecord
-  prompt?: string
-}
-
-export interface ChatGenerationRequest {
-  chatId: number
-  regenerateBlockId?: number | null
-  messages?: ChatGenerationPreviewMessage[]
-  toolDefinitions?: LlmToolDefinition[]
-}
-
-export interface PluginToolCallRequest extends PluginHandlerToolCallRequest {
-  requestId: string
-  pluginId: string
-}
-
-export interface PluginToolCallResponse {
-  requestId: string
-  ok: boolean
-  output?: CloneableValue
-  error?: string
-}
+export type JsonRecord = Record<string, unknown>
+export type JsonRecordValue = JsonRecord[string]
 
 export type CloneablePrimitive = string | number | boolean | null | undefined
 export type CloneableRecord = { [key: string]: CloneableValue }
 export type CloneableValue = CloneablePrimitive | CloneableValue[] | CloneableRecord
-export type JsonRecordValue = JsonRecord[string]
 
-export interface ChatBlockTokenUsage {
-  inputTokens?: number | null
-  inputTokenDetails?: {
-    noCacheTokens?: number | null
-    cacheReadTokens?: number | null
-    cacheWriteTokens?: number | null
-  }
-  outputTokens?: number | null
-  outputTokenDetails?: {
-    textTokens?: number | null
-    reasoningTokens?: number | null
-  }
-  totalTokens?: number | null
-  raw?: JsonRecord
+export interface AppManifest {
+  id: string
+  name?: string
+  description?: string
+  version: number
+  icon?: string
+}
+
+export interface AppDescriptor {
+  manifest: AppManifest
+  source: 'project'
+}
+
+export interface AppFileEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  size?: number
+}
+
+export interface AppSessionRecord {
+  id: number
+  appId: string
+  title: string
+  version: number
+  createdAt: string
+  updatedAt: string
+  lastOpenedAt: string
+}
+
+export interface AppSessionCreatePayload {
+  appId: string
+  title?: string
+}
+
+export interface AppSessionUpdatePayload {
+  appId: string
+  id: number
+  title: string
+}
+
+export interface AppUninstallOptions {
+  deleteConfigData: boolean
+  deleteAllSaves: boolean
+}
+
+export type AppStorageKind = 'appData' | 'save'
+
+export interface AppStorageDeleteOptions {
+  recursive?: boolean
 }
 
 export interface ProjectConfig {
   schemaVersion: number
-  chatCreateDefaults: ChatCreationDefaults
   debugMode: boolean
-  plugins: PluginProjectConfig
 }
 
 export interface ProjectConfigUpdatePayload {
-  chatCreateDefaults?: ChatCreationDefaults
   debugMode?: boolean
-  plugins?: PluginProjectConfig
 }
 
 export interface ProjectSnapshot {
   path: string
   config: ProjectConfig
-  plugins: PluginDescriptor[]
+  apps: AppDescriptor[]
+  appSessions: AppSessionRecord[]
   llmProviders: LlmProvider[]
   llmInstances: LlmInstance[]
-  chats: ChatSession[]
-  chatBlocks: DbChatBlock[]
 }
 
 export interface RecentProject {
@@ -255,29 +146,174 @@ export interface LlmInstanceCreatePayload {
 
 export type LlmInstanceUpdatePayload = LlmInstanceCreatePayload & { id: number }
 
-export interface ChatCreatePayload {
-  title?: string
-  runtimeConfig?: Partial<ChatRuntimeConfig>
+export type AppChatRole = 'system' | 'user' | 'assistant'
+export type AppChatSessionStatus = 'idle' | 'generating' | 'stopped' | 'error'
+export type AppChatMessageStatus = 'idle' | 'generating' | 'stopped' | 'error'
+export type ToolCallContentPartStatus = 'pending' | 'success' | 'error'
+
+export interface TextContentPart {
+  type: 'text'
+  text: string
 }
 
-export interface ChatUpdatePayload {
+export interface ReasoningContentPart {
+  type: 'reasoning'
+  text: string
+  sendAsContext?: boolean
+}
+
+export interface ToolCallContentPart {
+  type: 'tool_call'
+  toolCallId: string
+  toolName: string
+  status: ToolCallContentPartStatus
+  input: JsonRecord
+  output?: unknown
+  error?: string
+  createdAt: string
+  updatedAt: string
+  extensions?: JsonRecord
+}
+
+export type AppChatContentPart = TextContentPart | ReasoningContentPart | ToolCallContentPart
+
+export interface AppChatMessage {
   id: number
+  role: AppChatRole
+  contentParts: AppChatContentPart[]
+  status: AppChatMessageStatus
+  metadata: JsonRecord
+  errorText: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AppToolDefinition {
+  name: string
+  description: string
+  inputSchema: JsonRecord
+}
+
+export interface AppChatSessionState {
+  id: number
+  title: string
+  messages: AppChatMessage[]
+  tools: AppToolDefinition[]
+  llmInstanceId: number | null
+  allowUserReply: boolean
+  options: string[]
+  status: AppChatSessionStatus
+  errorText: string
+}
+
+export interface AppChatSessionCreatePayload {
   title?: string
-  runtimeConfig?: ChatRuntimeConfig
+  messages?: AppChatMessage[]
+  tools?: AppToolDefinition[]
+  llmInstanceId?: number | null
+  allowUserReply?: boolean
+  options?: string[]
 }
 
-export interface ChatGenerationStartResult {
-  block: DbChatBlock
+export type AppChatSessionUpdatePayload = Partial<Omit<AppChatSessionState, 'id'>>
+
+export interface AppChatMessageCreatePayload {
+  role: AppChatRole
+  content?: string
+  contentParts?: AppChatContentPart[]
+  status?: AppChatMessageStatus
+  metadata?: JsonRecord
+  errorText?: string
 }
 
-export type ChatGenerationEvent =
-  | { type: 'started'; chatId: number; block: DbChatBlock }
-  | { type: 'delta'; chatId: number; blockId: number; text: string; content: string; contentParts: ChatContentPart[] }
-  | { type: 'finished'; chatId: number; block: DbChatBlock }
-  | { type: 'stopped'; chatId: number; block: DbChatBlock }
-  | { type: 'error'; chatId: number; block: DbChatBlock; error: string }
+export interface AppChatMessageUpdatePayload {
+  role?: AppChatRole
+  contentParts?: AppChatContentPart[]
+  status?: AppChatMessageStatus
+  metadata?: JsonRecord
+  errorText?: string
+}
 
-export type SidebarView = 'chat' | 'settings' | 'plugins'
+export interface AppLlmGenerationRequest {
+  appId: string
+  appSessionId: number
+  chatSessionId: number
+  assistantMessageId: number
+  llmInstanceId: number | null
+  messages: AppChatMessage[]
+  tools: AppToolDefinition[]
+}
+
+export interface AppLlmGenerationStartResult {
+  appId: string
+  appSessionId: number
+  chatSessionId: number
+  assistantMessageId: number
+}
+
+export type AppLlmGenerationEvent =
+  | { type: 'started'; appId: string; appSessionId: number; chatSessionId: number; assistantMessageId: number }
+  | {
+    type: 'delta'
+    appId: string
+    appSessionId: number
+    chatSessionId: number
+    assistantMessageId: number
+    text: string
+    contentParts: AppChatContentPart[]
+  }
+  | {
+    type: 'finished' | 'stopped'
+    appId: string
+    appSessionId: number
+    chatSessionId: number
+    assistantMessageId: number
+    contentParts: AppChatContentPart[]
+  }
+  | {
+    type: 'error'
+    appId: string
+    appSessionId: number
+    chatSessionId: number
+    assistantMessageId: number
+    contentParts: AppChatContentPart[]
+    error: string
+  }
+
+export interface AppToolCallRequest {
+  requestId: string
+  appId: string
+  appSessionId: number
+  chatSessionId: number
+  toolName: string
+  input: JsonRecord
+}
+
+export interface AppToolCallResponse {
+  requestId: string
+  ok: boolean
+  output?: CloneableValue
+  error?: string
+}
+
+export type AppFrameEvent =
+  | { type: 'userMessage'; chatSessionId: number; text: string; source: 'composer' | 'option' }
+  | { type: 'userStoppedReply'; chatSessionId: number }
+  | { type: 'llmReplyStarted'; chatSessionId: number; assistantMessageId: number }
+  | { type: 'llmReplyDelta'; chatSessionId: number; assistantMessageId: number; text: string; contentParts: AppChatContentPart[] }
+  | { type: 'llmReplyFinished'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
+  | { type: 'llmReplyStopped'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
+  | { type: 'llmReplyError'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[]; error: string }
+  | { type: 'toolCall'; requestId: string; chatSessionId: number; toolName: string; input: JsonRecord }
+
+export interface AppFrameContext {
+  appId: string
+  appVersion: number
+  appSessionId: number
+  appSessionTitle: string
+}
+
+export type SidebarView = 'apps' | 'settings'
 
 export type IpcInvokeChannel =
   | 'project:get'
@@ -294,29 +330,27 @@ export type IpcInvokeChannel =
   | 'llm:createInstance'
   | 'llm:updateInstance'
   | 'llm:deleteInstance'
-  | 'chat:create'
-  | 'chat:update'
-  | 'chat:delete'
-  | 'chat:createBlock'
-  | 'chat:updateBlock'
-  | 'chat:deleteBlock'
-  | 'chat:startGeneration'
-  | 'chat:previewGeneration'
-  | 'chat:stopGeneration'
-  | 'plugin:list'
-  | 'plugin:readFile'
-  | 'plugin:listDataFiles'
-  | 'plugin:readDataFile'
-  | 'plugin:readDataFileBytes'
-  | 'plugin:writeDataFile'
-  | 'plugin:writeDataFileBytes'
-  | 'plugin:deleteDataFile'
-  | 'plugin:toolCallResponse'
+  | 'haApp:install'
+  | 'haApp:uninstall'
+  | 'haApp:createSession'
+  | 'haApp:updateSession'
+  | 'haApp:deleteSession'
+  | 'haApp:touchSession'
+  | 'haApp:listStorage'
+  | 'haApp:makeStorageDirectory'
+  | 'haApp:readStorageFile'
+  | 'haApp:readStorageFileBytes'
+  | 'haApp:writeStorageFile'
+  | 'haApp:writeStorageFileBytes'
+  | 'haApp:deleteStoragePath'
+  | 'haAppChat:startGeneration'
+  | 'haAppChat:stopGeneration'
+  | 'haAppChat:toolCallResponse'
   | 'app:getVersion'
   | 'app:getName'
   | 'app:quit'
 
-export type IpcRendererEventChannel = 'plugin:toolCallRequest' | 'chat:generationEvent'
+export type IpcRendererEventChannel = 'haAppChat:generationEvent' | 'haAppChat:toolCallRequest'
 
 export interface ElectronApi {
   getProject(): Promise<ProjectSnapshot>
@@ -333,172 +367,26 @@ export interface ElectronApi {
   createLlmInstance(payload: LlmInstanceCreatePayload): Promise<LlmInstance>
   updateLlmInstance(payload: LlmInstanceUpdatePayload): Promise<LlmInstance>
   deleteLlmInstance(id: number): Promise<ProjectSnapshot>
-  createChat(payload?: ChatCreatePayload): Promise<ChatSession>
-  updateChat(payload: ChatUpdatePayload): Promise<ChatSession>
-  deleteChat(id: number): Promise<ProjectSnapshot>
-  createChatBlock(payload: DbChatBlockCreatePayload): Promise<DbChatBlock>
-  updateChatBlock(payload: DbChatBlockUpdatePayload): Promise<DbChatBlock>
-  deleteChatBlock(id: number): Promise<ProjectSnapshot>
-  startChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationStartResult>
-  previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[]>
-  stopChatGeneration(chatId: number): Promise<boolean>
-  listPlugins(): Promise<PluginDescriptor[]>
-  readPluginFile(pluginId: string, path: string): Promise<string>
-  listPluginDataFiles(pluginId: string, path?: string): Promise<PluginFileEntry[]>
-  readPluginDataFile(pluginId: string, path: string): Promise<string>
-  readPluginDataFileBytes(pluginId: string, path: string): Promise<Uint8Array>
-  writePluginDataFile(pluginId: string, path: string, content: string): Promise<void>
-  writePluginDataFileBytes(pluginId: string, path: string, content: Uint8Array): Promise<void>
-  deletePluginDataFile(pluginId: string, path: string): Promise<void>
-  pluginAssetUrl(pluginId: string, path: string): string
-  onPluginToolCallRequest(callback: (request: PluginToolCallRequest) => void): () => void
-  resolvePluginToolCall(response: PluginToolCallResponse): Promise<void>
-  onChatGenerationEvent(callback: (event: ChatGenerationEvent) => void): () => void
+  installApp(): Promise<ProjectSnapshot>
+  uninstallApp(appId: string, options: AppUninstallOptions): Promise<ProjectSnapshot>
+  createAppSession(payload: AppSessionCreatePayload): Promise<AppSessionRecord>
+  updateAppSession(payload: AppSessionUpdatePayload): Promise<AppSessionRecord>
+  deleteAppSession(appId: string, id: number): Promise<ProjectSnapshot>
+  touchAppSession(appId: string, id: number): Promise<AppSessionRecord>
+  listAppStorage(kind: AppStorageKind, appId: string, appSessionId: number | null, path?: string): Promise<AppFileEntry[]>
+  makeAppStorageDirectory(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<void>
+  readAppStorageFile(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<string>
+  readAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<Uint8Array>
+  writeAppStorageFile(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: string): Promise<void>
+  writeAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: Uint8Array): Promise<void>
+  deleteAppStoragePath(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, options?: AppStorageDeleteOptions): Promise<void>
+  appAssetUrl(appId: string, path: string): string
+  startAppChatGeneration(payload: AppLlmGenerationRequest): Promise<AppLlmGenerationStartResult>
+  stopAppChatGeneration(appId: string, appSessionId: number, chatSessionId?: number): Promise<boolean>
+  resolveAppToolCall(response: AppToolCallResponse): Promise<void>
+  onAppChatGenerationEvent(callback: (event: AppLlmGenerationEvent) => void): () => void
+  onAppToolCallRequest(callback: (request: AppToolCallRequest) => void): () => void
   getAppVersion(): Promise<string>
   getAppName(): Promise<string>
   quit(): Promise<void>
-}
-
-export interface PluginRuntimeWorkerRuntime {
-  signature: string
-  allPlugins: PluginDescriptor[]
-  activePlugins: PluginDescriptor[]
-}
-
-export interface PluginRuntimeWorkerPrepareInput {
-  runtime: PluginRuntimeWorkerRuntime
-  blocks: OriginalChatBlock[]
-  chat: ProcessingChat['chatSession']
-  hostChat: ChatSession
-  processingChat: ProcessingChat
-}
-
-export type PluginRuntimeWorkerMethod =
-  | 'ensurePluginRuntime'
-  | 'preparePluginChatProcessing'
-  | 'listPluginToolCalls'
-  | 'listPluginGlobalEntries'
-  | 'handlePluginToolCallRequest'
-
-export type PluginWorkerHostCallMethod =
-  | 'plugin.readFile'
-  | 'storage.list'
-  | 'storage.readText'
-  | 'storage.readBytes'
-  | 'storage.writeText'
-  | 'storage.writeBytes'
-  | 'storage.delete'
-  | 'frame.chat.getSession'
-  | 'frame.chat.getPluginData'
-  | 'frame.chat.setPluginData'
-  | 'frame.toolSettings.getCommonArgs'
-  | 'frame.toolSettings.setCommonArgs'
-
-export interface PluginFrameCapabilities {
-  chat?: boolean
-  toolSettings?: boolean
-}
-
-export type PluginHostToWorkerMessage =
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'invoke'
-    id: number
-    method: 'ensurePluginRuntime'
-    args: PluginRuntimeWorkerRuntime
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'invoke'
-    id: number
-    method: 'preparePluginChatProcessing'
-    args: PluginRuntimeWorkerPrepareInput
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'invoke'
-    id: number
-    method: 'listPluginToolCalls'
-    args: { runtime: PluginRuntimeWorkerRuntime }
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'invoke'
-    id: number
-    method: 'listPluginGlobalEntries'
-    args: { runtime: PluginRuntimeWorkerRuntime }
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'invoke'
-    id: number
-    method: 'handlePluginToolCallRequest'
-    args: { runtime: PluginRuntimeWorkerRuntime; request: PluginToolCallRequest }
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'host-response'
-    id: number
-    ok: boolean
-    value: JsonRecordValue
-    error: string
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'connect-frame'
-    frameId: string
-    pluginId: string
-    capabilities: PluginFrameCapabilities
-  }
-  | {
-    source: 'ha-ext-worker-host'
-    type: 'disconnect-frame'
-    frameId: string
-  }
-
-export type PluginWorkerToHostMessage =
-  | { source: 'ha-ext-worker'; type: 'ready' }
-  | {
-    source: 'ha-ext-worker'
-    type: 'host-call'
-    id: number
-    method: PluginWorkerHostCallMethod
-    args: JsonRecord
-  }
-  | {
-    source: 'ha-ext-worker'
-    type: 'response'
-    id: number
-    ok: boolean
-    value: JsonRecordValue
-    error: string
-  }
-
-export type MessageWithoutSource<T> = T extends { source: string } ? Omit<T, 'source'> : never
-export type PluginHostToWorkerPayload = MessageWithoutSource<PluginHostToWorkerMessage>
-export type PluginWorkerToHostPayload = MessageWithoutSource<PluginWorkerToHostMessage>
-
-export type PluginFrameHostMessage =
-  | {
-    source: 'ha-ext-api-host'
-    type: 'connect'
-    frameId: string
-    pluginId: string
-    capabilities: PluginFrameCapabilities
-  }
-  | {
-    source: 'ha-ext-api-host'
-    type: 'response'
-    id: number
-    ok: boolean
-    value: JsonRecordValue
-    error: string
-  }
-
-export interface PluginFrameClientCallMessage {
-  source: 'ha-ext-api-client'
-  type: 'call'
-  id: number
-  method: PluginFrameApiMethod
-  args: JsonRecordValue[]
 }

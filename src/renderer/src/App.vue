@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import ChatPage from './components/ChatPage.vue'
-import PluginsPage from './components/PluginsPage.vue'
+import AppsPage from './components/AppsPage.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import ToastStack from './components/ToastStack.vue'
@@ -18,9 +17,8 @@ const { activeView } = workbench
       <SidebarNav />
 
       <main class="content">
-        <ChatPage v-if="activeView === 'chat'" />
+        <AppsPage v-if="activeView === 'apps'" />
         <SettingsPage v-if="activeView === 'settings'" />
-        <PluginsPage v-if="activeView === 'plugins'" />
       </main>
     </div>
 
@@ -35,7 +33,7 @@ const { activeView } = workbench
 
 .workspace {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 84px 1fr;
   height: 100vh;
 }
 

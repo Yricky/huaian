@@ -1,31 +1,31 @@
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, toRaw, watch, type InjectionKey } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, toRaw, type InjectionKey } from 'vue'
 import type {
-  DbChatBlock,
-  ChatCreatePayload,
-  DbChatBlockCreatePayload,
-  ChatGenerationEvent,
-  ChatGenerationPreviewMessage,
-  ChatGenerationRequest,
-  ChatSession,
-  LlmToolDefinition,
+  AppChatContentPart,
+  AppChatMessage,
+  AppChatMessageCreatePayload,
+  AppChatMessageUpdatePayload,
+  AppChatSessionCreatePayload,
+  AppChatSessionState,
+  AppChatSessionUpdatePayload,
+  AppDescriptor,
+  AppFileEntry,
+  AppFrameContext,
+  AppFrameEvent,
+  AppLlmGenerationEvent,
+  AppSessionRecord,
+  AppToolCallRequest,
+  AppToolDefinition,
+  AppUninstallOptions,
+  JsonRecord,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
-  JsonRecord,
   ProjectConfigUpdatePayload,
   ProjectSnapshot,
-  ProcessingChat,
   RecentProject,
   SidebarView
 } from '@/shared/types'
-import {
-  messagesFromProcessingChat,
-  mixedBlockFromDbChatBlock,
-  preparePluginChatProcessing,
-  processingChatFromDbBlocks,
-  startPluginToolBridge
-} from '../pluginRuntime'
 import { asRecord, toStructuredCloneable } from '../../../shared/value-utils'
 
 export type ToastKind = 'success' | 'error' | 'info'
@@ -36,66 +36,83 @@ export interface ToastMessage {
   text: string
 }
 
+export interface RecentAppItem {
+  app: AppDescriptor
+  lastOpenedAt: string
+  running: boolean
+}
+
+export interface RuntimeAppSession {
+  key: string
+  app: AppDescriptor
+  record: AppSessionRecord
+  chatSessions: AppChatSessionState[]
+  activeChatSessionId: number | null
+  chatPanelOpen: boolean
+  nextChatSessionId: number
+  nextMessageId: number
+  port: MessagePort | null
+  frameLoadCount: number
+}
+
+type HostCallHandler = (runtime: RuntimeAppSession, args: unknown[]) => Promise<unknown> | unknown
+
+const HOST_SOURCE = 'ha-app-api-host'
+const CLIENT_SOURCE = 'ha-app-api-client'
+
 export function createProjectWorkbench() {
   const project = ref<ProjectSnapshot | null>(null)
   const recentProjects = ref<RecentProject[]>([])
-  const activeView = ref<SidebarView>('chat')
+  const activeView = ref<SidebarView>('apps')
+  const selectedAppId = ref<string | null>(null)
+  const activeRuntimeKey = ref<string | null>(null)
+  const runningAppSessions = ref<RuntimeAppSession[]>([])
   const selectedLlmProvider = ref<LlmProvider | null>(null)
   const selectedLlmInstance = ref<LlmInstance | null>(null)
-  const selectedChat = ref<ChatSession | null>(null)
-  const generatingChatIds = ref<number[]>([])
-  const processingChats = ref<Record<number, ProcessingChat>>({})
-  const processingToolDefinitions = ref<Record<number, LlmToolDefinition[]>>({})
   const toasts = ref<ToastMessage[]>([])
   let toastId = 0
-  let processingRefreshSerial = 0
-  const processingRefreshPromises = new Map<number, Promise<ProcessingChat | null>>()
-  const processingRefreshTokens = new Map<number, number>()
-  const processingTimeoutChats = new Set<number>()
+  let unsubscribeGenerationEvents: (() => void) | null = null
+  let unsubscribeToolRequests: (() => void) | null = null
 
+  const apps = computed(() => project.value?.apps ?? [])
+  const appSessions = computed(() => project.value?.appSessions ?? [])
   const llmProviders = computed(() => project.value?.llmProviders ?? [])
   const llmInstances = computed(() => project.value?.llmInstances ?? [])
-  const chats = computed(() => project.value?.chats ?? [])
-  const chatBlocks = computed(() => project.value?.chatBlocks ?? [])
-  const plugins = computed(() => project.value?.plugins ?? [])
-
-  const selectedChatBlocks = computed(() => {
-    const chatId = selectedChat.value?.id
-    if (!chatId) return []
-    return chatBlocks.value
-      .filter(block => block.chatId === chatId)
-      .sort((a, b) => {
-        const orderDelta = a.orderIndex - b.orderIndex
-        if (orderDelta !== 0) return orderDelta
-        return a.id - b.id
+  const appById = computed(() => new Map(apps.value.map(app => [app.manifest.id, app])))
+  const activeRuntime = computed(() => (
+    runningAppSessions.value.find(runtime => runtime.key === activeRuntimeKey.value) ?? null
+  ))
+  const selectedApp = computed(() => {
+    if (activeRuntime.value) return activeRuntime.value.app
+    return selectedAppId.value ? appById.value.get(selectedAppId.value) ?? null : null
+  })
+  const selectedAppSessions = computed(() => {
+    const appId = selectedApp.value?.manifest.id ?? selectedAppId.value
+    if (!appId) return []
+    return appSessions.value.filter(session => session.appId === appId)
+      .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt) || b.id - a.id)
+  })
+  const recentApps = computed<RecentAppItem[]>(() => {
+    const rows: RecentAppItem[] = []
+    const seen = new Set<string>()
+    for (const session of appSessions.value) {
+      if (seen.has(session.appId)) continue
+      const app = appById.value.get(session.appId)
+      if (!app) continue
+      seen.add(session.appId)
+      rows.push({
+        app,
+        lastOpenedAt: session.lastOpenedAt,
+        running: runningAppSessions.value.some(runtime => runtime.app.manifest.id === app.manifest.id)
       })
+      if (rows.length >= 20) break
+    }
+    return rows
   })
-
-  const selectedProcessingChat = computed(() => {
-    const chat = selectedChat.value
-    if (!chat) return null
-    return processingChatForDisplay(chat, selectedChatBlocks.value)
-  })
-
-  const selectedProcessingSignature = computed(() => {
-    const chat = selectedChat.value
-    if (!chat || !project.value) return ''
-    return processingSignature(chat, selectedChatBlocks.value, project.value)
-  })
-
-  const selectedChatLlmInstance = computed(() => {
-    const id = selectedChat.value?.runtimeConfig.llmInstanceId
-    return id === null || id === undefined ? null : llmInstances.value.find(instance => instance.id === id) ?? null
-  })
-
   const selectedProviderForInstance = computed(() => {
     const id = selectedLlmInstance.value?.providerId
     return id === null || id === undefined ? null : llmProviders.value.find(provider => provider.id === id) ?? null
   })
-
-  const isSelectedChatGenerating = computed(() => (
-    Boolean(selectedChat.value && generatingChatIds.value.includes(selectedChat.value.id))
-  ))
 
   function clone<T>(value: T): T {
     return toStructuredCloneable(value) as T
@@ -124,128 +141,129 @@ export function createProjectWorkbench() {
     return error instanceof Error ? error.message : String(error)
   }
 
-  function sortedChatBlocksFor(chatId: number): DbChatBlock[] {
-    return chatBlocks.value
-      .filter(block => block.chatId === chatId)
-      .sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
+  function runtimeKey(appId: string, sessionId: number): string {
+    return `${appId}\u0000${sessionId}`
   }
 
-  function processableChatBlocks(blocks: DbChatBlock[]): DbChatBlock[] {
-    return blocks.filter(block => block.status !== 'generating')
+  function replaceRuntime(runtime: RuntimeAppSession) {
+    const index = runningAppSessions.value.findIndex(item => item.key === runtime.key)
+    if (index >= 0) runningAppSessions.value[index] = runtime
+    runningAppSessions.value = [...runningAppSessions.value]
   }
 
-  function metadataForOriginalSignature(metadata: JsonRecord): JsonRecord {
-    const { pluginData: _pluginData, ...rest } = asRecord(metadata)
-    return rest
+  function runtimeFor(appId: string, appSessionId: number): RuntimeAppSession | null {
+    return runningAppSessions.value.find(runtime => runtime.app.manifest.id === appId && runtime.record.id === appSessionId) ?? null
   }
 
-  function processingSignature(chat: ChatSession, blocks: DbChatBlock[], snapshot: ProjectSnapshot): string {
-    return JSON.stringify({
-      chatId: chat.id,
-      enabledPluginIds: chat.runtimeConfig.enabledPluginIds,
-      toolDefinitions: chat.runtimeConfig.toolDefinitions,
-      plugins: snapshot.plugins.map(plugin => ({
-        id: plugin.manifest.id,
-        versionCode: plugin.manifest.versionCode,
-        entry: plugin.manifest.entry
-      })),
-      blocks: processableChatBlocks(blocks).map(block => ({
-        id: block.id,
-        kind: block.kind,
-        role: block.metadata.targetRole,
-        enabled: block.enabled,
-        orderIndex: block.orderIndex,
-        contentParts: block.contentParts,
-        metadata: metadataForOriginalSignature(block.metadata)
-      }))
+  function chatSession(runtime: RuntimeAppSession, chatSessionId: number): AppChatSessionState {
+    const session = runtime.chatSessions.find(item => item.id === chatSessionId)
+    if (!session) throw new Error('chatSession 不存在。')
+    return session
+  }
+
+  function assertChatEditable(session: AppChatSessionState): void {
+    if (session.status === 'generating') throw new Error('当前 chatSession 正在生成，暂不能修改。')
+  }
+
+  function nowIso(): string {
+    return new Date().toISOString()
+  }
+
+  function normalizeContentParts(payload: AppChatMessageCreatePayload): AppChatContentPart[] {
+    if (payload.contentParts) return clone(payload.contentParts)
+    return payload.content ? [{ type: 'text', text: payload.content }] : []
+  }
+
+  function normalizeMessage(id: number, payload: AppChatMessageCreatePayload): AppChatMessage {
+    const now = nowIso()
+    return {
+      id,
+      role: payload.role,
+      contentParts: normalizeContentParts(payload),
+      status: payload.status ?? 'idle',
+      metadata: asRecord(payload.metadata),
+      errorText: payload.errorText ?? '',
+      createdAt: now,
+      updatedAt: now
+    }
+  }
+
+  function defaultLlmInstanceId(): number | null {
+    return llmInstances.value[0]?.id ?? null
+  }
+
+  function normalizeOptions(options: unknown): string[] {
+    return Array.isArray(options) ? options.map(item => String(item)).filter(Boolean) : []
+  }
+
+  function normalizeTools(tools: unknown): AppToolDefinition[] {
+    if (!Array.isArray(tools)) return []
+    return tools.flatMap(item => {
+      const record = asRecord(item)
+      const name = typeof record.name === 'string' ? record.name.trim() : ''
+      if (!name) return []
+      return [{
+        name,
+        description: typeof record.description === 'string' ? record.description : '',
+        inputSchema: asRecord(record.inputSchema)
+      }]
     })
   }
 
-  function pluginDataPatchHasEntries(value: JsonRecord): boolean {
-    return Object.keys(asRecord(value)).length > 0
+  function hasOwn(record: object, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(record, key)
   }
 
-  function mergePluginData(base: JsonRecord, patch: JsonRecord): JsonRecord {
+  function freshChatSession(runtime: RuntimeAppSession, payload: AppChatSessionCreatePayload = {}): AppChatSessionState {
+    const id = runtime.nextChatSessionId++
+    const messages = (payload.messages ?? []).map(message => clone(message))
+    runtime.nextMessageId = Math.max(runtime.nextMessageId, ...messages.map(message => message.id + 1), 0)
     return {
-      ...asRecord(base),
-      ...asRecord(patch)
+      id,
+      title: (payload.title ?? '').trim() || `对话 ${id}`,
+      messages,
+      tools: normalizeTools(payload.tools),
+      llmInstanceId: payload.llmInstanceId === undefined ? defaultLlmInstanceId() : payload.llmInstanceId,
+      allowUserReply: payload.allowUserReply !== false,
+      options: normalizeOptions(payload.options),
+      status: 'idle',
+      errorText: ''
     }
   }
 
-  function processingChatForDisplay(chat: ChatSession, blocks: DbChatBlock[]): ProcessingChat {
-    const cached = processingChats.value[chat.id] ?? processingChatFromDbBlocks(chat, processableChatBlocks(blocks))
-    const blockById = new Map(blocks.map(block => [block.id, block]))
-    const hasLiveGeneratingReplacement = cached.chatBlocks.some(block => {
-      const originalId = block.original?.id
-      return originalId !== undefined && blockById.get(originalId)?.status === 'generating'
+  function sendFrameEvent(runtime: RuntimeAppSession, event: AppFrameEvent): void {
+    runtime.port?.postMessage({
+      source: HOST_SOURCE,
+      type: 'event',
+      event
     })
-    const missingBlocks = blocks
-      .filter(block => !cached.chatBlocks.some(item => item.original?.id === block.id))
-      .map(mixedBlockFromDbChatBlock)
-      .sort((a, b) => {
-        const left = blocks.find(block => block.id === a.original?.id)?.orderIndex ?? 0
-        const right = blocks.find(block => block.id === b.original?.id)?.orderIndex ?? 0
-        return left - right
-      })
-    if (!missingBlocks.length && !hasLiveGeneratingReplacement) return cached
+  }
 
-    const orderById = new Map(blocks.map(block => [block.id, block.orderIndex]))
-    const result: ProcessingChat['chatBlocks'] = []
-    let missingIndex = 0
-    for (const block of cached.chatBlocks) {
-      if (!block.original) {
-        result.push(block)
-        continue
-      }
-
-      const order = orderById.get(block.original.id) ?? Number.POSITIVE_INFINITY
-      while (missingIndex < missingBlocks.length) {
-        const missing = missingBlocks[missingIndex]
-        const missingOrder = orderById.get(missing.original?.id ?? -1) ?? Number.POSITIVE_INFINITY
-        if (missingOrder >= order) break
-        result.push(missing)
-        missingIndex += 1
-      }
-      if (!blockById.has(block.original.id)) continue
-      const sourceBlock = blockById.get(block.original.id)
-      result.push(sourceBlock?.status === 'generating' ? mixedBlockFromDbChatBlock(sourceBlock) : block)
-    }
-    result.push(...missingBlocks.slice(missingIndex))
+  function contextForRuntime(runtime: RuntimeAppSession): AppFrameContext {
     return {
-      ...cached,
-      chatBlocks: result
+      appId: runtime.app.manifest.id,
+      appVersion: runtime.app.manifest.version,
+      appSessionId: runtime.record.id,
+      appSessionTitle: runtime.record.title
     }
   }
 
-  function scopedProcessingChatForGeneration(chat: ChatSession, processingChat: ProcessingChat, regenerateBlockId?: number | null): ProcessingChat {
-    if (!regenerateBlockId) return processingChat
-    const target = sortedChatBlocksFor(chat.id).find(block => block.id === regenerateBlockId)
-    if (!target) return processingChat
-    const allowedIds = new Set(sortedChatBlocksFor(chat.id)
-      .filter(block => block.orderIndex < target.orderIndex)
-      .map(block => block.id))
-    const scopedBlocks: ProcessingChat['chatBlocks'] = []
-    for (const block of processingChat.chatBlocks) {
-      if (block.original?.id === regenerateBlockId) break
-      if (block.original && !allowedIds.has(block.original.id)) continue
-      scopedBlocks.push(block)
-    }
-    return {
-      ...processingChat,
-      chatBlocks: scopedBlocks
-    }
+  async function refreshRecentProjects() {
+    recentProjects.value = await window.electronAPI.listRecentProjects()
   }
 
   function resetProjectSelections() {
     selectedLlmProvider.value = null
     selectedLlmInstance.value = null
-    selectedChat.value = null
+    selectedAppId.value = null
+    activeRuntimeKey.value = null
+    runningAppSessions.value = []
   }
 
   function selectInitialProjectItems() {
     if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
     if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
-    if (chats.value.length) selectedChat.value = clone(chats.value[0])
+    if (apps.value.length) selectedAppId.value = apps.value[0].manifest.id
   }
 
   function refreshSelectedLlmProvider() {
@@ -260,21 +278,11 @@ export function createProjectWorkbench() {
     selectedLlmInstance.value = fresh ? clone(fresh) : null
   }
 
-  function refreshSelectedChat() {
-    if (!selectedChat.value) return
-    const fresh = chats.value.find(item => item.id === selectedChat.value?.id)
-    selectedChat.value = fresh ? clone(fresh) : null
-  }
-
   function applyProjectSnapshot(snapshot: ProjectSnapshot) {
     project.value = snapshot
     resetProjectSelections()
     selectInitialProjectItems()
     void refreshRecentProjects()
-  }
-
-  async function refreshRecentProjects() {
-    recentProjects.value = await window.electronAPI.listRecentProjects()
   }
 
   async function loadProject() {
@@ -287,14 +295,16 @@ export function createProjectWorkbench() {
 
   async function refreshProjectSnapshot() {
     project.value = await window.electronAPI.getProject()
-    if (!project.value) return
     refreshSelectedLlmProvider()
     refreshSelectedLlmInstance()
-    refreshSelectedChat()
   }
 
   async function openProject() {
+    if (runningAppSessions.value.length && !window.confirm('切换项目会关闭所有运行中的应用，继续？')) return
     try {
+      for (const runtime of runningAppSessions.value) {
+        await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id)
+      }
       const previousPath = project.value?.path
       const snapshot = await window.electronAPI.openProject()
       if (snapshot) {
@@ -309,12 +319,24 @@ export function createProjectWorkbench() {
 
   async function openRecentProject(projectPath: string) {
     if (project.value?.path === projectPath) return
+    if (runningAppSessions.value.length && !window.confirm('切换项目会关闭所有运行中的应用，继续？')) return
     try {
+      for (const runtime of runningAppSessions.value) {
+        await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id)
+      }
       applyProjectSnapshot(await window.electronAPI.openProjectPath(projectPath))
       showToast('项目已打开', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
       await refreshRecentProjects()
+    }
+  }
+
+  function providerSnapshot(provider: LlmProvider) {
+    return {
+      providerName: provider.name,
+      type: provider.type,
+      config: clone(provider.config)
     }
   }
 
@@ -332,30 +354,6 @@ export function createProjectWorkbench() {
     if (index >= 0) project.value.llmInstances[index] = instance
     else project.value.llmInstances.unshift(instance)
     selectedLlmInstance.value = clone(instance)
-    refreshSelectedChat()
-  }
-
-  function replaceChat(chat: ChatSession) {
-    if (!project.value) return
-    const index = project.value.chats.findIndex(item => item.id === chat.id)
-    if (index >= 0) project.value.chats[index] = chat
-    else project.value.chats.unshift(chat)
-    selectedChat.value = clone(chat)
-  }
-
-  function replaceChatBlock(block: DbChatBlock) {
-    if (!project.value) return
-    const index = project.value.chatBlocks.findIndex(item => item.id === block.id)
-    if (index >= 0) project.value.chatBlocks[index] = block
-    else project.value.chatBlocks.push(block)
-  }
-
-  function providerSnapshot(provider: LlmProvider) {
-    return {
-      providerName: provider.name,
-      type: provider.type,
-      config: clone(provider.config)
-    }
   }
 
   async function createLlmProvider(payload?: Partial<LlmProviderCreatePayload>) {
@@ -396,7 +394,6 @@ export function createProjectWorkbench() {
       project.value = await window.electronAPI.deleteLlmProvider(selectedLlmProvider.value.id)
       selectedLlmProvider.value = llmProviders.value[0] ? clone(llmProviders.value[0]) : null
       refreshSelectedLlmInstance()
-      refreshSelectedChat()
       showToast('提供商已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -465,11 +462,10 @@ export function createProjectWorkbench() {
   }
 
   async function deleteSelectedLlmInstance() {
-    if (!selectedLlmInstance.value || !window.confirm('删除当前 LLM 实例？已生成的助手块会保留自己的实例快照。')) return
+    if (!selectedLlmInstance.value || !window.confirm('删除当前 LLM 实例？运行中的应用不会自动切换。')) return
     try {
       project.value = await window.electronAPI.deleteLlmInstance(selectedLlmInstance.value.id)
       selectedLlmInstance.value = llmInstances.value[0] ? clone(llmInstances.value[0]) : null
-      refreshSelectedChat()
       showToast('LLM 实例已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -484,10 +480,6 @@ export function createProjectWorkbench() {
     selectedLlmInstance.value = clone(instance)
   }
 
-  function selectChat(chat: ChatSession) {
-    selectedChat.value = clone(chat)
-  }
-
   async function saveProjectConfig(payload: ProjectConfigUpdatePayload): Promise<boolean> {
     if (!project.value) return false
     try {
@@ -499,387 +491,542 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function createChat(payload?: ChatCreatePayload): Promise<ChatSession | null> {
+  function appIconUrl(app: AppDescriptor): string {
+    return app.manifest.icon ? window.electronAPI.appAssetUrl(app.manifest.id, app.manifest.icon) : ''
+  }
+
+  function openApp(appId: string) {
+    activeView.value = 'apps'
+    selectedAppId.value = appId
+    const running = runningAppSessions.value.find(runtime => runtime.app.manifest.id === appId)
+    if (running) {
+      activeRuntimeKey.value = running.key
+      return
+    }
+    activeRuntimeKey.value = null
+  }
+
+  async function installApp() {
+    if (runningAppSessions.value.length) {
+      showToast('请先关闭运行中的应用，再安装或更新应用。', 'error')
+      return
+    }
     try {
-      const chat = await window.electronAPI.createChat(payload ? toIpcPayload(payload) : undefined)
-      replaceChat(chat)
-      activeView.value = 'chat'
-      showToast('聊天已创建', 'success')
-      return chat
+      project.value = await window.electronAPI.installApp()
+      selectInitialProjectItems()
+      showToast('应用已安装', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
-      return null
     }
   }
 
-  async function saveChat(chat: ChatSession) {
+  async function uninstallSelectedApp(options: AppUninstallOptions) {
+    const app = selectedApp.value
+    if (!app) return
+    const appId = app.manifest.id
+    if (runningAppSessions.value.some(runtime => runtime.app.manifest.id === appId)) {
+      showToast('请先关闭该应用正在运行的存档。', 'error')
+      return
+    }
+    if (!window.confirm(`卸载应用「${app.manifest.name || appId}」？`)) return
     try {
-      replaceChat(await window.electronAPI.updateChat(toIpcPayload({
-        id: chat.id,
-        title: chat.title,
-        runtimeConfig: chat.runtimeConfig
-      })))
+      project.value = await window.electronAPI.uninstallApp(appId, options)
+      selectedAppId.value = apps.value[0]?.manifest.id ?? null
+      showToast('应用已卸载', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function deleteChat(chat: ChatSession) {
-    if (generatingChatIds.value.includes(chat.id) || !window.confirm('删除当前聊天？其中的所有块会一并删除。')) return
+  function replaceAppSessionRecord(record: AppSessionRecord) {
+    if (!project.value) return
+    const index = project.value.appSessions.findIndex(item => item.appId === record.appId && item.id === record.id)
+    if (index >= 0) project.value.appSessions[index] = record
+    else project.value.appSessions.unshift(record)
+    project.value.appSessions = [...project.value.appSessions].sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt))
+  }
+
+  async function createAppSession(appId: string) {
     try {
-      const wasSelected = selectedChat.value?.id === chat.id
-      project.value = await window.electronAPI.deleteChat(chat.id)
-      if (wasSelected) {
-        selectedChat.value = chats.value[0] ? clone(chats.value[0]) : null
-      } else {
-        refreshSelectedChat()
+      const record = await window.electronAPI.createAppSession({ appId })
+      replaceAppSessionRecord(record)
+      await openAppSession(record)
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function renameAppSession(record: AppSessionRecord) {
+    const title = window.prompt('存档名称', record.title)
+    if (title === null) return
+    try {
+      const saved = await window.electronAPI.updateAppSession({ appId: record.appId, id: record.id, title })
+      replaceAppSessionRecord(saved)
+      const runtime = runtimeFor(saved.appId, saved.id)
+      if (runtime) {
+        runtime.record = saved
+        replaceRuntime(runtime)
       }
-      showToast('聊天已删除', 'success')
+      showToast('存档已重命名', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function createChatBlock(payload: DbChatBlockCreatePayload) {
-    try {
-      const block = await window.electronAPI.createChatBlock(toIpcPayload(payload))
-      replaceChatBlock(block)
-      await refreshProjectSnapshot()
-      return block
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return null
+  async function deleteAppSession(record: AppSessionRecord) {
+    if (runtimeFor(record.appId, record.id)) {
+      showToast('请先关闭正在运行的存档。', 'error')
+      return
     }
-  }
-
-  async function saveChatBlock(block: DbChatBlock) {
+    if (!window.confirm(`删除存档「${record.title}」？`)) return
     try {
-      replaceChatBlock(await window.electronAPI.updateChatBlock(toIpcPayload({
-        id: block.id,
-        enabled: block.enabled,
-        contentParts: block.contentParts,
-        metadata: block.metadata
-      })))
-      await refreshProjectSnapshot()
+      project.value = await window.electronAPI.deleteAppSession(record.appId, record.id)
+      showToast('存档已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
   }
 
-  async function deleteChatBlock(block: DbChatBlock) {
-    try {
-      project.value = await window.electronAPI.deleteChatBlock(block.id)
-      refreshSelectedChat()
-      showToast('聊天块已删除', 'success')
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  async function writeProcessingPluginData(chat: ChatSession, processingChat: ProcessingChat) {
-    if (pluginDataPatchHasEntries(processingChat.pluginData)) {
-      const updated = await window.electronAPI.updateChat(toIpcPayload({
-        id: chat.id,
-        title: chat.title,
-        runtimeConfig: {
-          ...chat.runtimeConfig,
-          pluginData: mergePluginData(chat.runtimeConfig.pluginData, processingChat.pluginData)
-        }
-      }))
-      replaceChat(updated)
-    }
-
-    const blockById = new Map(sortedChatBlocksFor(chat.id).map(block => [block.id, block]))
-    for (const block of processingChat.chatBlocks) {
-      const originalId = block.original?.id
-      if (originalId === undefined || !pluginDataPatchHasEntries(block.pluginData)) continue
-      const sourceBlock = blockById.get(originalId)
-      if (!sourceBlock) continue
-      const metadata = {
-        ...sourceBlock.metadata,
-        pluginData: mergePluginData(asRecord(sourceBlock.metadata.pluginData), block.pluginData)
-      }
-      const updated = await window.electronAPI.updateChatBlock(toIpcPayload({
-        id: sourceBlock.id,
-        metadata,
-        preserveStatus: true
-      }))
-      replaceChatBlock(updated)
-    }
-  }
-
-  async function disableChatPluginsAfterProcessingTimeout(chatId: number) {
-    if (processingTimeoutChats.has(chatId)) return
-    processingTimeoutChats.add(chatId)
-    const chat = chats.value.find(item => item.id === chatId)
-    if (!chat || chat.runtimeConfig.enabledPluginIds.length === 0) return
-    showToast('插件处理超过 1 秒，已禁用当前聊天插件。', 'error')
-    const updated = await window.electronAPI.updateChat(toIpcPayload({
-      id: chat.id,
-      title: chat.title,
-      runtimeConfig: {
-        ...chat.runtimeConfig,
-        enabledPluginIds: []
-      }
-    }))
-    replaceChat(updated)
-    processingChats.value = {
-      ...processingChats.value,
-      [chatId]: processingChatFromDbBlocks(updated, processableChatBlocks(sortedChatBlocksFor(chatId)))
-    }
-    processingToolDefinitions.value = {
-      ...processingToolDefinitions.value,
-      [chatId]: []
-    }
-  }
-
-  async function refreshProcessingChat(chatId: number, writeBackPluginData: boolean): Promise<ProcessingChat | null> {
-    if (!project.value) return null
-    const chat = chats.value.find(item => item.id === chatId)
-    if (!chat) return null
-    const snapshot = project.value
-    const blocks = processableChatBlocks(sortedChatBlocksFor(chatId))
-    const token = ++processingRefreshSerial
-    processingRefreshTokens.set(chatId, token)
-    let currentPromise: Promise<ProcessingChat | null> | null = null
-    currentPromise = (async () => {
-      let timedOut = false
-      const timeout = window.setTimeout(() => {
-        if (processingRefreshTokens.get(chatId) !== token || processingRefreshPromises.get(chatId) !== currentPromise) return
-        timedOut = true
-        void disableChatPluginsAfterProcessingTimeout(chatId)
-      }, 1000)
-      try {
-        const bundle = await preparePluginChatProcessing(snapshot, chat, blocks)
-        if (timedOut) return null
-        processingTimeoutChats.delete(chatId)
-        const isCurrentRefresh = processingRefreshTokens.get(chatId) === token
-        if (isCurrentRefresh) {
-          processingChats.value = {
-            ...processingChats.value,
-            [chatId]: bundle.processingChat
-          }
-          processingToolDefinitions.value = {
-            ...processingToolDefinitions.value,
-            [chatId]: bundle.toolDefinitions
-          }
-        }
-        if (writeBackPluginData && isCurrentRefresh) {
-          await writeProcessingPluginData(chat, bundle.processingChat)
-        }
-        return bundle.processingChat
-      } catch (error) {
-        showToast(errorText(error), 'error')
-        const fallback = processingChatFromDbBlocks(chat, blocks)
-        processingChats.value = {
-          ...processingChats.value,
-          [chatId]: fallback
-        }
-        processingToolDefinitions.value = {
-          ...processingToolDefinitions.value,
-          [chatId]: []
-        }
-        return fallback
-      } finally {
-        window.clearTimeout(timeout)
-        if (currentPromise && processingRefreshPromises.get(chatId) === currentPromise) {
-          processingRefreshPromises.delete(chatId)
-        }
-      }
-    })()
-    processingRefreshPromises.set(chatId, currentPromise)
-    return currentPromise
-  }
-
-  async function waitForProcessingRefresh(chatId: number, promise: Promise<ProcessingChat | null>): Promise<ProcessingChat | null> {
-    let timeout: number | null = null
-    try {
-      return await Promise.race([
-        promise,
-        new Promise<null>(resolve => {
-          timeout = window.setTimeout(() => {
-            if (processingRefreshPromises.get(chatId) === promise) {
-              void disableChatPluginsAfterProcessingTimeout(chatId)
-            }
-            resolve(null)
-          }, 1000)
-        })
-      ])
-    } finally {
-      if (timeout !== null) window.clearTimeout(timeout)
-    }
-  }
-
-  async function processingChatForGeneration(chat: ChatSession): Promise<ProcessingChat> {
-    const pending = processingRefreshPromises.get(chat.id)
-    if (pending) {
-      const result = await waitForProcessingRefresh(chat.id, pending)
-      if (!result) throw new Error('插件处理超时，已取消生成。')
-      return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
-    }
-
-    const cached = processingChats.value[chat.id]
-    if (cached) return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
-
-    const result = await waitForProcessingRefresh(chat.id, refreshProcessingChat(chat.id, false))
-    if (!result) throw new Error('插件处理超时，已取消生成。')
-    return processingChatForDisplay(chat, sortedChatBlocksFor(chat.id))
-  }
-
-  async function prepareGenerationRequest(payload: ChatGenerationRequest): Promise<ChatGenerationRequest> {
-    if (!project.value) return payload
-    const chat = chats.value.find(item => item.id === payload.chatId)
-    if (!chat) return payload
-    const processingChat = scopedProcessingChatForGeneration(
-      chat,
-      await processingChatForGeneration(chat),
-      payload.regenerateBlockId
-    )
-    return {
-      ...payload,
-      messages: messagesFromProcessingChat(processingChat),
-      toolDefinitions: processingToolDefinitions.value[chat.id] ?? []
-    }
-  }
-
-  async function startChatGeneration(payload: ChatGenerationRequest) {
-    try {
-      const prepared = await prepareGenerationRequest(payload)
-      const result = await window.electronAPI.startChatGeneration(toIpcPayload(prepared))
-      replaceChatBlock(result.block)
-      if (!generatingChatIds.value.includes(payload.chatId)) {
-        generatingChatIds.value = [...generatingChatIds.value, payload.chatId]
-      }
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  async function previewChatGeneration(payload: ChatGenerationRequest): Promise<ChatGenerationPreviewMessage[] | null> {
-    try {
-      const prepared = await prepareGenerationRequest(payload)
-      return await window.electronAPI.previewChatGeneration(toIpcPayload(prepared))
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return null
-    }
-  }
-
-  async function stopChatGeneration(chatId: number) {
-    try {
-      await window.electronAPI.stopChatGeneration(chatId)
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
-  function handleGenerationEvent(event: ChatGenerationEvent) {
-    if (event.type === 'started') {
-      replaceChatBlock(event.block)
-      if (!generatingChatIds.value.includes(event.chatId)) {
-        generatingChatIds.value = [...generatingChatIds.value, event.chatId]
-      }
+  async function openAppSession(record: AppSessionRecord) {
+    const existing = runningAppSessions.value.find(runtime => runtime.app.manifest.id === record.appId)
+    if (existing) {
+      activeRuntimeKey.value = existing.key
+      selectedAppId.value = record.appId
+      activeView.value = 'apps'
       return
     }
 
-    if (event.type === 'delta') {
-      const block = chatBlocks.value.find(item => item.id === event.blockId)
-      if (block) {
-        block.contentParts = event.contentParts
-        block.status = 'generating'
-      }
+    const app = appById.value.get(record.appId)
+    if (!app) {
+      showToast('应用尚未安装。', 'error')
       return
     }
 
-    replaceChatBlock(event.block)
-    generatingChatIds.value = generatingChatIds.value.filter(id => id !== event.chatId)
-    refreshSelectedChat()
-    if (event.type === 'error') showToast(event.error, 'error')
-  }
-
-  function handleProjectSnapshotChanged() {
-    void refreshProjectSnapshot()
-  }
-
-  async function handlePluginDataChanged() {
     try {
-      await refreshProjectSnapshot()
+      const touched = await window.electronAPI.touchAppSession(record.appId, record.id)
+      replaceAppSessionRecord(touched)
+      const runtime: RuntimeAppSession = {
+        key: runtimeKey(record.appId, record.id),
+        app,
+        record: touched,
+        chatSessions: [],
+        activeChatSessionId: null,
+        chatPanelOpen: false,
+        nextChatSessionId: 0,
+        nextMessageId: 0,
+        port: null,
+        frameLoadCount: 0
+      }
+      runningAppSessions.value = [...runningAppSessions.value, runtime]
+      selectedAppId.value = record.appId
+      activeRuntimeKey.value = runtime.key
+      activeView.value = 'apps'
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function closeRuntime(runtime: RuntimeAppSession) {
+    const hasGenerating = runtime.chatSessions.some(session => session.status === 'generating')
+    if (hasGenerating && !window.confirm('该存档还有正在生成的回复，关闭会全部终止。继续？')) return
+    await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id)
+    runtime.port?.close()
+    runningAppSessions.value = runningAppSessions.value.filter(item => item.key !== runtime.key)
+    if (activeRuntimeKey.value === runtime.key) {
+      activeRuntimeKey.value = null
+      selectedAppId.value = runtime.app.manifest.id
+    }
+  }
+
+  function toggleChatPanel(runtime: RuntimeAppSession, chatSessionId: number) {
+    if (runtime.activeChatSessionId === chatSessionId && runtime.chatPanelOpen) {
+      runtime.chatPanelOpen = false
+    } else {
+      runtime.activeChatSessionId = chatSessionId
+      runtime.chatPanelOpen = true
+    }
+    replaceRuntime(runtime)
+  }
+
+  async function sendUserMessage(runtime: RuntimeAppSession, chatSessionId: number, text: string, source: 'composer' | 'option') {
+    const session = chatSession(runtime, chatSessionId)
+    if (!text.trim()) return
+    if (source === 'composer' && !session.allowUserReply) return
+    if (source === 'option') session.options = []
+    replaceRuntime(runtime)
+    sendFrameEvent(runtime, {
+      type: 'userMessage',
+      chatSessionId,
+      text,
+      source
+    })
+  }
+
+  async function stopChatReply(runtime: RuntimeAppSession, chatSessionId: number) {
+    await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id, chatSessionId)
+    sendFrameEvent(runtime, { type: 'userStoppedReply', chatSessionId })
+  }
+
+  function storageSessionId(runtime: RuntimeAppSession, kind: 'appData' | 'save'): number | null {
+    return kind === 'appData' ? null : runtime.record.id
+  }
+
+  async function readJsonStorage(runtime: RuntimeAppSession, kind: 'appData' | 'save', path: string, fallback: unknown) {
+    const text = await window.electronAPI.readAppStorageFile(kind, runtime.app.manifest.id, storageSessionId(runtime, kind), path)
+    if (!text) return fallback
+    try {
+      return JSON.parse(text)
     } catch {
-      // The processor refresh below still gives storage-only plugin changes a chance to update the cache.
+      return fallback
     }
-    const chatId = selectedChat.value?.id
-    if (chatId) void refreshProcessingChat(chatId, true)
   }
 
-  let unsubscribeGenerationEvents: (() => void) | null = null
+  const hostHandlers: Record<string, HostCallHandler> = {
+    'context.get': runtime => contextForRuntime(runtime),
+    'appData.list': (runtime, args) => window.electronAPI.listAppStorage('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
+    'appData.mkdir': (runtime, args) => window.electronAPI.makeAppStorageDirectory('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
+    'appData.readText': (runtime, args) => window.electronAPI.readAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
+    'appData.readBytes': (runtime, args) => window.electronAPI.readAppStorageFileBytes('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
+    'appData.writeText': (runtime, args) => window.electronAPI.writeAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), String(args[1] ?? '')),
+    'appData.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), args[1] as Uint8Array),
+    'appData.delete': (runtime, args) => window.electronAPI.deleteAppStoragePath('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), asRecord(args[1])),
+    'appData.readJson': (runtime, args) => readJsonStorage(runtime, 'appData', String(args[0] ?? ''), args[1]),
+    'appData.writeJson': (runtime, args) => window.electronAPI.writeAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), JSON.stringify(args[1] ?? null, null, 2)),
+    'save.list': (runtime, args) => window.electronAPI.listAppStorage('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
+    'save.mkdir': (runtime, args) => window.electronAPI.makeAppStorageDirectory('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
+    'save.readText': (runtime, args) => window.electronAPI.readAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
+    'save.readBytes': (runtime, args) => window.electronAPI.readAppStorageFileBytes('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
+    'save.writeText': (runtime, args) => window.electronAPI.writeAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), String(args[1] ?? '')),
+    'save.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), args[1] as Uint8Array),
+    'save.delete': (runtime, args) => window.electronAPI.deleteAppStoragePath('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), asRecord(args[1])),
+    'save.readJson': (runtime, args) => readJsonStorage(runtime, 'save', String(args[0] ?? ''), args[1]),
+    'save.writeJson': (runtime, args) => window.electronAPI.writeAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), JSON.stringify(args[1] ?? null, null, 2)),
+    'chat.createSession': (runtime, args) => {
+      const session = freshChatSession(runtime, asRecord(args[0]) as AppChatSessionCreatePayload)
+      runtime.chatSessions = [...runtime.chatSessions, session]
+      if (runtime.activeChatSessionId === null) runtime.activeChatSessionId = session.id
+      replaceRuntime(runtime)
+      return clone(session)
+    },
+    'chat.listSessions': runtime => clone(runtime.chatSessions),
+    'chat.getSession': (runtime, args) => clone(chatSession(runtime, Number(args[0]))),
+    'chat.updateSession': (runtime, args) => {
+      const id = Number(args[0])
+      const patch = asRecord(args[1]) as AppChatSessionUpdatePayload
+      const session = chatSession(runtime, id)
+      assertChatEditable(session)
+      Object.assign(session, {
+        ...patch,
+        tools: hasOwn(patch, 'tools') ? normalizeTools(patch.tools) : session.tools,
+        options: hasOwn(patch, 'options') ? normalizeOptions(patch.options) : session.options
+      })
+      if (patch.messages) {
+        session.messages = patch.messages.map(message => clone(message))
+        runtime.nextMessageId = Math.max(runtime.nextMessageId, ...session.messages.map(message => message.id + 1), 0)
+      }
+      replaceRuntime(runtime)
+      return clone(session)
+    },
+    'chat.deleteSession': async (runtime, args) => {
+      const id = Number(args[0])
+      if (chatSession(runtime, id).status === 'generating') await stopChatReply(runtime, id)
+      runtime.chatSessions = runtime.chatSessions.filter(session => session.id !== id)
+      if (runtime.activeChatSessionId === id) runtime.activeChatSessionId = runtime.chatSessions[0]?.id ?? null
+      replaceRuntime(runtime)
+      return clone(runtime.chatSessions)
+    },
+    'chat.appendMessage': (runtime, args) => {
+      const session = chatSession(runtime, Number(args[0]))
+      assertChatEditable(session)
+      const message = normalizeMessage(runtime.nextMessageId++, asRecord(args[1]) as unknown as AppChatMessageCreatePayload)
+      session.messages = [...session.messages, message]
+      replaceRuntime(runtime)
+      return clone(message)
+    },
+    'chat.updateMessage': (runtime, args) => {
+      const session = chatSession(runtime, Number(args[0]))
+      assertChatEditable(session)
+      const messageId = Number(args[1])
+      const patch = asRecord(args[2]) as AppChatMessageUpdatePayload
+      const message = session.messages.find(item => item.id === messageId)
+      if (!message) throw new Error('消息不存在。')
+      Object.assign(message, {
+        ...patch,
+        updatedAt: nowIso()
+      })
+      replaceRuntime(runtime)
+      return clone(message)
+    },
+    'chat.deleteMessage': (runtime, args) => {
+      const session = chatSession(runtime, Number(args[0]))
+      assertChatEditable(session)
+      const messageId = Number(args[1])
+      session.messages = session.messages.filter(message => message.id !== messageId)
+      replaceRuntime(runtime)
+      return clone(session)
+    },
+    'chat.registerTool': (runtime, args) => {
+      const session = chatSession(runtime, Number(args[0]))
+      assertChatEditable(session)
+      const tool = normalizeTools([args[1]])[0]
+      if (!tool) throw new Error('工具定义不合法。')
+      session.tools = [...session.tools.filter(item => item.name !== tool.name), tool]
+      replaceRuntime(runtime)
+      return clone(session)
+    },
+    'chat.triggerLlmReply': (runtime, args) => triggerLlmReply(runtime, Number(args[0])),
+    'chat.stopLlmReply': (runtime, args) => stopChatReply(runtime, Number(args[0]))
+  }
 
-  watch([() => selectedChat.value?.id ?? null, selectedProcessingSignature], (current, previous) => {
-    const [chatId, signature] = current
-    const previousChatId = previous?.[0]
-    if (chatId === null || !signature) return
-    void refreshProcessingChat(chatId, previousChatId === chatId)
-  }, { immediate: true })
+  async function handleHostCall(runtime: RuntimeAppSession, method: string, args: unknown[]): Promise<unknown> {
+    const handler = hostHandlers[method]
+    if (!handler) throw new Error(`未知应用 API：${method}`)
+    return handler(runtime, args)
+  }
+
+  function connectAppFrame(runtime: RuntimeAppSession, targetWindow: Window) {
+    runtime.port?.close()
+    const channel = new MessageChannel()
+    runtime.port = channel.port1
+    runtime.port.onmessage = event => {
+      const data = asRecord(event.data)
+      if (data.source !== CLIENT_SOURCE) return
+      if (data.type === 'toolCallResponse') {
+        void window.electronAPI.resolveAppToolCall({
+          requestId: String(data.requestId ?? ''),
+          ok: data.ok === true,
+          output: data.output as never,
+          error: typeof data.error === 'string' ? data.error : undefined
+        })
+        return
+      }
+      if (data.type !== 'call') return
+      const id = Number(data.id)
+      const method = String(data.method ?? '')
+      const args = Array.isArray(data.args) ? data.args : []
+      void Promise.resolve(handleHostCall(runtime, method, args))
+        .then(value => runtime.port?.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value }))
+        .catch(error => runtime.port?.postMessage({
+          source: HOST_SOURCE,
+          type: 'response',
+          id,
+          ok: false,
+          error: errorText(error)
+        }))
+    }
+    runtime.port.start()
+    targetWindow.postMessage({
+      source: HOST_SOURCE,
+      type: 'connect',
+      context: contextForRuntime(runtime)
+    }, '*', [channel.port2])
+    replaceRuntime(runtime)
+  }
+
+  async function handleAppFrameLoaded(runtime: RuntimeAppSession, targetWindow: Window) {
+    if (runtime.frameLoadCount > 0) {
+      await closeRuntime(runtime)
+      return
+    }
+    runtime.frameLoadCount += 1
+    connectAppFrame(runtime, targetWindow)
+  }
+
+  async function triggerLlmReply(runtime: RuntimeAppSession, chatSessionId: number) {
+    const session = chatSession(runtime, chatSessionId)
+    assertChatEditable(session)
+    const llmInstanceId = session.llmInstanceId ?? defaultLlmInstanceId()
+    if (!llmInstanceId) throw new Error('项目里还没有可用的 LLM 实例。')
+    const assistant = normalizeMessage(runtime.nextMessageId++, {
+      role: 'assistant',
+      contentParts: [],
+      status: 'generating'
+    })
+    const contextMessages = clone(session.messages)
+    session.messages = [...session.messages, assistant]
+    session.status = 'generating'
+    session.errorText = ''
+    session.llmInstanceId = llmInstanceId
+    replaceRuntime(runtime)
+
+    try {
+      await window.electronAPI.startAppChatGeneration({
+        appId: runtime.app.manifest.id,
+        appSessionId: runtime.record.id,
+        chatSessionId,
+        assistantMessageId: assistant.id,
+        llmInstanceId,
+        messages: contextMessages,
+        tools: clone(session.tools)
+      })
+      return clone(session)
+    } catch (error) {
+      assistant.status = 'error'
+      assistant.errorText = errorText(error)
+      session.status = 'error'
+      session.errorText = assistant.errorText
+      replaceRuntime(runtime)
+      sendFrameEvent(runtime, {
+        type: 'llmReplyError',
+        chatSessionId,
+        assistantMessageId: assistant.id,
+        contentParts: assistant.contentParts,
+        error: assistant.errorText
+      })
+      throw error
+    }
+  }
+
+  function applyGenerationEvent(event: AppLlmGenerationEvent) {
+    const runtime = runtimeFor(event.appId, event.appSessionId)
+    if (!runtime) return
+    const session = runtime.chatSessions.find(item => item.id === event.chatSessionId)
+    const message = session?.messages.find(item => item.id === event.assistantMessageId)
+    if (!session || !message) return
+
+    if (event.type === 'started') {
+      session.status = 'generating'
+      message.status = 'generating'
+      sendFrameEvent(runtime, { type: 'llmReplyStarted', chatSessionId: session.id, assistantMessageId: message.id })
+    } else if (event.type === 'delta') {
+      message.contentParts = clone(event.contentParts)
+      message.status = 'generating'
+      message.updatedAt = nowIso()
+      sendFrameEvent(runtime, {
+        type: 'llmReplyDelta',
+        chatSessionId: session.id,
+        assistantMessageId: message.id,
+        text: event.text,
+        contentParts: clone(event.contentParts)
+      })
+    } else if (event.type === 'finished') {
+      message.contentParts = clone(event.contentParts)
+      message.status = 'idle'
+      message.updatedAt = nowIso()
+      session.status = 'idle'
+      session.errorText = ''
+      sendFrameEvent(runtime, {
+        type: 'llmReplyFinished',
+        chatSessionId: session.id,
+        assistantMessageId: message.id,
+        contentParts: clone(event.contentParts)
+      })
+    } else if (event.type === 'stopped') {
+      message.contentParts = clone(event.contentParts)
+      message.status = 'stopped'
+      message.updatedAt = nowIso()
+      session.status = 'stopped'
+      sendFrameEvent(runtime, {
+        type: 'llmReplyStopped',
+        chatSessionId: session.id,
+        assistantMessageId: message.id,
+        contentParts: clone(event.contentParts)
+      })
+    } else if (event.type === 'error') {
+      message.contentParts = clone(event.contentParts)
+      message.status = 'error'
+      message.errorText = event.error
+      message.updatedAt = nowIso()
+      session.status = 'error'
+      session.errorText = event.error
+      showToast(event.error, 'error')
+      sendFrameEvent(runtime, {
+        type: 'llmReplyError',
+        chatSessionId: session.id,
+        assistantMessageId: message.id,
+        contentParts: clone(event.contentParts),
+        error: event.error
+      })
+    }
+    replaceRuntime(runtime)
+  }
+
+  function handleToolCallRequest(request: AppToolCallRequest) {
+    const runtime = runtimeFor(request.appId, request.appSessionId)
+    if (!runtime?.port) {
+      void window.electronAPI.resolveAppToolCall({
+        requestId: request.requestId,
+        ok: false,
+        error: '应用会话未连接。'
+      })
+      return
+    }
+    sendFrameEvent(runtime, {
+      type: 'toolCall',
+      requestId: request.requestId,
+      chatSessionId: request.chatSessionId,
+      toolName: request.toolName,
+      input: request.input
+    })
+  }
+
+  function appStorageFilesPlaceholder(): AppFileEntry[] {
+    return []
+  }
 
   onMounted(() => {
     void loadProject()
-    startPluginToolBridge(() => project.value)
-    unsubscribeGenerationEvents = window.electronAPI.onChatGenerationEvent(handleGenerationEvent)
-    window.addEventListener('huaian-plugin-data-changed', handlePluginDataChanged)
-    window.addEventListener('huaian-project-snapshot-changed', handleProjectSnapshotChanged)
+    unsubscribeGenerationEvents = window.electronAPI.onAppChatGenerationEvent(applyGenerationEvent)
+    unsubscribeToolRequests = window.electronAPI.onAppToolCallRequest(handleToolCallRequest)
   })
 
   onBeforeUnmount(() => {
     unsubscribeGenerationEvents?.()
-    window.removeEventListener('huaian-plugin-data-changed', handlePluginDataChanged)
-    window.removeEventListener('huaian-project-snapshot-changed', handleProjectSnapshotChanged)
+    unsubscribeToolRequests?.()
+    for (const runtime of runningAppSessions.value) runtime.port?.close()
   })
 
   return {
+    activeRuntime,
+    activeRuntimeKey,
     activeView,
-    chatBlocks,
-    chats,
+    appIconUrl,
+    appSessions,
+    apps,
+    appStorageFilesPlaceholder,
     clearSelectedLlmProviderModelsCache,
-    createChat,
-    createChatBlock,
+    closeRuntime,
+    connectAppFrame,
+    createAppSession,
     createLlmInstance,
     createLlmProvider,
-    deleteChat,
-    deleteChatBlock,
+    deleteAppSession,
     deleteSelectedLlmInstance,
     deleteSelectedLlmProvider,
     fetchSelectedLlmProviderModels,
-    generatingChatIds,
-    isSelectedChatGenerating,
+    handleAppFrameLoaded,
+    installApp,
     llmInstances,
     llmProviders,
+    openApp,
+    openAppSession,
     openProject,
     openRecentProject,
-    plugins,
-    previewChatGeneration,
-    selectedProcessingChat,
     project,
     providerSnapshot,
+    recentApps,
     recentProjects,
     refreshRecentProjects,
+    renameAppSession,
     restoreProviderFromSelectedInstance,
-    saveChat,
-    saveChatBlock,
+    runningAppSessions,
     saveLlmInstance,
     saveLlmProvider,
     saveProjectConfig,
-    selectChat,
     selectLlmInstance,
     selectLlmProvider,
-    selectedChat,
-    selectedChatBlocks,
-    selectedChatLlmInstance,
+    selectedApp,
+    selectedAppId,
+    selectedAppSessions,
     selectedLlmInstance,
     selectedLlmProvider,
     selectedProviderForInstance,
+    sendUserMessage,
     showToast,
-    startChatGeneration,
-    stopChatGeneration,
-    toasts
+    stopChatReply,
+    toasts,
+    toggleChatPanel,
+    uninstallSelectedApp
   }
 }
 

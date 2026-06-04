@@ -1,28 +1,36 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
-  ChatGenerationEvent,
+  AppLlmGenerationEvent,
+  AppToolCallRequest,
   ElectronApi,
   IpcInvokeChannel,
-  IpcRendererEventChannel,
-  PluginToolCallRequest
+  IpcRendererEventChannel
 } from '../shared/types'
 
 function invokeIpc<TResult>(channel: IpcInvokeChannel, ...args: unknown[]): Promise<TResult> {
   return ipcRenderer.invoke(channel, ...args) as Promise<TResult>
 }
 
-function onIpcEvent(channel: 'plugin:toolCallRequest', callback: (event: PluginToolCallRequest) => void): () => void
-function onIpcEvent(channel: 'chat:generationEvent', callback: (event: ChatGenerationEvent) => void): () => void
+function onIpcEvent(channel: 'haAppChat:toolCallRequest', callback: (event: AppToolCallRequest) => void): () => void
+function onIpcEvent(channel: 'haAppChat:generationEvent', callback: (event: AppLlmGenerationEvent) => void): () => void
 function onIpcEvent(
   channel: IpcRendererEventChannel,
-  callback: ((event: PluginToolCallRequest) => void) | ((event: ChatGenerationEvent) => void)
+  callback: ((event: AppToolCallRequest) => void) | ((event: AppLlmGenerationEvent) => void)
 ): () => void {
-  const listener = (_: IpcRendererEvent, event: PluginToolCallRequest | ChatGenerationEvent) => (
-    (callback as (event: PluginToolCallRequest | ChatGenerationEvent) => void)(event)
+  const listener = (_: IpcRendererEvent, event: AppToolCallRequest | AppLlmGenerationEvent) => (
+    (callback as (event: AppToolCallRequest | AppLlmGenerationEvent) => void)(event)
   )
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
+}
+
+function cleanAssetPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
+    .split('/')
+    .filter(part => part && part !== '.')
+    .map(part => encodeURIComponent(part))
+    .join('/')
 }
 
 const electronAPI: ElectronApi = {
@@ -40,36 +48,39 @@ const electronAPI: ElectronApi = {
   createLlmInstance: payload => invokeIpc('llm:createInstance', payload),
   updateLlmInstance: payload => invokeIpc('llm:updateInstance', payload),
   deleteLlmInstance: id => invokeIpc('llm:deleteInstance', id),
-  createChat: payload => invokeIpc('chat:create', payload),
-  updateChat: payload => invokeIpc('chat:update', payload),
-  deleteChat: id => invokeIpc('chat:delete', id),
-  createChatBlock: payload => invokeIpc('chat:createBlock', payload),
-  updateChatBlock: payload => invokeIpc('chat:updateBlock', payload),
-  deleteChatBlock: id => invokeIpc('chat:deleteBlock', id),
-  startChatGeneration: payload => invokeIpc('chat:startGeneration', payload),
-  previewChatGeneration: payload => invokeIpc('chat:previewGeneration', payload),
-  stopChatGeneration: chatId => invokeIpc('chat:stopGeneration', chatId),
-  listPlugins: () => invokeIpc('plugin:list'),
-  readPluginFile: (pluginId, path) => invokeIpc('plugin:readFile', pluginId, path),
-  listPluginDataFiles: (pluginId, path = '') => invokeIpc('plugin:listDataFiles', pluginId, path),
-  readPluginDataFile: (pluginId, path) => invokeIpc('plugin:readDataFile', pluginId, path),
-  readPluginDataFileBytes: (pluginId, path) => invokeIpc('plugin:readDataFileBytes', pluginId, path),
-  writePluginDataFile: (pluginId, path, content) => invokeIpc('plugin:writeDataFile', pluginId, path, content),
-  writePluginDataFileBytes: (pluginId, path, content) => (
-    invokeIpc('plugin:writeDataFileBytes', pluginId, path, content)
+  installApp: () => invokeIpc('haApp:install'),
+  uninstallApp: (appId, options) => invokeIpc('haApp:uninstall', appId, options),
+  createAppSession: payload => invokeIpc('haApp:createSession', payload),
+  updateAppSession: payload => invokeIpc('haApp:updateSession', payload),
+  deleteAppSession: (appId, id) => invokeIpc('haApp:deleteSession', appId, id),
+  touchAppSession: (appId, id) => invokeIpc('haApp:touchSession', appId, id),
+  listAppStorage: (kind, appId, appSessionId, path = '') => invokeIpc('haApp:listStorage', kind, appId, appSessionId, path),
+  makeAppStorageDirectory: (kind, appId, appSessionId, path) => (
+    invokeIpc('haApp:makeStorageDirectory', kind, appId, appSessionId, path)
   ),
-  deletePluginDataFile: (pluginId, path) => invokeIpc('plugin:deleteDataFile', pluginId, path),
-  pluginAssetUrl: (pluginId, path) => {
-    const cleanPath = path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
-    const encodedPath = cleanPath.split('/')
-      .filter(part => part && part !== '.')
-      .map(part => encodeURIComponent(part))
-      .join('/')
-    return `ha-ext://${encodeURIComponent(pluginId)}/${encodedPath}`
-  },
-  onPluginToolCallRequest: callback => onIpcEvent('plugin:toolCallRequest', callback),
-  resolvePluginToolCall: response => invokeIpc('plugin:toolCallResponse', response),
-  onChatGenerationEvent: callback => onIpcEvent('chat:generationEvent', callback),
+  readAppStorageFile: (kind, appId, appSessionId, path) => (
+    invokeIpc('haApp:readStorageFile', kind, appId, appSessionId, path)
+  ),
+  readAppStorageFileBytes: (kind, appId, appSessionId, path) => (
+    invokeIpc('haApp:readStorageFileBytes', kind, appId, appSessionId, path)
+  ),
+  writeAppStorageFile: (kind, appId, appSessionId, path, content) => (
+    invokeIpc('haApp:writeStorageFile', kind, appId, appSessionId, path, content)
+  ),
+  writeAppStorageFileBytes: (kind, appId, appSessionId, path, content) => (
+    invokeIpc('haApp:writeStorageFileBytes', kind, appId, appSessionId, path, content)
+  ),
+  deleteAppStoragePath: (kind, appId, appSessionId, path, options) => (
+    invokeIpc('haApp:deleteStoragePath', kind, appId, appSessionId, path, options)
+  ),
+  appAssetUrl: (appId, path) => `ha-app://app/${encodeURIComponent(appId)}/${cleanAssetPath(path || 'index.html')}`,
+  startAppChatGeneration: payload => invokeIpc('haAppChat:startGeneration', payload),
+  stopAppChatGeneration: (appId, appSessionId, chatSessionId) => (
+    invokeIpc('haAppChat:stopGeneration', appId, appSessionId, chatSessionId)
+  ),
+  resolveAppToolCall: response => invokeIpc('haAppChat:toolCallResponse', response),
+  onAppChatGenerationEvent: callback => onIpcEvent('haAppChat:generationEvent', callback),
+  onAppToolCallRequest: callback => onIpcEvent('haAppChat:toolCallRequest', callback),
   getAppVersion: () => invokeIpc('app:getVersion'),
   getAppName: () => invokeIpc('app:getName'),
   quit: () => invokeIpc('app:quit')
