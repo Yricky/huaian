@@ -26,11 +26,13 @@ const {
   activeRuntimeKey,
   appIconUrl,
   apps,
+  changeChatSessionLlmInstance,
   closeRuntime,
   createAppSession,
   deleteAppSession,
   handleAppFrameLoaded,
   installApp,
+  llmInstances,
   openApp,
   openAppSession,
   renameAppSession,
@@ -110,8 +112,16 @@ function canSendComposer(runtime: RuntimeAppSession, session: AppChatSessionStat
   return session.allowUserReply && session.status !== 'generating' && text.trim().length > 0
 }
 
-function llmPillLabel(session: AppChatSessionState): string {
-  return session.llmInstanceId === null ? '未选择 LLM' : `LLM ${session.llmInstanceId}`
+function llmSelectValue(session: AppChatSessionState): string {
+  return llmInstances.value.some(instance => instance.id === session.llmInstanceId)
+    ? String(session.llmInstanceId)
+    : ''
+}
+
+function handleLlmSelect(runtime: RuntimeAppSession, session: AppChatSessionState, event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (!value) return
+  changeChatSessionLlmInstance(runtime, session.id, Number(value))
 }
 
 function partKey(message: AppChatMessage, part: AppChatContentPart, index: number): string {
@@ -315,12 +325,19 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 
             <div class="composer-controls">
               <div class="composer-left">
-                <span class="model-pill">
+                <label class="model-pill llm-select-pill">
                   <span class="model-pill-icon" aria-hidden="true">
                     <MdSmartToy class="model-pill-symbol" />
                   </span>
-                  <span class="model-pill-label">{{ llmPillLabel(activeChatSession) }}</span>
-                </span>
+                  <select class="llm-select" :value="llmSelectValue(activeChatSession)"
+                    :disabled="activeChatSession.status === 'generating' || !llmInstances.length"
+                    aria-label="选择 LLM 实例" @change="handleLlmSelect(activeRuntime, activeChatSession, $event)">
+                    <option value="" disabled>未选择 LLM</option>
+                    <option v-for="instance in llmInstances" :key="instance.id" :value="String(instance.id)">
+                      {{ instance.name }}
+                    </option>
+                  </select>
+                </label>
                 <span class="model-pill tool-pill">
                   <span class="model-pill-icon" aria-hidden="true">
                     <MdCode class="model-pill-symbol" />
@@ -1031,6 +1048,12 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   font-weight: 600;
 }
 
+.llm-select-pill {
+  width: min(220px, 100%);
+  max-width: min(220px, 100%);
+  padding-right: 6px;
+}
+
 .tool-pill {
   max-width: min(120px, 100%);
 }
@@ -1056,6 +1079,21 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.llm-select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #1f242b;
+  font: inherit;
+  outline: none;
+}
+
+.llm-select:disabled {
+  cursor: default;
+  opacity: 0.62;
 }
 
 .composer-action-button {

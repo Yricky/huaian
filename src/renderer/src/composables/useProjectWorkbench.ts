@@ -11,6 +11,7 @@ import type {
   AppFileEntry,
   AppFrameContext,
   AppFrameEvent,
+  AppLlmInstanceSummary,
   AppLlmGenerationEvent,
   AppSessionRecord,
   AppToolCallRequest,
@@ -668,6 +669,34 @@ export function createProjectWorkbench() {
     })
   }
 
+  function appLlmInstances(): AppLlmInstanceSummary[] {
+    return llmInstances.value.map(instance => ({
+      id: instance.id,
+      name: instance.name
+    }))
+  }
+
+  function changeChatSessionLlmInstance(runtime: RuntimeAppSession, chatSessionId: number, llmInstanceId: number) {
+    const session = chatSession(runtime, chatSessionId)
+    if (session.status === 'generating') {
+      showToast('当前 chatSession 正在生成，暂不能切换 LLM。', 'error')
+      return
+    }
+    const instance = llmInstances.value.find(item => item.id === llmInstanceId)
+    if (!instance) {
+      showToast('请选择可用的 LLM 实例。', 'error')
+      return
+    }
+    if (session.llmInstanceId === instance.id) return
+    session.llmInstanceId = instance.id
+    replaceRuntime(runtime)
+    sendFrameEvent(runtime, {
+      type: 'llmInstanceChanged',
+      chatSessionId,
+      llmInstanceId: instance.id
+    })
+  }
+
   async function stopChatReply(runtime: RuntimeAppSession, chatSessionId: number) {
     await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id, chatSessionId)
     sendFrameEvent(runtime, { type: 'userStoppedReply', chatSessionId })
@@ -707,6 +736,7 @@ export function createProjectWorkbench() {
     'save.delete': (runtime, args) => window.electronAPI.deleteAppStoragePath('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), asRecord(args[1])),
     'save.readJson': (runtime, args) => readJsonStorage(runtime, 'save', String(args[0] ?? ''), args[1]),
     'save.writeJson': (runtime, args) => window.electronAPI.writeAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), JSON.stringify(args[1] ?? null, null, 2)),
+    'chat.getLLMInstances': () => appLlmInstances(),
     'chat.createSession': (runtime, args) => {
       const session = freshChatSession(runtime, asRecord(args[0]) as AppChatSessionCreatePayload)
       runtime.chatSessions = [...runtime.chatSessions, session]
@@ -990,6 +1020,7 @@ export function createProjectWorkbench() {
     appSessions,
     apps,
     appStorageFilesPlaceholder,
+    changeChatSessionLlmInstance,
     clearSelectedLlmProviderModelsCache,
     closeRuntime,
     connectAppFrame,

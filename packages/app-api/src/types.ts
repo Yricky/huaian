@@ -65,6 +65,11 @@ export interface AppToolDefinition {
   inputSchema: JsonRecord
 }
 
+export interface AppLlmInstanceSummary {
+  id: number
+  name: string
+}
+
 export interface AppChatSessionState {
   id: number
   title: string
@@ -108,6 +113,7 @@ export interface AppChatMessageUpdatePayload {
 export type AppEvent =
   | { type: 'userMessage'; chatSessionId: number; text: string; source: 'composer' | 'option' }
   | { type: 'userStoppedReply'; chatSessionId: number }
+  | { type: 'llmInstanceChanged'; chatSessionId: number; llmInstanceId: number }
   | { type: 'llmReplyStarted'; chatSessionId: number; assistantMessageId: number }
   | { type: 'llmReplyDelta'; chatSessionId: number; assistantMessageId: number; text: string; contentParts: AppChatContentPart[] }
   | { type: 'llmReplyFinished'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
@@ -128,6 +134,7 @@ export interface AppStorageApi {
 }
 
 export interface AppChatApi {
+  getLLMInstances(): Promise<AppLlmInstanceSummary[]>
   createSession(payload?: AppChatSessionCreatePayload): Promise<AppChatSessionState>
   listSessions(): Promise<AppChatSessionState[]>
   getSession(chatSessionId: number): Promise<AppChatSessionState>

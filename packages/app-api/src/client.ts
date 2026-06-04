@@ -8,6 +8,7 @@ import type {
   AppEventHandler,
   AppFileEntry,
   AppFrameContext,
+  AppLlmInstanceSummary,
   AppStorageApi,
   AppToolDefinition,
   AppToolHandler,
@@ -173,6 +174,7 @@ export function createHaAppApi(options: HaAppApiInstallOptions = {}): HuaianAppA
     appData: storage('appData'),
     save: storage('save'),
     chat: {
+      getLLMInstances: () => call('chat.getLLMInstances') as Promise<AppLlmInstanceSummary[]>,
       createSession: (payload: AppChatSessionCreatePayload = {}) => (
         call('chat.createSession', [payload]) as Promise<AppChatSessionState>
       ),
