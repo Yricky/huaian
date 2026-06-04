@@ -33,6 +33,12 @@ function cleanAssetPath(path: string): string {
     .join('/')
 }
 
+function appIdHost(appId: string): string {
+  return [...appId]
+    .map(char => char.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('')
+}
+
 const electronAPI: ElectronApi = {
   getProject: () => invokeIpc('project:get'),
   listRecentProjects: () => invokeIpc('project:listRecent'),
@@ -73,7 +79,7 @@ const electronAPI: ElectronApi = {
   deleteAppStoragePath: (kind, appId, appSessionId, path, options) => (
     invokeIpc('haApp:deleteStoragePath', kind, appId, appSessionId, path, options)
   ),
-  appAssetUrl: (appId, path) => `ha-app://app/${encodeURIComponent(appId)}/${cleanAssetPath(path || 'index.html')}`,
+  appAssetUrl: (appId, path) => `ha-app://${appIdHost(appId)}/${cleanAssetPath(path || 'index.html')}`,
   startAppChatGeneration: payload => invokeIpc('haAppChat:startGeneration', payload),
   stopAppChatGeneration: (appId, appSessionId, chatSessionId) => (
     invokeIpc('haAppChat:stopGeneration', appId, appSessionId, chatSessionId)

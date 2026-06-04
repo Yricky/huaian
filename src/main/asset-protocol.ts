@@ -64,13 +64,22 @@ function decodeAssetPath(url: string): string | null {
   }
 }
 
+function decodeAppHost(hostname: string): string {
+  if (!/^[0-9a-f]+$/i.test(hostname) || hostname.length % 2 !== 0) return ''
+  let appId = ''
+  for (let index = 0; index < hostname.length; index += 2) {
+    appId += String.fromCharCode(Number.parseInt(hostname.slice(index, index + 2), 16))
+  }
+  return appId
+}
+
 function decodeAppAssetUrl(url: string): { appId: string, path: string } | null {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== `${APP_PROTOCOL}:`) return null
-    const segments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
-    if (parsed.hostname !== 'app' || !segments.length) return null
-    const [appId, ...pathSegments] = segments
+    const appId = decodeAppHost(parsed.hostname)
+    if (!appId) return null
+    const pathSegments = parsed.pathname.split('/').filter(Boolean).map(segment => decodeURIComponent(segment))
     return {
       appId,
       path: pathSegments.join('/') || 'index.html'

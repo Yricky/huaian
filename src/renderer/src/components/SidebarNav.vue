@@ -14,7 +14,8 @@ const {
   recentApps,
   recentProjects,
   refreshRecentProjects,
-  selectedAppId
+  selectedAppId,
+  showAppLibrary
 } = useProjectWorkbench()
 
 const isProjectPopupOpen = ref(false)
@@ -82,8 +83,9 @@ onBeforeUnmount(() => {
 <template>
   <aside class="sidebar" aria-label="主导航">
     <div class="sidebar-top">
-      <button class="sidebar-nav-item" :class="{ active: activeView === 'apps' && !activeRuntime }"
-        :aria-current="activeView === 'apps' && !activeRuntime ? 'page' : undefined" @click="activeView = 'apps'">
+      <button class="sidebar-nav-item" :class="{ active: activeView === 'apps' && !activeRuntime && !selectedAppId }"
+        :aria-current="activeView === 'apps' && !activeRuntime && !selectedAppId ? 'page' : undefined"
+        @click="showAppLibrary">
         <span class="sidebar-icon-shell">
           <MdApps class="sidebar-icon" aria-hidden="true" />
         </span>

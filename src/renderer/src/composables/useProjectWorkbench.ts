@@ -506,6 +506,12 @@ export function createProjectWorkbench() {
     activeRuntimeKey.value = null
   }
 
+  function showAppLibrary() {
+    activeView.value = 'apps'
+    selectedAppId.value = null
+    activeRuntimeKey.value = null
+  }
+
   async function installApp() {
     if (runningAppSessions.value.length) {
       showToast('请先关闭运行中的应用，再安装或更新应用。', 'error')
@@ -1022,6 +1028,7 @@ export function createProjectWorkbench() {
     selectedLlmProvider,
     selectedProviderForInstance,
     sendUserMessage,
+    showAppLibrary,
     showToast,
     stopChatReply,
     toasts,

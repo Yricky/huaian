@@ -5,6 +5,7 @@ import {
   MdApps,
   MdChat,
   MdClose,
+  MdCode,
   MdDeleteOutline,
   MdDriveFileRenameOutline,
   MdFolder,
@@ -12,11 +13,13 @@ import {
   MdPlayArrow,
   MdSave,
   MdSend,
+  MdSmartToy,
   MdStop,
   MdUploadFile
 } from 'vue-icons-plus/md'
 import type { AppChatContentPart, AppChatMessage, AppChatSessionState, AppDescriptor, AppSessionRecord } from '../../../shared/types'
 import { useProjectWorkbench, type RuntimeAppSession } from '../composables/useProjectWorkbench'
+import MarkdownView from './MarkdownView.vue'
 
 const {
   activeRuntime,
@@ -98,27 +101,36 @@ function roleLabel(role: AppChatMessage['role']): string {
   return '用户'
 }
 
-function textPartValue(part: AppChatContentPart): string {
-  if (part.type === 'tool_call') return ''
-  return part.text
-}
-
-function messageText(message: AppChatMessage): string {
-  return message.contentParts.filter(part => part.type !== 'tool_call').map(textPartValue).join('')
-}
-
-function toolParts(message: AppChatMessage) {
-  return message.contentParts.filter((part): part is Extract<AppChatContentPart, { type: 'tool_call' }> => part.type === 'tool_call')
-}
-
-function toolSummary(part: Extract<AppChatContentPart, { type: 'tool_call' }>): string {
-  if (part.status === 'pending') return '等待应用返回'
-  if (part.status === 'error') return part.error || '工具调用失败'
-  return JSON.stringify(part.output ?? null)
-}
-
 function composerKey(runtime: RuntimeAppSession, session: AppChatSessionState): string {
   return `${runtime.key}:${session.id}`
+}
+
+function canSendComposer(runtime: RuntimeAppSession, session: AppChatSessionState): boolean {
+  const text = composerDrafts.value[composerKey(runtime, session)] ?? ''
+  return session.allowUserReply && session.status !== 'generating' && text.trim().length > 0
+}
+
+function llmPillLabel(session: AppChatSessionState): string {
+  return session.llmInstanceId === null ? '未选择 LLM' : `LLM ${session.llmInstanceId}`
+}
+
+function partKey(message: AppChatMessage, part: AppChatContentPart, index: number): string {
+  return part.type === 'tool_call' ? `${message.id}:tool:${part.toolCallId}` : `${message.id}:${part.type}:${index}`
+}
+
+function toolStatusLabel(status: Extract<AppChatContentPart, { type: 'tool_call' }>['status']): string {
+  if (status === 'pending') return '等待中'
+  if (status === 'error') return '失败'
+  return '完成'
+}
+
+function jsonPreview(value: unknown): string {
+  if (value === undefined) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 async function sendComposer(runtime: RuntimeAppSession, session: AppChatSessionState) {
@@ -259,11 +271,30 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
               <span>{{ roleLabel(message.role) }}</span>
               <small v-if="message.status !== 'idle'">{{ message.status }}</small>
             </header>
-            <p v-if="messageText(message)">{{ messageText(message) }}</p>
-            <div v-for="part in toolParts(message)" :key="part.toolCallId" class="tool-call" :class="part.status">
-              <strong>{{ part.toolName }}</strong>
-              <span>{{ toolSummary(part) }}</span>
-            </div>
+            <template v-for="(part, partIndex) in message.contentParts" :key="partKey(message, part, partIndex)">
+              <MarkdownView v-if="part.type === 'text' && part.text" class="message-markdown" :markdown="part.text" />
+              <details v-else-if="part.type === 'reasoning' && part.text" class="reasoning-part">
+                <summary>
+                  <span>思考</span>
+                </summary>
+                <MarkdownView class="message-markdown" :markdown="part.text" />
+              </details>
+              <section v-else-if="part.type === 'tool_call'" class="tool-call" :class="part.status">
+                <header class="tool-call-header">
+                  <strong>{{ part.toolName }}</strong>
+                  <span>{{ toolStatusLabel(part.status) }}</span>
+                </header>
+                <details class="tool-json">
+                  <summary>输入</summary>
+                  <pre>{{ jsonPreview(part.input) }}</pre>
+                </details>
+                <details v-if="part.output !== undefined" class="tool-json">
+                  <summary>输出</summary>
+                  <pre>{{ jsonPreview(part.output) }}</pre>
+                </details>
+                <p v-if="part.error" class="tool-error">{{ part.error }}</p>
+              </section>
+            </template>
             <em v-if="message.errorText">{{ message.errorText }}</em>
           </article>
         </div>
@@ -275,19 +306,42 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
           </button>
         </div>
 
-        <footer class="composer">
-          <textarea v-model="composerDrafts[chatKey(activeRuntime, activeChatSession)]" rows="2"
-            :disabled="!activeChatSession.allowUserReply || activeChatSession.status === 'generating'"
-            @keydown.enter.exact.prevent="sendComposer(activeRuntime, activeChatSession)" />
-          <button v-if="activeChatSession.status === 'generating'" class="composer-button stop" type="button"
-            @click="stopChatReply(activeRuntime, activeChatSession.id)">
-            <MdStop aria-hidden="true" />
-          </button>
-          <button v-else class="composer-button" type="button"
-            :disabled="!activeChatSession.allowUserReply"
-            @click="sendComposer(activeRuntime, activeChatSession)">
-            <MdSend aria-hidden="true" />
-          </button>
+        <footer class="chat-composer">
+          <form class="composer-form" @submit.prevent="sendComposer(activeRuntime, activeChatSession)">
+            <textarea v-model="composerDrafts[chatKey(activeRuntime, activeChatSession)]" class="composer-input"
+              rows="2" :placeholder="activeChatSession.allowUserReply ? '输入消息...' : '当前对话不允许用户回复'"
+              :disabled="!activeChatSession.allowUserReply || activeChatSession.status === 'generating'"
+              @keydown.enter.exact.prevent="sendComposer(activeRuntime, activeChatSession)" />
+
+            <div class="composer-controls">
+              <div class="composer-left">
+                <span class="model-pill">
+                  <span class="model-pill-icon" aria-hidden="true">
+                    <MdSmartToy class="model-pill-symbol" />
+                  </span>
+                  <span class="model-pill-label">{{ llmPillLabel(activeChatSession) }}</span>
+                </span>
+                <span class="model-pill tool-pill">
+                  <span class="model-pill-icon" aria-hidden="true">
+                    <MdCode class="model-pill-symbol" />
+                  </span>
+                  <span class="model-pill-label">工具 {{ activeChatSession.tools.length }}</span>
+                </span>
+              </div>
+
+              <div class="composer-right">
+                <button v-if="activeChatSession.status === 'generating'" class="composer-action-button stop"
+                  type="button" aria-label="停止" data-tooltip="停止"
+                  @click="stopChatReply(activeRuntime, activeChatSession.id)">
+                  <MdStop size="16" />
+                </button>
+                <button v-else class="composer-action-button" type="submit" :disabled="!canSendComposer(activeRuntime, activeChatSession)"
+                  aria-label="发送" data-tooltip="发送">
+                  <MdSend size="16" />
+                </button>
+              </div>
+            </div>
+          </form>
         </footer>
       </aside>
 
@@ -301,7 +355,8 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
               <MdClose aria-hidden="true" />
             </button>
           </header>
-          <iframe :src="frameUrl(runtime)" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
+          <iframe :src="frameUrl(runtime)"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
             @load="onFrameLoad(runtime, $event)" />
         </article>
       </main>
@@ -652,7 +707,7 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
 }
 
 .runtime-layer.panel-open {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, min(420px, 36vw)) 36px;
+  grid-template-columns: minmax(0, 1fr) minmax(520px, min(680px, 46vw)) 36px;
 }
 
 .chat-panel {
@@ -704,35 +759,43 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   overflow: auto;
-  padding: 12px;
+  padding: 14px;
 }
 
 .message-bubble {
-  max-width: 88%;
+  width: fit-content;
+  min-width: min(240px, 100%);
+  max-width: 100%;
   display: grid;
-  gap: 5px;
+  gap: 7px;
   border: 1px solid #dce3ec;
   border-radius: 8px;
   background: #ffffff;
   color: #202a38;
-  padding: 9px 10px;
+  padding: 10px 12px;
 }
 
 .message-bubble.user {
+  width: fit-content;
+  min-width: min(180px, 100%);
+  max-width: 78%;
   align-self: flex-end;
   border-color: #bdd4f5;
   background: #f4f8ff;
 }
 
 .message-bubble.assistant {
+  width: 100%;
+  max-width: 100%;
   align-self: flex-start;
 }
 
 .message-bubble.system {
+  width: 100%;
   align-self: center;
-  max-width: 96%;
+  max-width: 100%;
   background: #f3f5f7;
 }
 
@@ -741,7 +804,7 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   background: #fff8f8;
 }
 
-.message-bubble header {
+.message-bubble > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -751,13 +814,22 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   font-weight: 700;
 }
 
-.message-bubble p {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.message-markdown {
+  min-width: 0;
   color: #202a38;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.message-markdown :deep(.sm-paragraph:last-child),
+.message-markdown :deep(.sm-block:last-child) {
+  margin-bottom: 0;
+}
+
+.message-markdown :deep(.sm-line),
+.message-markdown :deep(.sm-code-line) {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .message-bubble em {
@@ -766,29 +838,95 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   font-style: normal;
 }
 
+.reasoning-part {
+  min-width: 0;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #f7f9fb;
+  padding: 7px 8px;
+}
+
+.reasoning-part summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #667286;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reasoning-part[open] summary {
+  margin-bottom: 6px;
+}
+
 .tool-call {
+  min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 6px;
+  border: 1px solid #d8e0ea;
   border-radius: 8px;
   background: #f1f4f7;
-  padding: 7px;
+  padding: 8px;
   font-size: 12px;
 }
 
-.tool-call strong {
-  color: #304054;
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.tool-call span {
+.tool-call-header strong {
   min-width: 0;
   overflow: hidden;
-  color: #657386;
+  color: #304054;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.tool-call-header span {
+  flex: 0 0 auto;
+  color: #657386;
+  font-weight: 800;
+}
+
 .tool-call.error {
+  border-color: #e5c4c4;
   background: #fff0f0;
+}
+
+.tool-json {
+  min-width: 0;
+}
+
+.tool-json summary {
+  cursor: pointer;
+  color: #5c6879;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tool-json pre {
+  max-height: 160px;
+  overflow: auto;
+  margin: 5px 0 0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #263141;
+  padding: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-error {
+  margin: 0;
+  color: #a33a3a;
+  overflow-wrap: anywhere;
 }
 
 .option-list {
@@ -809,49 +947,173 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   font-weight: 700;
 }
 
-.composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
-  gap: 8px;
+.chat-composer {
+  min-width: 0;
   border-top: 1px solid #e8edf3;
-  padding: 10px;
+  background: #ffffff;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
-.composer textarea {
-  width: 100%;
-  resize: none;
-  border: 1px solid #cfd8e4;
-  border-radius: 8px;
+.composer-form {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(70px, 1fr) auto;
+  gap: 6px;
+  min-height: 122px;
+  overflow: hidden;
+  border: 1px solid #dddddd;
+  border-radius: 16px;
   background: #ffffff;
+  padding: 4px;
+}
+
+.composer-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 70px;
+  max-height: 150px;
+  resize: none;
+  overflow: auto;
+  border: 0;
+  background: transparent;
   color: #1f2a38;
-  padding: 8px 9px;
+  padding: 2px 4px;
+  outline: none;
+  line-height: 1.45;
+}
+
+.composer-input:focus {
   outline: none;
 }
 
-.composer textarea:disabled {
-  color: #8792a3;
-  background: #f1f4f7;
+.composer-input:disabled {
+  cursor: default;
+  opacity: 0.62;
 }
 
-.composer-button {
-  width: 38px;
-  height: 38px;
+.composer-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.composer-left,
+.composer-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.composer-left {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.composer-right {
+  justify-content: flex-end;
+}
+
+.model-pill {
+  min-width: 0;
+  max-width: min(180px, 100%);
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: #f5f5f5;
+  color: #1f242b;
+  padding: 0 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-pill {
+  max-width: min(120px, 100%);
+}
+
+.model-pill-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 50%;
+  background: #c8c8c8;
+  color: #ffffff;
+}
+
+.model-pill-symbol {
+  width: 12px;
+  height: 12px;
+}
+
+.model-pill-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-action-button {
+  position: relative;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid #b8c7dd;
-  border-radius: 8px;
-  background: #f4f8ff;
-  color: #24579b;
+  border: 0;
+  border-radius: 50%;
+  background: #c8c8c8;
+  color: #ffffff;
+  padding: 6px;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
-.composer-button.stop {
-  border-color: #e0b9b9;
-  background: #fff7f7;
-  color: #a33a3a;
+.composer-action-button:hover:not(:disabled) {
+  background: #b6b6b6;
 }
 
-.composer-button:disabled {
+.composer-action-button.stop {
+  background: #d66b6b;
+}
+
+.composer-action-button:disabled {
+  cursor: default;
   opacity: 0.45;
+}
+
+.composer-action-button::after {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  pointer-events: none;
+  content: attr(data-tooltip);
+  opacity: 0;
+  transform: translateY(2px);
+  border-radius: 4px;
+  background: #30343a;
+  padding: 5px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.composer-action-button:hover::after,
+.composer-action-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.composer-action-button:focus-visible {
+  outline: 2px solid #446bd7;
+  outline-offset: 2px;
 }
 
 .frame-stage {
@@ -1013,7 +1275,7 @@ async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionS
   }
 
   .runtime-layer.panel-open {
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 48vw) 36px;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 60vw) 36px;
   }
 
   .chat-panel {
