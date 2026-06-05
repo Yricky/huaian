@@ -4,7 +4,8 @@ node_modules
 /.kilocode
 /.agents
 /extern
-/packages/*/dist
+dist
+/apps
 /packages/plugins/*/dist
 /packages/plugins/*/out
 /packages/*/demo-dist

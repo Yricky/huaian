@@ -1,16 +1,12 @@
 import Database from 'better-sqlite3'
 import type {
   AppSessionRecord,
-  JsonRecord,
   JsonRecordValue,
-  LlmGenerationParameters,
   LlmInstance,
   LlmProvider,
-  LlmProviderSnapshot,
   LlmProviderType,
   ProviderModelCacheItem
 } from '../../shared/types'
-import { asString } from '../../shared/value-utils'
 import { asRecord } from './normalizers'
 
 export function initDatabase(dbPath: string): any {
@@ -34,9 +30,8 @@ export function initDatabase(dbPath: string): any {
       name TEXT NOT NULL,
       provider_id INTEGER,
       model_id TEXT NOT NULL,
-      provider_snapshot_json TEXT NOT NULL,
-      parameters_json TEXT NOT NULL,
       extra_json TEXT NOT NULL,
+      order_index INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -102,38 +97,6 @@ function normalizeProviderType(value: JsonRecordValue): LlmProviderType {
   ) ? value : 'openai-compatible'
 }
 
-function normalizeProviderSnapshot(value: JsonRecordValue): LlmProviderSnapshot {
-  const record = asRecord(value)
-  return {
-    providerName: asString(record.providerName, ''),
-    type: normalizeProviderType(record.type),
-    config: asRecord(record.config)
-  }
-}
-
-function normalizeParameters(value: JsonRecordValue): LlmGenerationParameters {
-  const record = asRecord(value)
-  return {
-    temperature: record.temperature === null || record.temperature === undefined ? null : Number(record.temperature),
-    topP: record.topP === null || record.topP === undefined ? null : Number(record.topP),
-    maxOutputTokens: record.maxOutputTokens === null || record.maxOutputTokens === undefined ? null : Number(record.maxOutputTokens),
-    frequencyPenalty: record.frequencyPenalty === null || record.frequencyPenalty === undefined ? null : Number(record.frequencyPenalty),
-    presencePenalty: record.presencePenalty === null || record.presencePenalty === undefined ? null : Number(record.presencePenalty),
-    repetitionPenalty: record.repetitionPenalty === null || record.repetitionPenalty === undefined ? null : Number(record.repetitionPenalty),
-    topK: record.topK === null || record.topK === undefined ? null : Number(record.topK),
-    stopSequences: Array.isArray(record.stopSequences)
-      ? record.stopSequences.filter((item): item is string => typeof item === 'string')
-      : [],
-    seed: record.seed === null || record.seed === undefined ? null : Number(record.seed),
-    reasoningEffort: record.reasoningEffort === 'low' || record.reasoningEffort === 'medium' || record.reasoningEffort === 'high'
-      ? record.reasoningEffort
-      : '',
-    responseFormat: record.responseFormat === 'text' || record.responseFormat === 'json'
-      ? record.responseFormat
-      : ''
-  }
-}
-
 export function rowToLlmProvider(row: any): LlmProvider {
   return {
     id: row.id,
@@ -151,11 +114,10 @@ export function rowToLlmInstance(row: any): LlmInstance {
   return {
     id: row.id,
     name: row.name,
-    providerId: row.provider_id === null || row.provider_id === undefined ? null : Number(row.provider_id),
+    providerId: row.provider_id === null ? null : Number(row.provider_id),
     modelId: row.model_id,
-    providerSnapshot: normalizeProviderSnapshot(parseJsonColumn(row.provider_snapshot_json)),
-    parameters: normalizeParameters(parseJsonColumn(row.parameters_json)),
     extra: asRecord(parseJsonColumn(row.extra_json)),
+    orderIndex: Number(row.order_index),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }

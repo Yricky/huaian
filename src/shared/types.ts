@@ -103,34 +103,13 @@ export interface LlmProvider {
 export type LlmProviderCreatePayload = Pick<LlmProvider, 'name' | 'type' | 'apiKey' | 'config'>
 export type LlmProviderUpdatePayload = Pick<LlmProvider, 'id' | 'name' | 'type' | 'apiKey' | 'config'>
 
-export interface LlmProviderSnapshot {
-  providerName: string
-  type: LlmProviderType
-  config: JsonRecord
-}
-
-export interface LlmGenerationParameters {
-  temperature?: number | null
-  topP?: number | null
-  maxOutputTokens?: number | null
-  frequencyPenalty?: number | null
-  presencePenalty?: number | null
-  repetitionPenalty?: number | null
-  topK?: number | null
-  stopSequences?: string[]
-  seed?: number | null
-  reasoningEffort?: '' | 'low' | 'medium' | 'high' | null
-  responseFormat?: '' | 'text' | 'json' | null
-}
-
 export interface LlmInstance {
   id: number
   name: string
   providerId: number | null
   modelId: string
-  providerSnapshot: LlmProviderSnapshot
-  parameters: LlmGenerationParameters
   extra: JsonRecord
+  orderIndex: number
   createdAt: string
   updatedAt: string
 }
@@ -139,8 +118,6 @@ export interface LlmInstanceCreatePayload {
   name: string
   providerId: number | null
   modelId: string
-  providerSnapshot: LlmProviderSnapshot
-  parameters: LlmGenerationParameters
   extra: JsonRecord
 }
 
@@ -332,10 +309,10 @@ export type IpcInvokeChannel =
   | 'llm:deleteProvider'
   | 'llm:fetchProviderModels'
   | 'llm:clearProviderModelsCache'
-  | 'llm:restoreProviderFromInstance'
   | 'llm:createInstance'
   | 'llm:updateInstance'
   | 'llm:deleteInstance'
+  | 'llm:reorderInstances'
   | 'haApp:install'
   | 'haApp:uninstall'
   | 'haApp:createSession'
@@ -369,10 +346,10 @@ export interface ElectronApi {
   deleteLlmProvider(id: number): Promise<ProjectSnapshot>
   fetchLlmProviderModels(id: number): Promise<LlmProvider>
   clearLlmProviderModelsCache(id: number): Promise<LlmProvider>
-  restoreProviderFromInstance(id: number): Promise<LlmProvider>
   createLlmInstance(payload: LlmInstanceCreatePayload): Promise<LlmInstance>
   updateLlmInstance(payload: LlmInstanceUpdatePayload): Promise<LlmInstance>
   deleteLlmInstance(id: number): Promise<ProjectSnapshot>
+  reorderLlmInstances(ids: number[]): Promise<ProjectSnapshot>
   installApp(): Promise<ProjectSnapshot>
   uninstallApp(appId: string, options: AppUninstallOptions): Promise<ProjectSnapshot>
   createAppSession(payload: AppSessionCreatePayload): Promise<AppSessionRecord>

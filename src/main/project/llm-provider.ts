@@ -50,11 +50,6 @@ function withApiKeyHeader(headers: Record<string, string>, apiKey: string): Reco
   return { ...headers, Authorization: `Bearer ${apiKey}` }
 }
 
-export function providerOptionsKey(instance: LlmInstance): string {
-  if (instance.providerSnapshot.type === 'openai-compatible') return 'openai-compatible'
-  return instance.providerSnapshot.type
-}
-
 export function resolveLlmProviderForInstance(instanceId: number | null): { instance: LlmInstance; provider: LlmProvider } {
   if (!instanceId) {
     throw new Error('请先为当前聊天选择 LLM 实例。')
@@ -72,15 +67,15 @@ export function resolveLlmProviderForInstance(instanceId: number | null): { inst
 }
 
 export async function createLanguageModel(instance: LlmInstance, provider: LlmProvider): Promise<any> {
-  const config = instance.providerSnapshot.config
+  const config = provider.config
   const headers = headersFromConfig(config)
   const apiKey = provider.apiKey.trim()
 
-  if (!apiKey && instance.providerSnapshot.type !== 'ollama') {
+  if (!apiKey && provider.type !== 'ollama') {
     throw new Error('当前 LLM 实例绑定的提供商没有 API Key。')
   }
 
-  switch (instance.providerSnapshot.type) {
+  switch (provider.type) {
     case 'openai': {
       const { createOpenAI } = await importProvider('@ai-sdk/openai')
       const openai = createOpenAI({
@@ -98,7 +93,7 @@ export async function createLanguageModel(instance: LlmInstance, provider: LlmPr
       const baseURL = ensureBaseURL(configString(config, 'baseURL'), '')
       if (!baseURL) throw new Error('OpenAI-compatible 提供商需要 baseURL。')
       const compatible = createOpenAICompatible({
-        name: instance.providerSnapshot.providerName || 'custom',
+        name: provider.name || 'custom',
         baseURL,
         apiKey: apiKey || undefined,
         headers: withApiKeyHeader(headers, apiKey)

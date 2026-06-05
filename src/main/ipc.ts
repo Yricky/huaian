@@ -47,7 +47,7 @@ import {
   listRecentProjects,
   openDefaultProject,
   openProjectAt,
-  restoreLlmProviderFromInstance,
+  reorderLlmInstances,
   touchAppSession,
   updateAppSession,
   updateProjectConfig,
@@ -95,11 +95,11 @@ export function registerIpcHandlers(): void {
   handleIpc('llm:deleteProvider', (_, id: number) => deleteLlmProvider(id))
   handleIpc('llm:fetchProviderModels', (_, id: number) => fetchProviderModels(id))
   handleIpc('llm:clearProviderModelsCache', (_, id: number) => clearLlmProviderModelsCache(id))
-  handleIpc('llm:restoreProviderFromInstance', (_, id: number) => restoreLlmProviderFromInstance(id))
 
   handleIpc('llm:createInstance', (_, payload: LlmInstanceCreatePayload) => createLlmInstance(payload))
   handleIpc('llm:updateInstance', (_, payload: LlmInstanceUpdatePayload) => updateLlmInstance(payload))
   handleIpc('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
+  handleIpc('llm:reorderInstances', (_, ids: number[]) => reorderLlmInstances(ids))
 
   handleIpc('haApp:install', async () => {
     const result = await dialog.showOpenDialog({

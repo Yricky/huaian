@@ -13,14 +13,12 @@ import type {
   CloneableValue,
   JsonRecord,
   JsonRecordValue,
-  LlmGenerationParameters,
   LlmInstance,
   LlmProvider
 } from '../../shared/types'
 import { asRecord } from '../../shared/value-utils'
 import {
   createLanguageModel,
-  providerOptionsKey,
   resolveLlmProviderForInstance
 } from './llm-provider'
 
@@ -117,44 +115,7 @@ export function resolveAppToolCall(response: AppToolCallResponse): void {
 }
 
 function generationSettings(instance: LlmInstance, abortSignal: AbortSignal): JsonRecord {
-  const parameters = instance.parameters
   const settings: JsonRecord = { ...instance.extra }
-
-  const setNumber = (key: keyof LlmGenerationParameters) => {
-    const value = parameters[key]
-    if (typeof value === 'number' && Number.isFinite(value)) settings[key] = value
-  }
-
-  setNumber('temperature')
-  setNumber('topP')
-  setNumber('maxOutputTokens')
-  setNumber('frequencyPenalty')
-  setNumber('presencePenalty')
-  setNumber('topK')
-  setNumber('seed')
-
-  if (parameters.stopSequences?.length) {
-    settings.stopSequences = parameters.stopSequences.filter(Boolean)
-  }
-  if (parameters.responseFormat === 'json') {
-    settings.responseFormat = { type: 'json' }
-  } else if (parameters.responseFormat === 'text') {
-    settings.responseFormat = { type: 'text' }
-  }
-
-  const providerOptions = asRecord(settings.providerOptions)
-  const providerKey = providerOptionsKey(instance)
-  const providerOption = asRecord(providerOptions[providerKey])
-  if (typeof parameters.repetitionPenalty === 'number' && Number.isFinite(parameters.repetitionPenalty)) {
-    providerOption.repetitionPenalty = parameters.repetitionPenalty
-  }
-  if (parameters.reasoningEffort) {
-    providerOption.reasoningEffort = parameters.reasoningEffort
-    providerOption.effort = parameters.reasoningEffort
-  }
-  if (Object.keys(providerOption).length) {
-    settings.providerOptions = { ...providerOptions, [providerKey]: providerOption }
-  }
 
   settings.abortSignal = abortSignal
   settings.maxRetries = 0

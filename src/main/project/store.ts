@@ -12,14 +12,12 @@ import type {
   LlmProvider,
   LlmProviderCreatePayload,
   LlmProviderUpdatePayload,
-  LlmProviderSnapshot,
   ProviderModelCacheItem,
   ProjectConfig,
   ProjectConfigUpdatePayload,
   ProjectSnapshot,
   RecentProject
 } from '../../shared/types'
-import { toStructuredCloneable } from '../../shared/value-utils'
 import { readConfig, saveConfig } from './app-config'
 import { APP_DATA_DIR, APP_DIR, APP_SAVE_DIR, ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
 import {
@@ -209,7 +207,7 @@ export function listLlmProviders(): LlmProvider[] {
 
 export function listLlmInstances(): LlmInstance[] {
   const project = ensureProject()
-  return project.db.prepare('SELECT * FROM llm_instances ORDER BY updated_at DESC, id DESC').all().map(rowToLlmInstance)
+  return project.db.prepare('SELECT * FROM llm_instances ORDER BY order_index ASC, id ASC').all().map(rowToLlmInstance)
 }
 
 export function listAppSessions(): AppSessionRecord[] {
@@ -245,14 +243,6 @@ function json<T>(value: T): string {
 
 function normalizeName(value: string, fallback: string): string {
   return value.trim() || fallback
-}
-
-export function providerSnapshotFromProvider(provider: LlmProvider): LlmProviderSnapshot {
-  return {
-    providerName: provider.name,
-    type: provider.type,
-    config: toStructuredCloneable(provider.config) ?? {}
-  }
 }
 
 export function getLlmProvider(id: number): LlmProvider {
@@ -320,36 +310,6 @@ export function clearLlmProviderModelsCache(id: number): LlmProvider {
   return updateLlmProviderModelsCache(id, [])
 }
 
-export function restoreLlmProviderFromInstance(id: number): LlmProvider {
-  const instance = getLlmInstance(id)
-  const project = ensureProject()
-  const now = nowIso()
-  const model: ProviderModelCacheItem = {
-    id: instance.modelId,
-    displayName: instance.modelId,
-    metadata: {},
-    fetchedAt: now
-  }
-  const result = project.db.prepare(`
-    INSERT INTO llm_providers (name, type, api_key, created_at, updated_at, config_json, models_cache_json)
-    VALUES (?, ?, '', ?, ?, ?, ?)
-  `).run(
-    normalizeName(instance.providerSnapshot.providerName, `${instance.name} 来源`),
-    instance.providerSnapshot.type,
-    now,
-    now,
-    json(instance.providerSnapshot.config),
-    json(instance.modelId ? [model] : [])
-  )
-  const provider = getLlmProvider(Number(result.lastInsertRowid))
-  updateLlmInstance({
-    ...instance,
-    providerId: provider.id,
-    providerSnapshot: providerSnapshotFromProvider(provider)
-  })
-  return provider
-}
-
 export async function deleteLlmProvider(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
   getLlmProvider(id)
@@ -360,17 +320,20 @@ export async function deleteLlmProvider(id: number): Promise<ProjectSnapshot> {
 
 export function createLlmInstance(payload: LlmInstanceCreatePayload): LlmInstance {
   const project = ensureProject()
+  if (payload.providerId !== null && payload.providerId !== undefined) getLlmProvider(payload.providerId)
   const now = nowIso()
+  const orderRow = project.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM llm_instances').get() as {
+    next_order: number
+  }
   const result = project.db.prepare(`
-    INSERT INTO llm_instances (name, provider_id, model_id, provider_snapshot_json, parameters_json, extra_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO llm_instances (name, provider_id, model_id, extra_json, order_index, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     normalizeName(payload.name, '新实例'),
     payload.providerId ?? null,
     payload.modelId ?? '',
-    json(payload.providerSnapshot),
-    json(payload.parameters ?? {}),
     json(asRecord(payload.extra)),
+    Number(orderRow.next_order ?? 0),
     now,
     now
   )
@@ -381,18 +344,15 @@ export function updateLlmInstance(payload: LlmInstanceUpdatePayload): LlmInstanc
   const project = ensureProject()
   getLlmInstance(payload.id)
   const provider = payload.providerId === null || payload.providerId === undefined ? null : getLlmProvider(payload.providerId)
-  const snapshot = provider ? providerSnapshotFromProvider(provider) : payload.providerSnapshot
   const now = nowIso()
   project.db.prepare(`
     UPDATE llm_instances
-    SET name = ?, provider_id = ?, model_id = ?, provider_snapshot_json = ?, parameters_json = ?, extra_json = ?, updated_at = ?
+    SET name = ?, provider_id = ?, model_id = ?, extra_json = ?, updated_at = ?
     WHERE id = ?
   `).run(
     normalizeName(payload.name, '新实例'),
     provider?.id ?? null,
     payload.modelId ?? '',
-    json(snapshot),
-    json(payload.parameters ?? {}),
     json(asRecord(payload.extra)),
     now,
     payload.id
@@ -404,6 +364,24 @@ export async function deleteLlmInstance(id: number): Promise<ProjectSnapshot> {
   const project = ensureProject()
   getLlmInstance(id)
   project.db.prepare('DELETE FROM llm_instances WHERE id = ?').run(id)
+  return getProjectSnapshot()
+}
+
+export function reorderLlmInstances(ids: number[]): ProjectSnapshot {
+  const project = ensureProject()
+  const currentIds = listLlmInstances().map(instance => instance.id)
+  const uniqueIds = [...new Set(ids.map(id => Number(id)).filter(id => Number.isInteger(id)))]
+  const expected = [...currentIds].sort((a, b) => a - b).join(',')
+  const received = [...uniqueIds].sort((a, b) => a - b).join(',')
+  if (expected !== received) {
+    throw new Error('LLM 实例排序列表与当前数据不一致，请刷新后重试。')
+  }
+
+  const update = project.db.prepare('UPDATE llm_instances SET order_index = ?, updated_at = ? WHERE id = ?')
+  const now = nowIso()
+  project.db.transaction(() => {
+    uniqueIds.forEach((id, index) => update.run(index, now, id))
+  })()
   return getProjectSnapshot()
 }
 

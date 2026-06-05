@@ -79,6 +79,10 @@ export function createProjectWorkbench() {
   const appSessions = computed(() => project.value?.appSessions ?? [])
   const llmProviders = computed(() => project.value?.llmProviders ?? [])
   const llmInstances = computed(() => project.value?.llmInstances ?? [])
+  const availableLlmInstances = computed(() => {
+    const providerIds = new Set(llmProviders.value.map(provider => provider.id))
+    return llmInstances.value.filter(instance => instance.providerId !== null && providerIds.has(instance.providerId))
+  })
   const appById = computed(() => new Map(apps.value.map(app => [app.manifest.id, app])))
   const activeRuntime = computed(() => (
     runningAppSessions.value.find(runtime => runtime.key === activeRuntimeKey.value) ?? null
@@ -190,7 +194,16 @@ export function createProjectWorkbench() {
   }
 
   function defaultLlmInstanceId(): number | null {
-    return llmInstances.value[0]?.id ?? null
+    return availableLlmInstances.value[0]?.id ?? null
+  }
+
+  function availableLlmInstanceId(id: number | null | undefined): number | null {
+    if (id === null || id === undefined) return null
+    return availableLlmInstances.value.some(instance => instance.id === id) ? id : null
+  }
+
+  function replyLlmInstanceId(id: number | null | undefined): number | null {
+    return availableLlmInstanceId(id) ?? defaultLlmInstanceId()
   }
 
   function normalizeOptions(options: unknown): string[] {
@@ -224,7 +237,7 @@ export function createProjectWorkbench() {
       title: (payload.title ?? '').trim() || `对话 ${id}`,
       messages,
       tools: normalizeTools(payload.tools),
-      llmInstanceId: payload.llmInstanceId === undefined ? defaultLlmInstanceId() : payload.llmInstanceId,
+      llmInstanceId: payload.llmInstanceId === undefined ? defaultLlmInstanceId() : availableLlmInstanceId(payload.llmInstanceId),
       allowUserReply: payload.allowUserReply !== false,
       options: normalizeOptions(payload.options),
       status: 'idle',
@@ -333,14 +346,6 @@ export function createProjectWorkbench() {
     }
   }
 
-  function providerSnapshot(provider: LlmProvider) {
-    return {
-      providerName: provider.name,
-      type: provider.type,
-      config: clone(provider.config)
-    }
-  }
-
   function replaceLlmProvider(provider: LlmProvider) {
     if (!project.value) return
     const index = project.value.llmProviders.findIndex(item => item.id === provider.id)
@@ -353,7 +358,8 @@ export function createProjectWorkbench() {
     if (!project.value) return
     const index = project.value.llmInstances.findIndex(item => item.id === instance.id)
     if (index >= 0) project.value.llmInstances[index] = instance
-    else project.value.llmInstances.unshift(instance)
+    else project.value.llmInstances.push(instance)
+    project.value.llmInstances.sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
     selectedLlmInstance.value = clone(instance)
   }
 
@@ -422,17 +428,6 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function restoreProviderFromSelectedInstance() {
-    if (!selectedLlmInstance.value) return
-    try {
-      const provider = await window.electronAPI.restoreProviderFromInstance(selectedLlmInstance.value.id)
-      replaceLlmProvider(provider)
-      showToast('已从 LLM 实例恢复提供商，请补充 API Key', 'success')
-    } catch (error) {
-      showToast(errorText(error), 'error')
-    }
-  }
-
   async function createLlmInstance(payload: LlmInstanceCreatePayload) {
     try {
       const instance = await window.electronAPI.createLlmInstance(toIpcPayload(payload))
@@ -451,8 +446,6 @@ export function createProjectWorkbench() {
         name: instance.name,
         providerId: instance.providerId,
         modelId: instance.modelId,
-        providerSnapshot: instance.providerSnapshot,
-        parameters: instance.parameters,
         extra: instance.extra
       }))
       replaceLlmInstance(saved)
@@ -468,6 +461,16 @@ export function createProjectWorkbench() {
       project.value = await window.electronAPI.deleteLlmInstance(selectedLlmInstance.value.id)
       selectedLlmInstance.value = llmInstances.value[0] ? clone(llmInstances.value[0]) : null
       showToast('LLM 实例已删除', 'success')
+    } catch (error) {
+      showToast(errorText(error), 'error')
+    }
+  }
+
+  async function reorderLlmInstances(ids: number[]) {
+    try {
+      project.value = await window.electronAPI.reorderLlmInstances(ids)
+      refreshSelectedLlmInstance()
+      showToast('LLM 实例顺序已保存', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
     }
@@ -670,7 +673,7 @@ export function createProjectWorkbench() {
   }
 
   function appLlmInstances(): AppLlmInstanceSummary[] {
-    return llmInstances.value.map(instance => ({
+    return availableLlmInstances.value.map(instance => ({
       id: instance.id,
       name: instance.name
     }))
@@ -682,7 +685,7 @@ export function createProjectWorkbench() {
       showToast('当前 chatSession 正在生成，暂不能切换 LLM。', 'error')
       return
     }
-    const instance = llmInstances.value.find(item => item.id === llmInstanceId)
+    const instance = availableLlmInstances.value.find(item => item.id === llmInstanceId)
     if (!instance) {
       showToast('请选择可用的 LLM 实例。', 'error')
       return
@@ -860,10 +863,6 @@ export function createProjectWorkbench() {
   }
 
   async function handleAppFrameLoaded(runtime: RuntimeAppSession, targetWindow: Window) {
-    if (runtime.frameLoadCount > 0) {
-      await closeRuntime(runtime)
-      return
-    }
     runtime.frameLoadCount += 1
     connectAppFrame(runtime, targetWindow)
   }
@@ -871,7 +870,7 @@ export function createProjectWorkbench() {
   async function triggerLlmReply(runtime: RuntimeAppSession, chatSessionId: number) {
     const session = chatSession(runtime, chatSessionId)
     assertChatEditable(session)
-    const llmInstanceId = session.llmInstanceId ?? defaultLlmInstanceId()
+    const llmInstanceId = replyLlmInstanceId(session.llmInstanceId)
     if (!llmInstanceId) throw new Error('项目里还没有可用的 LLM 实例。')
     const assistant = normalizeMessage(runtime.nextMessageId++, {
       role: 'assistant',
@@ -1020,6 +1019,7 @@ export function createProjectWorkbench() {
     appSessions,
     apps,
     appStorageFilesPlaceholder,
+    availableLlmInstances,
     changeChatSessionLlmInstance,
     clearSelectedLlmProviderModelsCache,
     closeRuntime,
@@ -1040,12 +1040,11 @@ export function createProjectWorkbench() {
     openProject,
     openRecentProject,
     project,
-    providerSnapshot,
     recentApps,
     recentProjects,
     refreshRecentProjects,
     renameAppSession,
-    restoreProviderFromSelectedInstance,
+    reorderLlmInstances,
     runningAppSessions,
     saveLlmInstance,
     saveLlmProvider,
