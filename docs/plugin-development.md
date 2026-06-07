@@ -151,6 +151,39 @@ ensureHuaianAppApi()
 
 不要给这个脚本添加 `async`，也不要等到 `window.load`、框架组件 `mounted` / `effect` 或用户交互后再调用。宿主会在 iframe `load` 后发送连接消息；初始模块脚本会在 `load` 前执行，因此这种写法可以避免错过宿主连接。
 
+### 5.1 TypeScript 类型和工具函数
+
+`@huaian/app-api` 是 app 与宿主共享的公共契约。当前仓库中的宿主应用也依赖这个包；app-facing 的类型、协议常量和 `value-utils` 都以 SDK 包为唯一来源，不要在 app 或宿主中复制一份定义。
+
+根入口会导出客户端、类型和工具函数：
+
+```ts
+import {
+  ensureHuaianAppApi,
+  type AppChatSessionState,
+  type AppEvent,
+  type AppToolDefinition,
+  type HuaianAppApi,
+  type JsonRecord
+} from '@huaian/app-api'
+```
+
+也可以按子路径导入：
+
+```ts
+import { ensureHuaianAppApi } from '@huaian/app-api/client'
+import type { AppEvent, HuaianAppApi } from '@huaian/app-api/types'
+import { asRecord, asString, toStructuredCloneable } from '@huaian/app-api/value-utils'
+```
+
+`value-utils` 提供以下运行时辅助函数：
+
+- `asRecord(value)`：把未知值收窄成普通记录，非对象或数组返回 `{}`。
+- `asString(value, fallback)`、`asBoolean(value, fallback)`、`asNumber(value, fallback)`、`asNumberOrNull(value)`：读取外部输入时做保守转换。
+- `toStructuredCloneable(value)`：把值清理成适合 `postMessage` / structured clone 的形态，会跳过函数、symbol 等不可克隆字段。
+
+SDK 还导出 `APP_API_HOST_SOURCE` 和 `APP_API_CLIENT_SOURCE`，用于宿主、测试 harness 或自定义集成复用同一套消息来源常量。普通 app 不需要直接使用这些常量，也不应该绕过 SDK 手写 `postMessage` 协议。
+
 ## 6. 运行上下文
 
 获取当前运行上下文：
@@ -337,6 +370,14 @@ interface AppChatApi {
 }
 ```
 
+查询当前项目中可供 app 使用的 LLM 实例：
+
+```ts
+const llms = await ha.chat.getLLMInstances()
+```
+
+返回项只包含 `id` 和 `name`。SDK 不会暴露 provider 配置或 API Key；app 可以把某个 `id` 写入 chatSession 的 `llmInstanceId`，也可以保持 `null` 使用宿主默认选择。
+
 创建一个 chatSession：
 
 ```ts
@@ -401,7 +442,12 @@ ha.on('userMessage', async event => {
 事件结构：
 
 ```ts
-type UserMessageEvent = {
+import type { AppEvent } from '@huaian/app-api'
+
+type UserMessageEvent = Extract<AppEvent, { type: 'userMessage' }>
+
+// 等价结构：
+type UserMessageEventShape = {
   type: 'userMessage'
   chatSessionId: number
   text: string
@@ -410,6 +456,8 @@ type UserMessageEvent = {
 ```
 
 如果 app 不处理这个事件，聊天面板不会显示用户刚才输入的内容。这是设计行为：app 可以拦截、改写、忽略用户输入，或把它转化为多条消息。
+
+所有宿主发给 app 的事件都包含在 SDK 的 `AppEvent` union 中。使用 `ha.on(type, handler)` 时，TypeScript 会根据事件名自动收窄 handler 参数类型。
 
 ## 11. LLM 回复
 
@@ -449,6 +497,14 @@ ha.on('llmReplyStopped', event => {
 
 ha.on('llmReplyError', event => {
   console.error(event.error)
+})
+```
+
+如果用户在宿主 UI 中切换某个 chatSession 使用的 LLM 实例，app 会收到：
+
+```ts
+ha.on('llmInstanceChanged', event => {
+  console.log('llm changed', event.chatSessionId, event.llmInstanceId)
 })
 ```
 
@@ -498,9 +554,28 @@ await ha.chat.registerTool(session.id, {
 
 1. 宿主把工具调用事件发送给 app iframe。
 2. SDK 找到对应 chatSession 和 toolName 的 handler。
-3. handler 返回任意 JSON 可序列化值。
+3. handler 返回 structured clone 兼容的值；普通 JSON 对象是最稳妥的选择。
 4. 宿主把结果返回给 LLM。
 5. assistant message 中会出现 `tool_call` content part。
+
+如果工具结果来自外部库或用户脚本，建议先用 `toStructuredCloneable` 清理后再返回：
+
+```ts
+import { toStructuredCloneable } from '@huaian/app-api/value-utils'
+
+await ha.chat.registerTool(session.id, {
+  name: 'external_lookup',
+  description: 'Call an external lookup helper.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: true
+  }
+}, async input => {
+  const rawResult = await runExternalTool(input)
+  return toStructuredCloneable(rawResult)
+})
+```
 
 如果 handler 抛错、返回失败或 120 秒内没有响应：
 

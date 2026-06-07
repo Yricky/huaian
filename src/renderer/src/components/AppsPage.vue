@@ -341,6 +341,10 @@ function toolStatusLabel(status: Extract<AppChatContentPart, { type: 'tool_call'
   return '完成'
 }
 
+function reasoningContextLabel(part: Extract<AppChatContentPart, { type: 'reasoning' }>): string {
+  return part.sendAsContext ? '作为上下文' : '不作为上下文'
+}
+
 function jsonPreview(value: unknown): string {
   if (value === undefined) return ''
   try {
@@ -525,6 +529,7 @@ watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
               <details v-else-if="part.type === 'reasoning' && part.text" class="reasoning-part">
                 <summary>
                   <span>思考</span>
+                  <small :class="{ active: part.sendAsContext === true }">{{ reasoningContextLabel(part) }}</small>
                 </summary>
                 <MarkdownView v-if="chatRenderMode(activeRuntime) === 'markdown'" class="message-markdown"
                   :markdown="part.text" />
@@ -1233,10 +1238,28 @@ watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   color: #667286;
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
+}
+
+.reasoning-part summary small {
+  flex: 0 0 auto;
+  border: 1px solid #c9d2dc;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #6d7888;
+  background: #ffffff;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.reasoning-part summary small.active {
+  border-color: #7fb39f;
+  color: #245f51;
+  background: #e6f5ee;
 }
 
 .reasoning-part[open] summary {

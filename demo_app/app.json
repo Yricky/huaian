@@ -1,0 +1,6 @@
+{
+  "id": "huaian.api-lab",
+  "name": "Huaian API Lab",
+  "description": "测试 @huaian/app-api 公开接口的控制台应用。",
+  "version": 1
+}

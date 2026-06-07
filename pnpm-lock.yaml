@@ -91,6 +91,28 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(typescript@6.0.3)
 
+  demo_app:
+    dependencies:
+      '@huaian/app-api':
+        specifier: workspace:*
+        version: link:../packages/app-api
+      vue:
+        specifier: ^3.5.27
+        version: 3.5.27(typescript@6.0.3)
+    devDependencies:
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.4
+        version: 6.0.4(vite@8.0.14(@types/node@25.2.2)(esbuild@0.27.3)(jiti@2.6.1)(less@4.5.1))(vue@3.5.27(typescript@6.0.3))
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.14
+        version: 8.0.14(@types/node@25.2.2)(esbuild@0.27.3)(jiti@2.6.1)(less@4.5.1)
+      vue-tsc:
+        specifier: ^3.2.4
+        version: 3.2.4(typescript@6.0.3)
+
   packages/app-api:
     devDependencies:
       typescript:

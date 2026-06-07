@@ -1,0 +1,21 @@
+{
+  "name": "huaian-api-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build && cp app.json dist/ && cd dist && zip -r -FS ../huaian-api-lab.zip .",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@huaian/app-api": "workspace:*",
+    "vue": "^3.5.27"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vue-tsc": "^3.2.4"
+  }
+}
