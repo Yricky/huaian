@@ -3,10 +3,12 @@ import type {
   AppSessionRecord,
   JsonRecordValue,
   LlmInstance,
+  LlmFeatureString,
   LlmProvider,
   LlmProviderType,
   ProviderModelCacheItem
 } from '../../shared/types'
+import { DEFAULT_LLM_FEATURES } from '../../shared/types'
 import { asRecord } from './normalizers'
 
 export function initDatabase(dbPath: string): any {
@@ -30,6 +32,7 @@ export function initDatabase(dbPath: string): any {
       name TEXT NOT NULL,
       provider_id INTEGER,
       model_id TEXT NOT NULL,
+      features_json TEXT NOT NULL DEFAULT '["toolcall","img-input","img-output"]',
       extra_json TEXT NOT NULL,
       order_index INTEGER NOT NULL,
       created_at TEXT NOT NULL,
@@ -70,7 +73,22 @@ export function initDatabase(dbPath: string): any {
       updated_at TEXT NOT NULL
     );
   `)
+  migrateDatabase(db)
   return db
+}
+
+function tableColumns(db: any, tableName: string): Set<string> {
+  return new Set(db.prepare(`PRAGMA table_info(${tableName})`).all().map((row: any) => String(row.name)))
+}
+
+function migrateDatabase(db: any): void {
+  const llmInstanceColumns = tableColumns(db, 'llm_instances')
+  if (!llmInstanceColumns.has('features_json')) {
+    db.prepare(`
+      ALTER TABLE llm_instances
+      ADD COLUMN features_json TEXT NOT NULL DEFAULT '["toolcall","img-input","img-output"]'
+    `).run()
+  }
 }
 
 function parseJsonColumn(value: string): JsonRecordValue {
@@ -84,6 +102,13 @@ function parseJsonColumn(value: string): JsonRecordValue {
 function parseJsonArray<T>(value: string): T[] {
   const parsed = parseJsonColumn(value)
   return Array.isArray(parsed) ? parsed as T[] : []
+}
+
+function normalizeLlmFeatures(value: string): LlmFeatureString[] {
+  const features = parseJsonArray<unknown>(value).filter((item): item is LlmFeatureString => (
+    item === 'toolcall' || item === 'img-input' || item === 'img-output'
+  ))
+  return features.length ? [...new Set(features)] : [...DEFAULT_LLM_FEATURES]
 }
 
 function normalizeProviderType(value: JsonRecordValue): LlmProviderType {
@@ -116,6 +141,7 @@ export function rowToLlmInstance(row: any): LlmInstance {
     name: row.name,
     providerId: row.provider_id === null ? null : Number(row.provider_id),
     modelId: row.model_id,
+    features: normalizeLlmFeatures(row.features_json ?? '[]'),
     extra: asRecord(parseJsonColumn(row.extra_json)),
     orderIndex: Number(row.order_index),
     createdAt: row.created_at,

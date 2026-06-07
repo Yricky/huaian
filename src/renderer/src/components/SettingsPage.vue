@@ -16,7 +16,8 @@ import {
   MdTune,
   MdWarningAmber
 } from 'vue-icons-plus/md'
-import type { JsonRecord, JsonRecordValue, LlmInstance, LlmProvider, LlmProviderType } from '../../../shared/types'
+import { DEFAULT_LLM_FEATURES } from '../../../shared/types'
+import type { JsonRecord, JsonRecordValue, LlmFeatureString, LlmInstance, LlmProvider, LlmProviderType } from '../../../shared/types'
 import { useProjectWorkbench } from '../composables/useProjectWorkbench'
 import JsonEditor from './JsonEditor.vue'
 
@@ -27,6 +28,12 @@ const providerTypes: { value: LlmProviderType; label: string }[] = [
   { value: 'google', label: 'Google Gemini' },
   { value: 'ollama', label: 'Ollama' },
   { value: 'custom', label: 'Custom' }
+]
+
+const llmFeatureOptions: { value: LlmFeatureString; label: string; description: string }[] = [
+  { value: 'toolcall', label: '工具调用', description: '允许模型调用 app 注册的工具。' },
+  { value: 'img-input', label: '图片输入', description: '允许消息把图片作为上下文发送给模型。' },
+  { value: 'img-output', label: '图片输出', description: '允许模型返回图片文件。' }
 ]
 
 const {
@@ -190,6 +197,7 @@ async function openNewInstanceModal() {
     name: '新实例',
     providerId: selectedLlmProvider.value?.id ?? llmProviders.value[0]?.id ?? null,
     modelId: '',
+    features: [...DEFAULT_LLM_FEATURES],
     extra: {}
   })
   if (selectedLlmInstance.value) {
@@ -270,8 +278,24 @@ async function createInstanceFromProvider(modelId = modelDraft.value) {
     name: trimmedModel,
     providerId: provider.id,
     modelId: trimmedModel,
+    features: [...DEFAULT_LLM_FEATURES],
     extra: {}
   })
+}
+
+function hasInstanceFeature(feature: LlmFeatureString): boolean {
+  return instanceDraft.value?.features.includes(feature) === true
+}
+
+function setInstanceFeature(feature: LlmFeatureString, enabled: boolean) {
+  if (!instanceDraft.value) return
+  const features = new Set(instanceDraft.value.features)
+  if (enabled) features.add(feature)
+  else features.delete(feature)
+  instanceDraft.value.features = llmFeatureOptions
+    .map(option => option.value)
+    .filter(value => features.has(value))
+  markInstanceDirty()
 }
 
 function setProviderBaseURL(value: string) {
@@ -641,6 +665,17 @@ async function dropInstance(target: LlmInstance) {
                 <MdCheckCircle v-if="instanceAvailable" aria-hidden="true" />
                 <MdWarningAmber v-else aria-hidden="true" />
                 <span>{{ instanceAvailable ? `当前 Provider：${instanceBoundProvider?.name}` : '不可用：请选择有效 Provider' }}</span>
+              </div>
+
+              <div class="feature-list" aria-label="模型能力">
+                <label v-for="feature in llmFeatureOptions" :key="feature.value" class="feature-row">
+                  <span>
+                    <strong>{{ feature.label }}</strong>
+                    <small>{{ feature.description }}</small>
+                  </span>
+                  <input type="checkbox" :checked="hasInstanceFeature(feature.value)"
+                    @change="setInstanceFeature(feature.value, ($event.target as HTMLInputElement).checked)" />
+                </label>
               </div>
 
               <label class="json-label">
@@ -1187,6 +1222,31 @@ button:disabled {
   padding: 12px;
 }
 
+.feature-list {
+  display: grid;
+  gap: 8px;
+}
+
+.feature-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #e4e8ee;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.feature-row strong {
+  display: block;
+  color: #1f2935;
+  font-size: 13px;
+}
+
+.feature-row small {
+  color: #8a929e;
+}
+
 .switch-row strong {
   display: block;
   color: #1f2935;
@@ -1198,6 +1258,10 @@ button:disabled {
 }
 
 .switch-row input {
+  width: auto;
+}
+
+.feature-row input {
   width: auto;
 }
 

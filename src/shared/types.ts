@@ -4,13 +4,16 @@ import type {
   AppChatSessionState,
   AppFileEntry,
   AppToolDefinition,
+  AssistantContentPart,
   CloneableValue,
-  JsonRecord
+  JsonRecord,
+  LlmFeatureString
 } from '@huaian/app-api'
 
 export {
   APP_API_CLIENT_SOURCE,
-  APP_API_HOST_SOURCE
+  APP_API_HOST_SOURCE,
+  DEFAULT_LLM_FEATURES
 } from '@huaian/app-api'
 
 export type {
@@ -25,6 +28,9 @@ export type {
   AppChatSessionState,
   AppChatSessionStatus,
   AppChatSessionUpdatePayload,
+  AppMultimodalResource,
+  AppMultimodalResourceScope,
+  AssistantContentPart,
   AppEvent,
   AppEventHandler,
   AppFileEntry,
@@ -36,13 +42,18 @@ export type {
   CloneablePrimitive,
   CloneableRecord,
   CloneableValue,
+  FileContentPart,
+  FileContentPartType,
   HuaianAppApi,
   JsonRecord,
   JsonRecordValue,
+  LlmFeatureString,
   ReasoningContentPart,
+  SystemContentPart,
   TextContentPart,
   ToolCallContentPart,
-  ToolCallContentPartStatus
+  ToolCallContentPartStatus,
+  UserContentPart
 } from '@huaian/app-api'
 
 export interface AppManifest {
@@ -141,6 +152,7 @@ export interface LlmInstance {
   name: string
   providerId: number | null
   modelId: string
+  features: LlmFeatureString[]
   extra: JsonRecord
   orderIndex: number
   createdAt: string
@@ -151,6 +163,7 @@ export interface LlmInstanceCreatePayload {
   name: string
   providerId: number | null
   modelId: string
+  features: LlmFeatureString[]
   extra: JsonRecord
 }
 
@@ -182,7 +195,7 @@ export type AppLlmGenerationEvent =
     chatSessionId: number
     assistantMessageId: number
     text: string
-    contentParts: AppChatContentPart[]
+    contentParts: AssistantContentPart[]
   }
   | {
     type: 'finished' | 'stopped'
@@ -190,7 +203,7 @@ export type AppLlmGenerationEvent =
     appSessionId: number
     chatSessionId: number
     assistantMessageId: number
-    contentParts: AppChatContentPart[]
+    contentParts: AssistantContentPart[]
   }
   | {
     type: 'error'
@@ -198,7 +211,7 @@ export type AppLlmGenerationEvent =
     appSessionId: number
     chatSessionId: number
     assistantMessageId: number
-    contentParts: AppChatContentPart[]
+    contentParts: AssistantContentPart[]
     error: string
   }
 

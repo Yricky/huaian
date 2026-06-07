@@ -18,6 +18,10 @@
     "./value-utils": {
       "types": "./src/value-utils.ts",
       "import": "./src/value-utils.ts"
+    },
+    "./chat-message-payloads": {
+      "types": "./src/chat-message-payloads.ts",
+      "import": "./src/chat-message-payloads.ts"
     }
   },
   "types": "./src/index.ts",

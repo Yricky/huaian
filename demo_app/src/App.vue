@@ -299,7 +299,7 @@
               <select v-model.number="selectedMessageId" :disabled="!selectedSession?.messages.length">
                 <option :value="null">未选择</option>
                 <option v-for="message in selectedSession?.messages ?? []" :key="message.id" :value="message.id">
-                  #{{ message.id }} {{ message.role }} · {{ message.status }}
+                  #{{ message.id }} {{ message.role }} · {{ messageStatus(message) }}
                 </option>
               </select>
             </label>
@@ -343,7 +343,7 @@
                 </template>
 
                 <label v-else class="stacked-field">
-                  <span>tool_call JSON</span>
+                  <span>{{ part.type }} JSON</span>
                   <textarea v-model="part.json" rows="8" spellcheck="false" />
                 </label>
               </article>
@@ -418,10 +418,10 @@
                 <article v-for="message in selectedSession.messages" :key="message.id" class="message-row">
                   <header>
                     <strong>#{{ message.id }} {{ message.role }}</strong>
-                    <span :class="['message-status', message.status]">{{ message.status }}</span>
+                    <span v-if="message.role === 'assistant'" :class="['message-status', message.status]">{{ message.status }}</span>
                   </header>
                   <pre>{{ formatMessage(message) }}</pre>
-                  <small v-if="message.errorText">{{ message.errorText }}</small>
+                  <small v-if="messageErrorText(message)">{{ messageErrorText(message) }}</small>
                 </article>
               </div>
             </div>
@@ -887,6 +887,7 @@ function formatMessage(message: AppChatMessage): string {
   return message.contentParts.map(part => {
     if (part.type === 'text') return part.text
     if (part.type === 'reasoning') return `[reasoning sendAsContext=${part.sendAsContext === true}]\n${part.text}`
+    if (part.type === 'image') return `[image ${part.file.scope}:${part.file.path}]`
     return [
       `[tool_call ${part.toolName} · ${part.status}]`,
       `input: ${formatValue(part.input, 500)}`,
@@ -894,6 +895,14 @@ function formatMessage(message: AppChatMessage): string {
       part.error ? `error: ${part.error}` : ''
     ].filter(Boolean).join('\n')
   }).join('\n\n')
+}
+
+function messageStatus(message: AppChatMessage): string {
+  return message.role === 'assistant' ? message.status : 'idle'
+}
+
+function messageErrorText(message: AppChatMessage): string {
+  return message.role === 'assistant' ? message.errorText : ''
 }
 
 function toEditableContentPart(part: AppChatContentPart): EditableContentPart {
@@ -917,7 +926,7 @@ function toEditableContentPart(part: AppChatContentPart): EditableContentPart {
   }
   return {
     id: ++editablePartId,
-    type: 'tool_call',
+    type: part.type,
     text: '',
     sendAsContext: false,
     json: JSON.stringify(part, null, 2)
@@ -955,7 +964,7 @@ function buildEditedContentParts(): AppChatContentPart[] | null {
     } else {
       try {
         const value = JSON.parse(part.json) as AppChatContentPart
-        if (value.type !== 'tool_call') throw new Error('tool_call JSON 的 type 必须是 "tool_call"。')
+        if (value.type !== part.type) throw new Error(`JSON 的 type 必须是 "${part.type}"。`)
         parts.push(value)
       } catch (error) {
         pushLog('error', 'contentParts JSON 解析失败', error instanceof Error ? error.message : String(error))
@@ -1110,7 +1119,7 @@ async function createSession(): Promise<void> {
   if (systemPrompt.value.trim()) {
     await runApi('chat.appendMessage', 'chat.appendMessage(system)', () => ha.chat.appendMessage(session.id, {
       role: 'system',
-      content: systemPrompt.value
+      contentParts: [{ type: 'text', text: systemPrompt.value }]
     }))
   }
   await registerRandomTool(session.id)
@@ -1151,10 +1160,12 @@ async function deleteSelectedSession(): Promise<void> {
 async function appendMessage(): Promise<void> {
   const session = selectedSession.value
   if (!session) return
-  const message = await runApi('chat.appendMessage', 'chat.appendMessage', () => ha.chat.appendMessage(session.id, {
-    role: messageRole.value,
-    content: messageContent.value
-  }))
+  const contentParts = messageContent.value ? [{ type: 'text' as const, text: messageContent.value }] : []
+  const message = await runApi('chat.appendMessage', 'chat.appendMessage', () => {
+    if (messageRole.value === 'assistant') return ha.chat.appendMessage(session.id, { role: 'assistant', contentParts })
+    if (messageRole.value === 'system') return ha.chat.appendMessage(session.id, { role: 'system', contentParts })
+    return ha.chat.appendMessage(session.id, { role: 'user', contentParts })
+  })
   if (message) await loadSession(session.id)
 }
 
@@ -1281,7 +1292,7 @@ async function askToolAndTrigger(): Promise<void> {
   await registerRandomTool(session.id)
   const message = await runApi('chat.appendMessage', 'chat.appendMessage(tool request)', () => ha.chat.appendMessage(session.id, {
     role: 'user',
-    content: `请调用 random_number 工具，max 参数为 ${normalizeMax(randomMax.value)}。拿到工具结果后，请用中文报告随机值和 time 字符串。`
+    contentParts: [{ type: 'text', text: `请调用 random_number 工具，max 参数为 ${normalizeMax(randomMax.value)}。拿到工具结果后，请用中文报告随机值和 time 字符串。` }]
   }))
   if (!message) return
   await triggerReply()
@@ -1315,7 +1326,7 @@ async function handleEvent(event: AppEvent): Promise<void> {
     if (autoAppendUserMessage.value) {
       await runApi('chat.appendMessage', 'auto append userMessage', () => ha.chat.appendMessage(event.chatSessionId, {
         role: 'user',
-        content: event.text,
+        contentParts: event.contentParts,
         metadata: {
           source: event.source
         }

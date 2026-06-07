@@ -6,6 +6,7 @@ import type {
   AppSessionRecord,
   AppSessionUpdatePayload,
   JsonRecord,
+  LlmFeatureString,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
@@ -18,6 +19,7 @@ import type {
   ProjectSnapshot,
   RecentProject
 } from '../../shared/types'
+import { DEFAULT_LLM_FEATURES } from '../../shared/types'
 import { readConfig, saveConfig } from './app-config'
 import { APP_DATA_DIR, APP_DIR, APP_SAVE_DIR, ASSETS_DIR, DATABASE_FILE, DEFAULT_PROJECT_DIR, EXPORTS_DIR, PROJECT_FILE } from './constants'
 import {
@@ -245,6 +247,14 @@ function normalizeName(value: string, fallback: string): string {
   return value.trim() || fallback
 }
 
+function normalizeLlmFeatures(features: unknown): LlmFeatureString[] {
+  if (!Array.isArray(features)) return [...DEFAULT_LLM_FEATURES]
+  const normalized = features.filter((feature): feature is LlmFeatureString => (
+    feature === 'toolcall' || feature === 'img-input' || feature === 'img-output'
+  ))
+  return normalized.length ? [...new Set(normalized)] : [...DEFAULT_LLM_FEATURES]
+}
+
 export function getLlmProvider(id: number): LlmProvider {
   const project = ensureProject()
   const row = project.db.prepare('SELECT * FROM llm_providers WHERE id = ?').get(id)
@@ -326,12 +336,13 @@ export function createLlmInstance(payload: LlmInstanceCreatePayload): LlmInstanc
     next_order: number
   }
   const result = project.db.prepare(`
-    INSERT INTO llm_instances (name, provider_id, model_id, extra_json, order_index, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO llm_instances (name, provider_id, model_id, features_json, extra_json, order_index, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     normalizeName(payload.name, '新实例'),
     payload.providerId ?? null,
     payload.modelId ?? '',
+    json(normalizeLlmFeatures(payload.features)),
     json(asRecord(payload.extra)),
     Number(orderRow.next_order ?? 0),
     now,
@@ -347,12 +358,13 @@ export function updateLlmInstance(payload: LlmInstanceUpdatePayload): LlmInstanc
   const now = nowIso()
   project.db.prepare(`
     UPDATE llm_instances
-    SET name = ?, provider_id = ?, model_id = ?, extra_json = ?, updated_at = ?
+    SET name = ?, provider_id = ?, model_id = ?, features_json = ?, extra_json = ?, updated_at = ?
     WHERE id = ?
   `).run(
     normalizeName(payload.name, '新实例'),
     provider?.id ?? null,
     payload.modelId ?? '',
+    json(normalizeLlmFeatures(payload.features)),
     json(asRecord(payload.extra)),
     now,
     payload.id

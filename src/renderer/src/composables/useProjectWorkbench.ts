@@ -2,6 +2,7 @@ import { computed, inject, onBeforeUnmount, onMounted, provide, ref, toRaw, type
 import {
   APP_API_CLIENT_SOURCE,
   APP_API_HOST_SOURCE,
+  type AssistantContentPart,
   type AppChatContentPart,
   type AppChatMessage,
   type AppChatMessageCreatePayload,
@@ -13,7 +14,8 @@ import {
   type AppFileEntry,
   type AppFrameContext,
   type AppLlmInstanceSummary,
-  type AppToolDefinition
+  type AppToolDefinition,
+  type UserContentPart
 } from '@huaian/app-api'
 import { asRecord, toStructuredCloneable } from '@huaian/app-api/value-utils'
 import type {
@@ -31,6 +33,8 @@ import type {
   RecentProject,
   SidebarView
 } from '@/shared/types'
+
+type AssistantChatMessage = Extract<AppChatMessage, { role: 'assistant' }>
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -177,23 +181,85 @@ export function createProjectWorkbench() {
     return new Date().toISOString()
   }
 
-  function normalizeContentParts(payload: AppChatMessageCreatePayload): AppChatContentPart[] {
-    if (payload.contentParts) return toStructuredCloneable(payload.contentParts)
-    return payload.content ? [{ type: 'text', text: payload.content }] : []
+  function normalizePartForRole(role: AppChatMessage['role'], part: AppChatContentPart): AppChatContentPart {
+    if (role === 'system') {
+      if (part.type !== 'text') throw new Error('system 消息只支持 text contentPart。')
+      return { type: 'text', text: part.text }
+    }
+    if (role === 'user') {
+      if (part.type === 'text') return { type: 'text', text: part.text }
+      if (part.type === 'image') {
+        return {
+          type: 'image',
+          file: toStructuredCloneable(part.file),
+          mediaType: part.mediaType,
+          filename: part.filename,
+          alt: part.alt
+        }
+      }
+      throw new Error('user 消息只支持 text 和 image contentPart。')
+    }
+    if (part.type === 'text') return { type: 'text', text: part.text }
+    if (part.type === 'reasoning') return { type: 'reasoning', text: part.text, sendAsContext: part.sendAsContext }
+    if (part.type === 'image') {
+      return {
+        type: 'image',
+        file: toStructuredCloneable(part.file),
+        mediaType: part.mediaType,
+        filename: part.filename,
+        alt: part.alt
+      }
+    }
+    return toStructuredCloneable(part)
+  }
+
+  function normalizeContentParts(role: AppChatMessage['role'], contentParts?: AppChatContentPart[]): AppChatContentPart[] {
+    const rawParts = toStructuredCloneable(contentParts ?? [])
+    return rawParts.map(part => normalizePartForRole(role, part))
   }
 
   function normalizeMessage(id: number, payload: AppChatMessageCreatePayload): AppChatMessage {
     const now = nowIso()
-    return {
+    const base = {
       id,
       role: payload.role,
-      contentParts: normalizeContentParts(payload),
-      status: payload.status ?? 'idle',
+      contentParts: normalizeContentParts(payload.role, payload.contentParts as AppChatContentPart[] | undefined),
       metadata: asRecord(payload.metadata),
-      errorText: payload.errorText ?? '',
       createdAt: now,
       updatedAt: now
     }
+    if (payload.role === 'assistant') {
+      return {
+        ...base,
+        role: 'assistant',
+        contentParts: base.contentParts as AssistantContentPart[],
+        status: payload.status ?? 'idle',
+        errorText: payload.errorText ?? ''
+      }
+    }
+    return base as AppChatMessage
+  }
+
+  function normalizeStoredMessage(message: AppChatMessage): AppChatMessage {
+    const raw = toStructuredCloneable(message)
+    const base = {
+      id: raw.id,
+      role: raw.role,
+      contentParts: normalizeContentParts(raw.role, raw.contentParts),
+      metadata: asRecord(raw.metadata),
+      createdAt: raw.createdAt,
+      updatedAt: raw.updatedAt
+    }
+    if (raw.role === 'assistant') {
+      return {
+        ...base,
+        role: 'assistant',
+        contentParts: base.contentParts as AssistantContentPart[],
+        status: raw.status ?? 'idle',
+        errorText: raw.errorText ?? ''
+      }
+    }
+    return base as AppChatMessage
   }
 
   function defaultLlmInstanceId(): number | null {
@@ -233,7 +299,7 @@ export function createProjectWorkbench() {
 
   function freshChatSession(runtime: RuntimeAppSession, payload: AppChatSessionCreatePayload = {}): AppChatSessionState {
     const id = runtime.nextChatSessionId++
-    const messages = (payload.messages ?? []).map(message => toStructuredCloneable(message))
+    const messages = (payload.messages ?? []).map(message => normalizeStoredMessage(message))
     runtime.nextMessageId = Math.max(runtime.nextMessageId, ...messages.map(message => message.id + 1), 0)
     return {
       id,
@@ -452,6 +518,7 @@ export function createProjectWorkbench() {
         name: instance.name,
         providerId: instance.providerId,
         modelId: instance.modelId,
+        features: instance.features,
         extra: instance.extra
       }))
       replaceLlmInstance(saved)
@@ -664,16 +731,22 @@ export function createProjectWorkbench() {
     replaceRuntime(runtime)
   }
 
-  async function sendUserMessage(runtime: RuntimeAppSession, chatSessionId: number, text: string, source: 'composer' | 'option') {
+  async function sendUserMessage(
+    runtime: RuntimeAppSession,
+    chatSessionId: number,
+    source: 'composer' | 'option',
+    contentParts: UserContentPart[]
+  ) {
     const session = chatSession(runtime, chatSessionId)
-    if (!text.trim()) return
+    const parts = normalizeContentParts('user', contentParts as AppChatContentPart[]) as UserContentPart[]
+    if (!parts.length) return
     if (source === 'composer' && !session.allowUserReply) return
     if (source === 'option') session.options = []
     replaceRuntime(runtime)
     sendFrameEvent(runtime, {
       type: 'userMessage',
       chatSessionId,
-      text,
+      contentParts: parts,
       source
     })
   }
@@ -681,7 +754,8 @@ export function createProjectWorkbench() {
   function appLlmInstances(): AppLlmInstanceSummary[] {
     return availableLlmInstances.value.map(instance => ({
       id: instance.id,
-      name: instance.name
+      name: instance.name,
+      features: toStructuredCloneable(instance.features)
     }))
   }
 
@@ -766,7 +840,7 @@ export function createProjectWorkbench() {
         options: hasOwn(patch, 'options') ? normalizeOptions(patch.options) : session.options
       })
       if (patch.messages) {
-        session.messages = patch.messages.map(message => toStructuredCloneable(message))
+        session.messages = patch.messages.map(message => normalizeStoredMessage(message))
         runtime.nextMessageId = Math.max(runtime.nextMessageId, ...session.messages.map(message => message.id + 1), 0)
       }
       replaceRuntime(runtime)
@@ -792,15 +866,41 @@ export function createProjectWorkbench() {
       const session = chatSession(runtime, Number(args[0]))
       assertChatEditable(session)
       const messageId = Number(args[1])
-      const patch = asRecord(args[2]) as AppChatMessageUpdatePayload
+      const patchRecord = asRecord(args[2])
+      const patch = patchRecord as AppChatMessageUpdatePayload
       const message = session.messages.find(item => item.id === messageId)
       if (!message) throw new Error('消息不存在。')
-      Object.assign(message, {
-        ...patch,
+      const nextRole = patch.role ?? message.role
+      if (nextRole !== 'assistant' && (hasOwn(patchRecord, 'status') || hasOwn(patchRecord, 'errorText'))) {
+        throw new Error('status 和 errorText 只支持 assistant 消息。')
+      }
+      const nextContentParts = patch.contentParts
+        ? normalizeContentParts(nextRole, patch.contentParts as AppChatContentPart[])
+        : message.contentParts
+      const base = {
+        id: message.id,
+        role: nextRole,
+        contentParts: nextContentParts,
+        metadata: hasOwn(patch, 'metadata') ? asRecord(patch.metadata) : message.metadata,
+        createdAt: message.createdAt,
         updatedAt: nowIso()
-      })
+      }
+      const nextMessage = nextRole === 'assistant'
+        ? {
+          ...base,
+          role: 'assistant' as const,
+          contentParts: nextContentParts as AssistantContentPart[],
+          status: hasOwn(patchRecord, 'status')
+            ? patchRecord.status as AssistantChatMessage['status']
+            : (message.role === 'assistant' ? message.status : 'idle'),
+          errorText: hasOwn(patchRecord, 'errorText')
+            ? String(patchRecord.errorText ?? '')
+            : (message.role === 'assistant' ? message.errorText : '')
+        }
+        : base as AppChatMessage
+      session.messages = session.messages.map(item => item.id === messageId ? nextMessage : item)
       replaceRuntime(runtime)
-      return toStructuredCloneable(message)
+      return toStructuredCloneable(nextMessage)
     },
     'chat.deleteMessage': (runtime, args) => {
       const session = chatSession(runtime, Number(args[0]))
@@ -903,7 +1003,7 @@ export function createProjectWorkbench() {
       role: 'assistant',
       contentParts: [],
       status: 'generating'
-    })
+    }) as AssistantChatMessage
     const contextMessages = toStructuredCloneable(session.messages)
     session.messages = [...session.messages, assistant]
     session.status = 'generating'
@@ -944,7 +1044,7 @@ export function createProjectWorkbench() {
     if (!runtime) return
     const session = runtime.chatSessions.find(item => item.id === event.chatSessionId)
     const message = session?.messages.find(item => item.id === event.assistantMessageId)
-    if (!session || !message) return
+    if (!session || !message || message.role !== 'assistant') return
 
     if (event.type === 'started') {
       session.status = 'generating'

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   MdAdd,
   MdApps,
   MdChat,
   MdClose,
-  MdCode,
   MdDeleteOutline,
   MdDriveFileRenameOutline,
   MdFolder,
@@ -15,29 +14,17 @@ import {
   MdPlayArrow,
   MdRefresh,
   MdSave,
-  MdSend,
-  MdSmartToy,
-  MdStop,
   MdUploadFile
 } from 'vue-icons-plus/md'
-import type { AppChatContentPart, AppChatMessage, AppChatSessionState, AppDescriptor, AppSessionRecord } from '../../../shared/types'
+import type { AppDescriptor, AppSessionRecord } from '../../../shared/types'
 import { useProjectWorkbench, type RuntimeAppSession } from '../composables/useProjectWorkbench'
-import MarkdownView from './MarkdownView.vue'
-
-type ChatRenderMode = 'raw' | 'markdown'
-
-const CHAT_UI_CONFIG_PATH = '.huaian/ui-settings.json'
-const DEFAULT_CHAT_RENDER_MODE: ChatRenderMode = 'markdown'
-const CHAT_PANEL_MIN_WIDTH = 360
-const CHAT_PANEL_MAX_WIDTH = 900
+import AppChatPanel from './AppChatPanel.vue'
 
 const {
   activeRuntime,
   activeRuntimeKey,
   appIconUrl,
   apps,
-  availableLlmInstances,
-  changeChatSessionLlmInstance,
   closeRuntime,
   createAppSession,
   deleteAppSession,
@@ -49,14 +36,11 @@ const {
   runningAppSessions,
   selectedApp,
   selectedAppSessions,
-  sendUserMessage,
   showToast,
-  stopChatReply,
   toggleChatPanel,
   uninstallSelectedApp
 } = useProjectWorkbench()
 
-const composerDrafts = ref<Record<string, string>>({})
 const uninstallDialogOpen = ref(false)
 const deleteConfigData = ref(false)
 const deleteAllSaves = ref(false)
@@ -64,13 +48,8 @@ const debugMenuRuntimeKey = ref<string | null>(null)
 const debugUrlDrafts = ref<Record<string, string>>({})
 const frameReloadTicks = ref<Record<string, number>>({})
 const frameUrls = ref<Record<string, string>>({})
-const appChatRenderModes = ref<Record<string, ChatRenderMode>>({})
-const chatPanelRef = ref<HTMLElement | null>(null)
 const chatPanelWidth = ref<number | null>(null)
 const isChatPanelResizing = ref(false)
-const loadedChatUiSettings = new Set<string>()
-const loadingChatUiSettings = new Set<string>()
-let chatPanelResizeStart: { startX: number; startWidth: number } | null = null
 
 const activeChatSession = computed(() => {
   const runtime = activeRuntime.value
@@ -193,105 +172,6 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeDebugMenu()
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function normalizeChatRenderMode(value: unknown): ChatRenderMode {
-  return value === 'raw' ? 'raw' : DEFAULT_CHAT_RENDER_MODE
-}
-
-function chatRenderMode(runtime: RuntimeAppSession): ChatRenderMode {
-  return appChatRenderModes.value[runtime.app.manifest.id] ?? DEFAULT_CHAT_RENDER_MODE
-}
-
-async function loadChatUiSettings(appId: string) {
-  if (loadedChatUiSettings.has(appId) || loadingChatUiSettings.has(appId)) return
-  loadingChatUiSettings.add(appId)
-  try {
-    const content = await window.electronAPI.readAppStorageFile('appData', appId, null, CHAT_UI_CONFIG_PATH)
-    const config = content.trim() ? JSON.parse(content) as Record<string, unknown> : {}
-    if (appChatRenderModes.value[appId] === undefined) {
-      appChatRenderModes.value = {
-        ...appChatRenderModes.value,
-        [appId]: normalizeChatRenderMode(config.chatRenderMode)
-      }
-    }
-    loadedChatUiSettings.add(appId)
-  } catch (error) {
-    showToast(errorText(error), 'error')
-  } finally {
-    loadingChatUiSettings.delete(appId)
-  }
-}
-
-async function saveChatUiSettings(appId: string, mode: ChatRenderMode) {
-  try {
-    await window.electronAPI.writeAppStorageFile('appData', appId, null, CHAT_UI_CONFIG_PATH, JSON.stringify({
-      chatRenderMode: mode
-    }, null, 2))
-    loadedChatUiSettings.add(appId)
-  } catch (error) {
-    showToast(errorText(error), 'error')
-  }
-}
-
-function setChatRenderMode(runtime: RuntimeAppSession, mode: ChatRenderMode) {
-  const appId = runtime.app.manifest.id
-  appChatRenderModes.value = {
-    ...appChatRenderModes.value,
-    [appId]: mode
-  }
-  void saveChatUiSettings(appId, mode)
-}
-
-function chatPanelWidthLimit() {
-  const viewportMax = Math.max(320, window.innerWidth - 80)
-  const max = Math.min(CHAT_PANEL_MAX_WIDTH, viewportMax)
-  return {
-    min: Math.min(CHAT_PANEL_MIN_WIDTH, max),
-    max
-  }
-}
-
-function clampChatPanelWidth(width: number): number {
-  const { min, max } = chatPanelWidthLimit()
-  return Math.min(max, Math.max(min, Math.round(width)))
-}
-
-function handleChatPanelResizeMove(event: PointerEvent) {
-  if (!chatPanelResizeStart) return
-  chatPanelWidth.value = clampChatPanelWidth(
-    chatPanelResizeStart.startWidth + chatPanelResizeStart.startX - event.clientX
-  )
-}
-
-function stopChatPanelResize() {
-  if (!chatPanelResizeStart) return
-  chatPanelResizeStart = null
-  isChatPanelResizing.value = false
-  document.removeEventListener('pointermove', handleChatPanelResizeMove)
-  document.removeEventListener('pointerup', stopChatPanelResize)
-  document.removeEventListener('pointercancel', stopChatPanelResize)
-  document.documentElement.classList.remove('resizing-chat-panel')
-}
-
-function startChatPanelResize(event: PointerEvent) {
-  if (event.button !== 0) return
-  const panelWidth = chatPanelRef.value?.getBoundingClientRect().width ?? chatPanelWidth.value ?? 680
-  chatPanelResizeStart = {
-    startX: event.clientX,
-    startWidth: clampChatPanelWidth(panelWidth)
-  }
-  chatPanelWidth.value = chatPanelResizeStart.startWidth
-  isChatPanelResizing.value = true
-  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
-  document.addEventListener('pointermove', handleChatPanelResizeMove)
-  document.addEventListener('pointerup', stopChatPanelResize)
-  document.addEventListener('pointercancel', stopChatPanelResize)
-  document.documentElement.classList.add('resizing-chat-panel')
-}
-
 async function confirmUninstall() {
   uninstallDialogOpen.value = false
   await uninstallSelectedApp({
@@ -300,86 +180,15 @@ async function confirmUninstall() {
   })
 }
 
-function chatKey(runtime: RuntimeAppSession, session: AppChatSessionState): string {
-  return `${runtime.key}:${session.id}`
-}
-
-function roleLabel(role: AppChatMessage['role']): string {
-  if (role === 'assistant') return 'AI'
-  if (role === 'system') return '系统'
-  return '用户'
-}
-
-function composerKey(runtime: RuntimeAppSession, session: AppChatSessionState): string {
-  return `${runtime.key}:${session.id}`
-}
-
-function canSendComposer(runtime: RuntimeAppSession, session: AppChatSessionState): boolean {
-  const text = composerDrafts.value[composerKey(runtime, session)] ?? ''
-  return session.allowUserReply && session.status !== 'generating' && text.trim().length > 0
-}
-
-function llmSelectValue(session: AppChatSessionState): string {
-  return availableLlmInstances.value.some(instance => instance.id === session.llmInstanceId)
-    ? String(session.llmInstanceId)
-    : ''
-}
-
-function handleLlmSelect(runtime: RuntimeAppSession, session: AppChatSessionState, event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  if (!value) return
-  changeChatSessionLlmInstance(runtime, session.id, Number(value))
-}
-
-function partKey(message: AppChatMessage, part: AppChatContentPart, index: number): string {
-  return part.type === 'tool_call' ? `${message.id}:tool:${part.toolCallId}` : `${message.id}:${part.type}:${index}`
-}
-
-function toolStatusLabel(status: Extract<AppChatContentPart, { type: 'tool_call' }>['status']): string {
-  if (status === 'pending') return '等待中'
-  if (status === 'error') return '失败'
-  return '完成'
-}
-
-function reasoningContextLabel(part: Extract<AppChatContentPart, { type: 'reasoning' }>): string {
-  return part.sendAsContext ? '作为上下文' : '不作为上下文'
-}
-
-function jsonPreview(value: unknown): string {
-  if (value === undefined) return ''
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-async function sendComposer(runtime: RuntimeAppSession, session: AppChatSessionState) {
-  const key = composerKey(runtime, session)
-  const text = (composerDrafts.value[key] ?? '').trim()
-  if (!text) return
-  composerDrafts.value = { ...composerDrafts.value, [key]: '' }
-  await sendUserMessage(runtime, session.id, text, 'composer')
-}
-
-async function chooseOption(runtime: RuntimeAppSession, session: AppChatSessionState, option: string) {
-  await sendUserMessage(runtime, session.id, option, 'option')
-}
-
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKeydown)
 })
 
 onBeforeUnmount(() => {
-  stopChatPanelResize()
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKeydown)
 })
-
-watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
-  if (appId) void loadChatUiSettings(appId)
-}, { immediate: true })
 </script>
 
 <template>
@@ -489,124 +298,12 @@ watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
 
     <section class="runtime-layer" :style="runtimeLayerStyle"
       :class="{ visible: activeRuntime, 'panel-open': activeRuntime?.chatPanelOpen && activeChatSession }">
-      <aside v-if="activeRuntime?.chatPanelOpen && activeChatSession" ref="chatPanelRef" class="chat-panel">
-        <button class="chat-panel-resizer" type="button" aria-label="调整聊天窗口宽度"
-          @pointerdown.prevent="startChatPanelResize"></button>
-        <header class="chat-panel-header">
-          <span class="chat-panel-title">
-            <strong>{{ activeChatSession.title }}</strong>
-            <small>{{ activeChatSession.status }}</small>
-          </span>
-          <div class="chat-panel-actions">
-            <div class="chat-render-toggle" role="group" aria-label="聊天内容格式">
-              <button type="button" :class="{ active: chatRenderMode(activeRuntime) === 'raw' }"
-                @click="setChatRenderMode(activeRuntime, 'raw')">
-                原始
-              </button>
-              <button type="button" :class="{ active: chatRenderMode(activeRuntime) === 'markdown' }"
-                @click="setChatRenderMode(activeRuntime, 'markdown')">
-                Markdown
-              </button>
-            </div>
-            <button class="icon-button" type="button" aria-label="收起" data-tooltip="收起"
-              @click="toggleChatPanel(activeRuntime, activeChatSession.id)">
-              <MdClose aria-hidden="true" />
-            </button>
-          </div>
-        </header>
-
-        <div class="message-list">
-          <article v-for="message in activeChatSession.messages" :key="message.id" class="message-bubble"
-            :class="[message.role, message.status]">
-            <header>
-              <span>{{ roleLabel(message.role) }}</span>
-              <small v-if="message.status !== 'idle'">{{ message.status }}</small>
-            </header>
-            <template v-for="(part, partIndex) in message.contentParts" :key="partKey(message, part, partIndex)">
-              <MarkdownView v-if="part.type === 'text' && part.text && chatRenderMode(activeRuntime) === 'markdown'"
-                class="message-markdown" :markdown="part.text" />
-              <pre v-else-if="part.type === 'text' && part.text" class="message-raw">{{ part.text }}</pre>
-              <details v-else-if="part.type === 'reasoning' && part.text" class="reasoning-part">
-                <summary>
-                  <span>思考</span>
-                  <small :class="{ active: part.sendAsContext === true }">{{ reasoningContextLabel(part) }}</small>
-                </summary>
-                <MarkdownView v-if="chatRenderMode(activeRuntime) === 'markdown'" class="message-markdown"
-                  :markdown="part.text" />
-                <pre v-else class="message-raw">{{ part.text }}</pre>
-              </details>
-              <section v-else-if="part.type === 'tool_call'" class="tool-call" :class="part.status">
-                <header class="tool-call-header">
-                  <strong>{{ part.toolName }}</strong>
-                  <span>{{ toolStatusLabel(part.status) }}</span>
-                </header>
-                <details class="tool-json">
-                  <summary>输入</summary>
-                  <pre>{{ jsonPreview(part.input) }}</pre>
-                </details>
-                <details v-if="part.output !== undefined" class="tool-json">
-                  <summary>输出</summary>
-                  <pre>{{ jsonPreview(part.output) }}</pre>
-                </details>
-                <p v-if="part.error" class="tool-error">{{ part.error }}</p>
-              </section>
-            </template>
-            <em v-if="message.errorText">{{ message.errorText }}</em>
-          </article>
-        </div>
-
-        <div v-if="activeChatSession.options.length" class="option-list">
-          <button v-for="option in activeChatSession.options" :key="option" type="button"
-            @click="chooseOption(activeRuntime, activeChatSession, option)">
-            {{ option }}
-          </button>
-        </div>
-
-        <footer class="chat-composer">
-          <form class="composer-form" @submit.prevent="sendComposer(activeRuntime, activeChatSession)">
-            <textarea v-model="composerDrafts[chatKey(activeRuntime, activeChatSession)]" class="composer-input"
-              rows="2" :placeholder="activeChatSession.allowUserReply ? '输入消息...' : '当前对话不允许用户回复'"
-              :disabled="!activeChatSession.allowUserReply || activeChatSession.status === 'generating'"
-              @keydown.enter.exact.prevent="sendComposer(activeRuntime, activeChatSession)" />
-
-            <div class="composer-controls">
-              <div class="composer-left">
-                <label class="model-pill llm-select-pill">
-                  <span class="model-pill-icon" aria-hidden="true">
-                    <MdSmartToy class="model-pill-symbol" />
-                  </span>
-                  <select class="llm-select" :value="llmSelectValue(activeChatSession)"
-                    :disabled="activeChatSession.status === 'generating' || !availableLlmInstances.length"
-                    aria-label="选择 LLM 实例" @change="handleLlmSelect(activeRuntime, activeChatSession, $event)">
-                    <option value="" disabled>未选择 LLM</option>
-                    <option v-for="instance in availableLlmInstances" :key="instance.id" :value="String(instance.id)">
-                      {{ instance.name }}
-                    </option>
-                  </select>
-                </label>
-                <span class="model-pill tool-pill">
-                  <span class="model-pill-icon" aria-hidden="true">
-                    <MdCode class="model-pill-symbol" />
-                  </span>
-                  <span class="model-pill-label">工具 {{ activeChatSession.tools.length }}</span>
-                </span>
-              </div>
-
-              <div class="composer-right">
-                <button v-if="activeChatSession.status === 'generating'" class="composer-action-button stop"
-                  type="button" aria-label="停止" data-tooltip="停止"
-                  @click="stopChatReply(activeRuntime, activeChatSession.id)">
-                  <MdStop size="16" />
-                </button>
-                <button v-else class="composer-action-button" type="submit" :disabled="!canSendComposer(activeRuntime, activeChatSession)"
-                  aria-label="发送" data-tooltip="发送">
-                  <MdSend size="16" />
-                </button>
-              </div>
-            </div>
-          </form>
-        </footer>
-      </aside>
+      <AppChatPanel v-if="activeRuntime && activeChatSession"
+        v-show="activeRuntime.chatPanelOpen"
+        :runtime="activeRuntime"
+        :session="activeChatSession"
+        @panel-width="chatPanelWidth = $event"
+        @resizing="isChatPanelResizing = $event" />
 
       <main class="frame-stage">
         <article v-for="runtime in runningAppSessions" :key="runtime.key" class="frame-cell"
@@ -1003,544 +700,12 @@ watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
   grid-template-columns: minmax(0, 1fr) minmax(360px, min(var(--chat-panel-width), 900px)) 36px;
 }
 
-.chat-panel {
-  position: relative;
-  grid-column: 2;
-  grid-row: 1;
-  width: auto;
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  min-height: 0;
-  overflow: hidden;
-  border-right: 1px solid #dfe5ed;
-  border-left: 1px solid #dfe5ed;
-  background: #fbfcfd;
-}
-
-.chat-panel-resizer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 20;
-  width: 14px;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.chat-panel-resizer::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: transparent;
-  content: "";
-  transition: background 120ms ease;
-}
-
-.chat-panel-resizer:hover::before,
-.chat-panel-resizer:focus-visible::before,
-:global(.resizing-chat-panel) .chat-panel-resizer::before {
-  background: #2f6fca;
-}
-
-:global(.resizing-chat-panel),
-:global(.resizing-chat-panel *) {
-  cursor: col-resize !important;
-}
-
 .chat-resize-scrim {
   position: absolute;
   inset: 0;
   z-index: 80;
   background: transparent;
   cursor: col-resize;
-}
-
-.chat-panel-header {
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #e5e9ef;
-  padding: 8px 10px 8px 14px;
-}
-
-.chat-panel-title {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.chat-panel-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.chat-render-toggle {
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #eef2f7;
-  padding: 2px;
-}
-
-.chat-render-toggle button {
-  height: 24px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #526071;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.chat-render-toggle button.active {
-  background: #ffffff;
-  color: #174f99;
-  box-shadow: 0 1px 3px rgba(34, 43, 56, 0.14);
-}
-
-.chat-render-toggle button:focus-visible {
-  outline: 2px solid #446bd7;
-  outline-offset: 1px;
-}
-
-.chat-panel-header strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #17202d;
-  font-size: 14px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-panel-header small {
-  color: #7b8798;
-  font-size: 11px;
-}
-
-.message-list {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow: auto;
-  padding: 14px;
-}
-
-.message-bubble {
-  width: fit-content;
-  min-width: min(240px, 100%);
-  max-width: 100%;
-  display: grid;
-  gap: 7px;
-  border: 1px solid #dce3ec;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #202a38;
-  padding: 10px 12px;
-}
-
-.message-bubble.user {
-  width: auto;
-  min-width: min(240px, 100%);
-  max-width: 100%;
-  align-self: flex-end;
-  border-color: #bdd4f5;
-  background: #f4f8ff;
-}
-
-.message-bubble.assistant {
-  width: 100%;
-  max-width: 100%;
-  align-self: flex-start;
-}
-
-.message-bubble.system {
-  width: 100%;
-  align-self: center;
-  max-width: 100%;
-  background: #f3f5f7;
-}
-
-.message-bubble.error {
-  border-color: #e0b9b9;
-  background: #fff8f8;
-}
-
-.message-bubble > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: #6c7788;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.message-markdown {
-  min-width: 0;
-  color: #202a38;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.message-markdown :deep(.sm-paragraph:last-child),
-.message-markdown :deep(.sm-block:last-child) {
-  margin-bottom: 0;
-}
-
-.message-markdown :deep(.sm-line),
-.message-markdown :deep(.sm-code-line) {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.message-raw {
-  min-width: 0;
-  margin: 0;
-  color: #202a38;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.message-bubble em {
-  color: #a33a3a;
-  font-size: 12px;
-  font-style: normal;
-}
-
-.reasoning-part {
-  min-width: 0;
-  border: 1px solid #d9e0e8;
-  border-radius: 8px;
-  background: #f7f9fb;
-  padding: 7px 8px;
-}
-
-.reasoning-part summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: #667286;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.reasoning-part summary small {
-  flex: 0 0 auto;
-  border: 1px solid #c9d2dc;
-  border-radius: 999px;
-  padding: 2px 7px;
-  color: #6d7888;
-  background: #ffffff;
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.reasoning-part summary small.active {
-  border-color: #7fb39f;
-  color: #245f51;
-  background: #e6f5ee;
-}
-
-.reasoning-part[open] summary {
-  margin-bottom: 6px;
-}
-
-.tool-call {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  border: 1px solid #d8e0ea;
-  border-radius: 8px;
-  background: #f1f4f7;
-  padding: 8px;
-  font-size: 12px;
-}
-
-.tool-call-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.tool-call-header strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #304054;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tool-call-header span {
-  flex: 0 0 auto;
-  color: #657386;
-  font-weight: 800;
-}
-
-.tool-call.error {
-  border-color: #e5c4c4;
-  background: #fff0f0;
-}
-
-.tool-json {
-  min-width: 0;
-}
-
-.tool-json summary {
-  cursor: pointer;
-  color: #5c6879;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.tool-json pre {
-  max-height: 160px;
-  overflow: auto;
-  margin: 5px 0 0;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #263141;
-  padding: 7px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.tool-error {
-  margin: 0;
-  color: #a33a3a;
-  overflow-wrap: anywhere;
-}
-
-.option-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  border-top: 1px solid #e8edf3;
-  padding: 8px 10px;
-}
-
-.option-list button {
-  border: 1px solid #cdd7e5;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #27405f;
-  padding: 6px 9px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.chat-composer {
-  min-width: 0;
-  border-top: 1px solid #e8edf3;
-  background: #ffffff;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-}
-
-.composer-form {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: minmax(70px, 1fr) auto;
-  gap: 6px;
-  min-height: 122px;
-  overflow: hidden;
-  border: 1px solid #dddddd;
-  border-radius: 16px;
-  background: #ffffff;
-  padding: 4px;
-}
-
-.composer-input {
-  width: 100%;
-  min-width: 0;
-  min-height: 70px;
-  max-height: 150px;
-  resize: none;
-  overflow: auto;
-  border: 0;
-  background: transparent;
-  color: #1f2a38;
-  padding: 2px 4px;
-  outline: none;
-  line-height: 1.45;
-}
-
-.composer-input:focus {
-  outline: none;
-}
-
-.composer-input:disabled {
-  cursor: default;
-  opacity: 0.62;
-}
-
-.composer-controls {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.composer-left,
-.composer-right {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.composer-left {
-  justify-content: flex-start;
-  gap: 6px;
-}
-
-.composer-right {
-  justify-content: flex-end;
-}
-
-.model-pill {
-  min-width: 0;
-  max-width: min(180px, 100%);
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 14px;
-  background: #f5f5f5;
-  color: #1f242b;
-  padding: 0 8px 0 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.llm-select-pill {
-  width: min(220px, 100%);
-  max-width: min(220px, 100%);
-  padding-right: 6px;
-}
-
-.tool-pill {
-  max-width: min(120px, 100%);
-}
-
-.model-pill-icon {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  border-radius: 50%;
-  background: #c8c8c8;
-  color: #ffffff;
-}
-
-.model-pill-symbol {
-  width: 12px;
-  height: 12px;
-}
-
-.model-pill-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-select {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: #1f242b;
-  font: inherit;
-  outline: none;
-}
-
-.llm-select:disabled {
-  cursor: default;
-  opacity: 0.62;
-}
-
-.composer-action-button {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: #c8c8c8;
-  color: #ffffff;
-  padding: 6px;
-  transition: background 140ms ease, opacity 140ms ease;
-}
-
-.composer-action-button:hover:not(:disabled) {
-  background: #b6b6b6;
-}
-
-.composer-action-button.stop {
-  background: #d66b6b;
-}
-
-.composer-action-button:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.composer-action-button::after {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 30;
-  pointer-events: none;
-  content: attr(data-tooltip);
-  opacity: 0;
-  transform: translateY(2px);
-  border-radius: 4px;
-  background: #30343a;
-  padding: 5px 8px;
-  color: #ffffff;
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
-  transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.composer-action-button:hover::after,
-.composer-action-button:focus-visible::after {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.composer-action-button:focus-visible {
-  outline: 2px solid #446bd7;
-  outline-offset: 2px;
 }
 
 .frame-stage {
@@ -1845,18 +1010,6 @@ watch(() => activeRuntime.value?.app.manifest.id ?? null, appId => {
 
   .runtime-layer.panel-open {
     grid-template-columns: minmax(0, 1fr) minmax(320px, min(var(--chat-panel-width), 60vw)) 36px;
-  }
-
-  .chat-panel {
-    min-width: 0;
-  }
-
-  .chat-panel-header {
-    gap: 8px;
-  }
-
-  .chat-render-toggle button {
-    padding: 0 6px;
   }
 
   .header-actions {

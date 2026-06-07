@@ -25,6 +25,15 @@ export type AppChatRole = 'system' | 'user' | 'assistant'
 export type AppChatSessionStatus = 'idle' | 'generating' | 'stopped' | 'error'
 export type AppChatMessageStatus = 'idle' | 'generating' | 'stopped' | 'error'
 export type ToolCallContentPartStatus = 'pending' | 'success' | 'error'
+export type LlmFeatureString = 'toolcall' | 'img-input' | 'img-output'
+export const DEFAULT_LLM_FEATURES: LlmFeatureString[] = ['toolcall', 'img-input', 'img-output']
+export type AppMultimodalResourceScope = 'app' | 'save'
+export type FileContentPartType = 'image'
+
+export interface AppMultimodalResource {
+  scope: AppMultimodalResourceScope
+  path: string
+}
 
 export interface TextContentPart {
   type: 'text'
@@ -35,6 +44,14 @@ export interface ReasoningContentPart {
   type: 'reasoning'
   text: string
   sendAsContext?: boolean
+}
+
+export interface FileContentPart {
+  type: FileContentPartType
+  file: AppMultimodalResource
+  mediaType?: string
+  filename?: string
+  alt?: string
 }
 
 export interface ToolCallContentPart {
@@ -50,18 +67,27 @@ export interface ToolCallContentPart {
   extensions?: JsonRecord
 }
 
-export type AppChatContentPart = TextContentPart | ReasoningContentPart | ToolCallContentPart
+export type SystemContentPart = TextContentPart
+export type UserContentPart = TextContentPart | FileContentPart
+export type AssistantContentPart = TextContentPart | ReasoningContentPart | FileContentPart | ToolCallContentPart
+export type AppChatContentPart = SystemContentPart | UserContentPart | AssistantContentPart
 
-export interface AppChatMessage {
+export interface AppChatMessageBase {
   id: number
-  role: AppChatRole
-  contentParts: AppChatContentPart[]
-  status: AppChatMessageStatus
   metadata: JsonRecord
-  errorText: string
   createdAt: string
   updatedAt: string
 }
+
+export type AppChatMessage =
+  | (AppChatMessageBase & { role: 'system'; contentParts: SystemContentPart[] })
+  | (AppChatMessageBase & { role: 'user'; contentParts: UserContentPart[] })
+  | (AppChatMessageBase & {
+    role: 'assistant'
+    contentParts: AssistantContentPart[]
+    status: AppChatMessageStatus
+    errorText: string
+  })
 
 export interface AppToolDefinition {
   name: string
@@ -72,6 +98,7 @@ export interface AppToolDefinition {
 export interface AppLlmInstanceSummary {
   id: number
   name: string
+  features: LlmFeatureString[]
 }
 
 export interface AppChatSessionState {
@@ -97,32 +124,53 @@ export interface AppChatSessionCreatePayload {
 
 export type AppChatSessionUpdatePayload = Partial<Omit<AppChatSessionState, 'id'>>
 
-export interface AppChatMessageCreatePayload {
-  role: AppChatRole
-  content?: string
-  contentParts?: AppChatContentPart[]
-  status?: AppChatMessageStatus
-  metadata?: JsonRecord
-  errorText?: string
-}
+export type AppChatMessageCreatePayload =
+  | {
+    role: 'system'
+    contentParts?: SystemContentPart[]
+    metadata?: JsonRecord
+  }
+  | {
+    role: 'user'
+    contentParts?: UserContentPart[]
+    metadata?: JsonRecord
+  }
+  | {
+    role: 'assistant'
+    contentParts?: AssistantContentPart[]
+    status?: AppChatMessageStatus
+    metadata?: JsonRecord
+    errorText?: string
+  }
 
-export interface AppChatMessageUpdatePayload {
-  role?: AppChatRole
-  contentParts?: AppChatContentPart[]
-  status?: AppChatMessageStatus
-  metadata?: JsonRecord
-  errorText?: string
-}
+export type AppChatMessageUpdatePayload =
+  | {
+    role?: 'system'
+    contentParts?: SystemContentPart[]
+    metadata?: JsonRecord
+  }
+  | {
+    role?: 'user'
+    contentParts?: UserContentPart[]
+    metadata?: JsonRecord
+  }
+  | {
+    role?: 'assistant'
+    contentParts?: AssistantContentPart[]
+    status?: AppChatMessageStatus
+    metadata?: JsonRecord
+    errorText?: string
+  }
 
 export type AppEvent =
-  | { type: 'userMessage'; chatSessionId: number; text: string; source: 'composer' | 'option' }
+  | { type: 'userMessage'; chatSessionId: number; contentParts: UserContentPart[]; source: 'composer' | 'option' }
   | { type: 'userStoppedReply'; chatSessionId: number }
   | { type: 'llmInstanceChanged'; chatSessionId: number; llmInstanceId: number }
   | { type: 'llmReplyStarted'; chatSessionId: number; assistantMessageId: number }
-  | { type: 'llmReplyDelta'; chatSessionId: number; assistantMessageId: number; text: string; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyFinished'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyStopped'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyError'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[]; error: string }
+  | { type: 'llmReplyDelta'; chatSessionId: number; assistantMessageId: number; text: string; contentParts: AssistantContentPart[] }
+  | { type: 'llmReplyFinished'; chatSessionId: number; assistantMessageId: number; contentParts: AssistantContentPart[] }
+  | { type: 'llmReplyStopped'; chatSessionId: number; assistantMessageId: number; contentParts: AssistantContentPart[] }
+  | { type: 'llmReplyError'; chatSessionId: number; assistantMessageId: number; contentParts: AssistantContentPart[]; error: string }
   | { type: 'toolCall'; requestId: string; chatSessionId: number; toolName: string; input: JsonRecord }
 
 export interface AppStorageApi {

@@ -160,6 +160,7 @@ ensureHuaianAppApi()
 ```ts
 import {
   ensureHuaianAppApi,
+  AppChatMessagePayloads,
   type AppChatSessionState,
   type AppEvent,
   type AppToolDefinition,
@@ -174,6 +175,7 @@ import {
 import { ensureHuaianAppApi } from '@huaian/app-api/client'
 import type { AppEvent, HuaianAppApi } from '@huaian/app-api/types'
 import { asRecord, asString, toStructuredCloneable } from '@huaian/app-api/value-utils'
+import { AppChatMessagePayloads } from '@huaian/app-api/chat-message-payloads'
 ```
 
 `value-utils` 提供以下运行时辅助函数：
@@ -181,6 +183,8 @@ import { asRecord, asString, toStructuredCloneable } from '@huaian/app-api/value
 - `asRecord(value)`：把未知值收窄成普通记录，非对象或数组返回 `{}`。
 - `asString(value, fallback)`、`asBoolean(value, fallback)`、`asNumber(value, fallback)`、`asNumberOrNull(value)`：读取外部输入时做保守转换。
 - `toStructuredCloneable(value)`：把值清理成适合 `postMessage` / structured clone 的形态，会跳过函数、symbol 等不可克隆字段。
+
+`AppChatMessagePayloads` 提供 `system(text)`、`user(text)`、`assistant(text)` 和 `fromText(role, text)`，用于从纯文本快速生成对应 role 的 `AppChatMessageCreatePayload`。
 
 SDK 还导出 `APP_API_HOST_SOURCE` 和 `APP_API_CLIENT_SOURCE`，用于宿主、测试 harness 或自定义集成复用同一套消息来源常量。普通 app 不需要直接使用这些常量，也不应该绕过 SDK 手写 `postMessage` 协议。
 
@@ -308,37 +312,56 @@ interface AppChatSessionState {
 消息：
 
 ```ts
-interface AppChatMessage {
+interface AppChatMessageBase {
   id: number
-  role: 'system' | 'user' | 'assistant'
-  contentParts: AppChatContentPart[]
-  status: 'idle' | 'generating' | 'stopped' | 'error'
   metadata: Record<string, unknown>
-  errorText: string
   createdAt: string
   updatedAt: string
 }
+
+type AppChatMessage =
+  | (AppChatMessageBase & { role: 'system'; contentParts: SystemContentPart[] })
+  | (AppChatMessageBase & { role: 'user'; contentParts: UserContentPart[] })
+  | (AppChatMessageBase & {
+      role: 'assistant'
+      contentParts: AssistantContentPart[]
+      status: 'idle' | 'generating' | 'stopped' | 'error'
+      errorText: string
+    })
 ```
 
 内容片段：
 
 ```ts
-type AppChatContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string; sendAsContext?: boolean }
-  | {
-      type: 'tool_call'
-      toolCallId: string
-      toolName: string
-      status: 'pending' | 'success' | 'error'
-      input: Record<string, unknown>
-      output?: unknown
-      error?: string
-      createdAt: string
-      updatedAt: string
-      extensions?: Record<string, unknown>
-    }
+type TextContentPart = { type: 'text'; text: string }
+type FileContentPart = {
+  type: 'image'
+  file: { scope: 'app' | 'save'; path: string }
+  mediaType?: string
+  filename?: string
+  alt?: string
+}
+type ReasoningContentPart = { type: 'reasoning'; text: string; sendAsContext?: boolean }
+type ToolCallContentPart = {
+  type: 'tool_call'
+  toolCallId: string
+  toolName: string
+  status: 'pending' | 'success' | 'error'
+  input: Record<string, unknown>
+  output?: unknown
+  error?: string
+  createdAt: string
+  updatedAt: string
+  extensions?: Record<string, unknown>
+}
+
+type SystemContentPart = TextContentPart
+type UserContentPart = TextContentPart | FileContentPart
+type AssistantContentPart = TextContentPart | ReasoningContentPart | FileContentPart | ToolCallContentPart
+type AppChatContentPart = SystemContentPart | UserContentPart | AssistantContentPart
 ```
+
+`system` 消息只支持纯文本片段；`reasoning` 和 `tool_call` 只允许出现在 `assistant` 消息里。消息 API 只接受 `contentParts`，不再支持和 `contentParts` 同级的 `content` 字段。消息级 `status` 和 `errorText` 只存在于 `assistant` 消息。当前文件片段只有图片类型，所以 `FileContentPart.type` 目前固定为 `'image'`。
 
 工具定义：
 
@@ -351,6 +374,8 @@ interface AppToolDefinition {
 ```
 
 `llmInstanceId` 如果不传，宿主会默认使用项目里的第一个 LLM 实例。项目没有可用 LLM 实例时，触发 LLM 回复会报错。
+
+图片多模态资源用 `{ scope, path }` 表示。`scope: 'app'` 代表当前 app 包内文件，`scope: 'save'` 代表当前 appSession 存档目录内文件；`path` 都是各自域内的相对路径。当前只支持图片多模态。
 
 ## 9. chatSession API
 
@@ -376,7 +401,7 @@ interface AppChatApi {
 const llms = await ha.chat.getLLMInstances()
 ```
 
-返回项只包含 `id` 和 `name`。SDK 不会暴露 provider 配置或 API Key；app 可以把某个 `id` 写入 chatSession 的 `llmInstanceId`，也可以保持 `null` 使用宿主默认选择。
+返回项包含 `id`、`name` 和 `features`。`features` 是能力标记数组，可能包含 `toolcall`、`img-input`、`img-output`。SDK 不会暴露 provider 配置或 API Key；app 可以把某个 `id` 写入 chatSession 的 `llmInstanceId`，也可以保持 `null` 使用宿主默认选择。
 
 创建一个 chatSession：
 
@@ -389,10 +414,8 @@ const session = await ha.chat.createSession({
     {
       id: 0,
       role: 'system',
-      status: 'idle',
       contentParts: [{ type: 'text', text: '你是一个奇幻 RPG 的叙事主持人。' }],
       metadata: {},
-      errorText: '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -407,8 +430,11 @@ const session = await ha.chat.createSession({ title: '主线剧情' })
 
 await ha.chat.appendMessage(session.id, {
   role: 'system',
-  content: '你是一个奇幻 RPG 的叙事主持人。'
+  contentParts: [{ type: 'text', text: '你是一个奇幻 RPG 的叙事主持人。' }]
 })
+
+// 等价：
+await ha.chat.appendMessage(session.id, AppChatMessagePayloads.system('你是一个奇幻 RPG 的叙事主持人。'))
 ```
 
 用户是否可以输入由 `allowUserReply` 控制：
@@ -432,7 +458,7 @@ await ha.chat.updateSession(session.id, {
 ha.on('userMessage', async event => {
   await ha.chat.appendMessage(event.chatSessionId, {
     role: 'user',
-    content: event.text
+    contentParts: event.contentParts
   })
 
   await ha.chat.triggerLlmReply(event.chatSessionId)
@@ -450,7 +476,7 @@ type UserMessageEvent = Extract<AppEvent, { type: 'userMessage' }>
 type UserMessageEventShape = {
   type: 'userMessage'
   chatSessionId: number
-  text: string
+  contentParts: UserContentPart[]
   source: 'composer' | 'option'
 }
 ```
@@ -694,7 +720,10 @@ async function ensureSession() {
 
   await ha.chat.appendMessage(session.id, {
     role: 'system',
-    content: '你是一个角色扮演游戏主持人。用中文描述场景，并给玩家明确行动反馈。'
+    contentParts: [{
+      type: 'text',
+      text: '你是一个角色扮演游戏主持人。用中文描述场景，并给玩家明确行动反馈。'
+    }]
   })
 
   await ha.chat.registerTool(session.id, {
@@ -715,7 +744,7 @@ async function ensureSession() {
 ha.on('userMessage', async event => {
   await ha.chat.appendMessage(event.chatSessionId, {
     role: 'user',
-    content: event.text
+    contentParts: event.contentParts
   })
   await ha.chat.triggerLlmReply(event.chatSessionId)
 })
@@ -793,7 +822,7 @@ ha.on('userMessage', async event => {
   if (event.source === 'option') {
     await ha.chat.appendMessage(event.chatSessionId, {
       role: 'user',
-      content: `玩家选择：${event.text}`
+      contentParts: event.contentParts
     })
     await ha.chat.triggerLlmReply(event.chatSessionId)
   }
