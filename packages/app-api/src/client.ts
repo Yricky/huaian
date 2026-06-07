@@ -60,14 +60,32 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     const id = ++callId
     return waitForPort().then(nextPort => (
       new Promise((resolve, reject) => {
-        pendingCalls.set(id, { resolve, reject })
-        nextPort.postMessage({
+        const message = {
           source: CLIENT_SOURCE,
           type: 'call',
           id,
           method,
           args
-        })
+        }
+        pendingCalls.set(id, { resolve, reject })
+        nextPort.postMessage(message)
+      })
+    ))
+  }
+
+  function callWithTransfer(method: string, args: unknown[], transfer: Transferable[]): Promise<unknown> {
+    const id = ++callId
+    return waitForPort().then(nextPort => (
+      new Promise((resolve, reject) => {
+        const message = {
+          source: CLIENT_SOURCE,
+          type: 'call',
+          id,
+          method,
+          args
+        }
+        pendingCalls.set(id, { resolve, reject })
+        nextPort.postMessage(message, transfer)
       })
     ))
   }
@@ -77,9 +95,11 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
       list: (path = '') => call(`${namespace}.list`, [cleanPath(path)]) as Promise<AppFileEntry[]>,
       mkdir: (path: string) => call(`${namespace}.mkdir`, [cleanPath(path)]) as Promise<void>,
       readText: (path: string) => call(`${namespace}.readText`, [cleanPath(path)]) as Promise<string>,
-      readBytes: (path: string) => call(`${namespace}.readBytes`, [cleanPath(path)]) as Promise<Uint8Array>,
+      readBytes: (path: string) => call(`${namespace}.readBytes`, [cleanPath(path)]) as Promise<ArrayBuffer>,
       writeText: (path: string, content: string) => call(`${namespace}.writeText`, [cleanPath(path), content]) as Promise<void>,
-      writeBytes: (path: string, content: Uint8Array) => call(`${namespace}.writeBytes`, [cleanPath(path), content]) as Promise<void>,
+      writeBytes: (path: string, content: ArrayBuffer) => (
+        callWithTransfer(`${namespace}.writeBytes`, [cleanPath(path), content], [content]) as Promise<void>
+      ),
       delete: (path: string, options = {}) => call(`${namespace}.delete`, [cleanPath(path), options]) as Promise<void>,
       readJson: (path: string, fallback?: unknown) => call(`${namespace}.readJson`, [cleanPath(path), fallback]),
       writeJson: (path: string, value: unknown) => call(`${namespace}.writeJson`, [cleanPath(path), value]) as Promise<void>

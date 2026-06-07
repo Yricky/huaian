@@ -195,9 +195,9 @@ interface AppStorageApi {
   list(path?: string): Promise<AppFileEntry[]>
   mkdir(path: string): Promise<void>
   readText(path: string): Promise<string>
-  readBytes(path: string): Promise<Uint8Array>
+  readBytes(path: string): Promise<ArrayBuffer>
   writeText(path: string, content: string): Promise<void>
-  writeBytes(path: string, content: Uint8Array): Promise<void>
+  writeBytes(path: string, content: ArrayBuffer): Promise<void>
   delete(path: string, options?: { recursive?: boolean }): Promise<void>
   readJson(path: string, fallback?: unknown): Promise<unknown>
   writeJson(path: string, value: unknown): Promise<void>
@@ -244,7 +244,7 @@ const files = await ha.save.list('state')
 - 不能通过 `../` 离开当前 app 的目录。
 - app 只能访问自己的 `appData` 和当前 appSession 的 `save`。
 - `readText` 读取不存在的文件时返回空字符串。
-- `readBytes` 读取不存在的文件时返回空 `Uint8Array`。
+- `readBytes` 读取不存在的文件时返回空 `ArrayBuffer`。
 - `readJson` 读取失败或 JSON 解析失败时返回传入的 `fallback`。
 - 删除目录时需要传 `{ recursive: true }`。
 

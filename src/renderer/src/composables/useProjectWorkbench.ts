@@ -17,7 +17,6 @@ import type {
   AppToolCallRequest,
   AppToolDefinition,
   AppUninstallOptions,
-  JsonRecord,
   LlmInstance,
   LlmInstanceCreatePayload,
   LlmProvider,
@@ -119,21 +118,6 @@ export function createProjectWorkbench() {
     return id === null || id === undefined ? null : llmProviders.value.find(provider => provider.id === id) ?? null
   })
 
-  function clone<T>(value: T): T {
-    return toStructuredCloneable(value) as T
-  }
-
-  function toIpcPayload<T>(value: T): T {
-    const raw = toRaw(value)
-    if (Array.isArray(raw)) return raw.map(item => toIpcPayload(item)) as T
-    if (raw && typeof raw === 'object') {
-      return Object.fromEntries(
-        Object.entries(raw).map(([key, item]) => [key, toIpcPayload(item)])
-      ) as T
-    }
-    return raw
-  }
-
   function showToast(text: string, kind: ToastKind = 'info') {
     const id = ++toastId
     toasts.value.push({ id, kind, text })
@@ -193,7 +177,7 @@ export function createProjectWorkbench() {
   }
 
   function normalizeContentParts(payload: AppChatMessageCreatePayload): AppChatContentPart[] {
-    if (payload.contentParts) return clone(payload.contentParts)
+    if (payload.contentParts) return toStructuredCloneable(payload.contentParts)
     return payload.content ? [{ type: 'text', text: payload.content }] : []
   }
 
@@ -248,7 +232,7 @@ export function createProjectWorkbench() {
 
   function freshChatSession(runtime: RuntimeAppSession, payload: AppChatSessionCreatePayload = {}): AppChatSessionState {
     const id = runtime.nextChatSessionId++
-    const messages = (payload.messages ?? []).map(message => clone(message))
+    const messages = (payload.messages ?? []).map(message => toStructuredCloneable(message))
     runtime.nextMessageId = Math.max(runtime.nextMessageId, ...messages.map(message => message.id + 1), 0)
     return {
       id,
@@ -296,21 +280,21 @@ export function createProjectWorkbench() {
   }
 
   function selectInitialProjectItems() {
-    if (llmProviders.value.length) selectedLlmProvider.value = clone(llmProviders.value[0])
-    if (llmInstances.value.length) selectedLlmInstance.value = clone(llmInstances.value[0])
+    if (llmProviders.value.length) selectedLlmProvider.value = toStructuredCloneable(llmProviders.value[0])
+    if (llmInstances.value.length) selectedLlmInstance.value = toStructuredCloneable(llmInstances.value[0])
     if (apps.value.length) selectedAppId.value = apps.value[0].manifest.id
   }
 
   function refreshSelectedLlmProvider() {
     if (!selectedLlmProvider.value) return
     const fresh = llmProviders.value.find(item => item.id === selectedLlmProvider.value?.id)
-    selectedLlmProvider.value = fresh ? clone(fresh) : null
+    selectedLlmProvider.value = fresh ? toStructuredCloneable(fresh) : null
   }
 
   function refreshSelectedLlmInstance() {
     if (!selectedLlmInstance.value) return
     const fresh = llmInstances.value.find(item => item.id === selectedLlmInstance.value?.id)
-    selectedLlmInstance.value = fresh ? clone(fresh) : null
+    selectedLlmInstance.value = fresh ? toStructuredCloneable(fresh) : null
   }
 
   function applyProjectSnapshot(snapshot: ProjectSnapshot) {
@@ -372,7 +356,7 @@ export function createProjectWorkbench() {
     const index = project.value.llmProviders.findIndex(item => item.id === provider.id)
     if (index >= 0) project.value.llmProviders[index] = provider
     else project.value.llmProviders.unshift(provider)
-    selectedLlmProvider.value = clone(provider)
+    selectedLlmProvider.value = toStructuredCloneable(provider)
   }
 
   function replaceLlmInstance(instance: LlmInstance) {
@@ -381,12 +365,12 @@ export function createProjectWorkbench() {
     if (index >= 0) project.value.llmInstances[index] = instance
     else project.value.llmInstances.push(instance)
     project.value.llmInstances.sort((a, b) => a.orderIndex - b.orderIndex || a.id - b.id)
-    selectedLlmInstance.value = clone(instance)
+    selectedLlmInstance.value = toStructuredCloneable(instance)
   }
 
   async function createLlmProvider(payload?: Partial<LlmProviderCreatePayload>) {
     try {
-      const provider = await window.electronAPI.createLlmProvider(toIpcPayload({
+      const provider = await window.electronAPI.createLlmProvider(toStructuredCloneable({
         name: payload?.name ?? '新提供商',
         type: payload?.type ?? 'openai-compatible',
         apiKey: payload?.apiKey ?? '',
@@ -402,7 +386,7 @@ export function createProjectWorkbench() {
 
   async function saveLlmProvider(provider: LlmProvider) {
     try {
-      const saved = await window.electronAPI.updateLlmProvider(toIpcPayload({
+      const saved = await window.electronAPI.updateLlmProvider(toStructuredCloneable({
         id: provider.id,
         name: provider.name,
         type: provider.type,
@@ -420,7 +404,7 @@ export function createProjectWorkbench() {
     if (!selectedLlmProvider.value || !window.confirm('删除当前提供商？LLM 实例会保留，但需要重新绑定 API Key 来源。')) return
     try {
       project.value = await window.electronAPI.deleteLlmProvider(selectedLlmProvider.value.id)
-      selectedLlmProvider.value = llmProviders.value[0] ? clone(llmProviders.value[0]) : null
+      selectedLlmProvider.value = llmProviders.value[0] ? toStructuredCloneable(llmProviders.value[0]) : null
       refreshSelectedLlmInstance()
       showToast('提供商已删除', 'success')
     } catch (error) {
@@ -451,7 +435,7 @@ export function createProjectWorkbench() {
 
   async function createLlmInstance(payload: LlmInstanceCreatePayload) {
     try {
-      const instance = await window.electronAPI.createLlmInstance(toIpcPayload(payload))
+      const instance = await window.electronAPI.createLlmInstance(toStructuredCloneable(payload))
       replaceLlmInstance(instance)
       activeView.value = 'settings'
       showToast('LLM 实例已创建', 'success')
@@ -462,7 +446,7 @@ export function createProjectWorkbench() {
 
   async function saveLlmInstance(instance: LlmInstance) {
     try {
-      const saved = await window.electronAPI.updateLlmInstance(toIpcPayload({
+      const saved = await window.electronAPI.updateLlmInstance(toStructuredCloneable({
         id: instance.id,
         name: instance.name,
         providerId: instance.providerId,
@@ -480,7 +464,7 @@ export function createProjectWorkbench() {
     if (!selectedLlmInstance.value || !window.confirm('删除当前 LLM 实例？运行中的应用不会自动切换。')) return
     try {
       project.value = await window.electronAPI.deleteLlmInstance(selectedLlmInstance.value.id)
-      selectedLlmInstance.value = llmInstances.value[0] ? clone(llmInstances.value[0]) : null
+      selectedLlmInstance.value = llmInstances.value[0] ? toStructuredCloneable(llmInstances.value[0]) : null
       showToast('LLM 实例已删除', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -498,17 +482,17 @@ export function createProjectWorkbench() {
   }
 
   function selectLlmProvider(provider: LlmProvider) {
-    selectedLlmProvider.value = clone(provider)
+    selectedLlmProvider.value = toStructuredCloneable(provider)
   }
 
   function selectLlmInstance(instance: LlmInstance) {
-    selectedLlmInstance.value = clone(instance)
+    selectedLlmInstance.value = toStructuredCloneable(instance)
   }
 
   async function saveProjectConfig(payload: ProjectConfigUpdatePayload): Promise<boolean> {
     if (!project.value) return false
     try {
-      project.value.config = await window.electronAPI.updateProjectConfig(toIpcPayload(payload))
+      project.value.config = await window.electronAPI.updateProjectConfig(toStructuredCloneable(payload))
       return true
     } catch (error) {
       showToast(errorText(error), 'error')
@@ -747,7 +731,7 @@ export function createProjectWorkbench() {
     'appData.readText': (runtime, args) => window.electronAPI.readAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
     'appData.readBytes': (runtime, args) => window.electronAPI.readAppStorageFileBytes('appData', runtime.app.manifest.id, null, String(args[0] ?? '')),
     'appData.writeText': (runtime, args) => window.electronAPI.writeAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), String(args[1] ?? '')),
-    'appData.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), args[1] as Uint8Array),
+    'appData.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), args[1] as ArrayBuffer),
     'appData.delete': (runtime, args) => window.electronAPI.deleteAppStoragePath('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), asRecord(args[1])),
     'appData.readJson': (runtime, args) => readJsonStorage(runtime, 'appData', String(args[0] ?? ''), args[1]),
     'appData.writeJson': (runtime, args) => window.electronAPI.writeAppStorageFile('appData', runtime.app.manifest.id, null, String(args[0] ?? ''), JSON.stringify(args[1] ?? null, null, 2)),
@@ -756,7 +740,7 @@ export function createProjectWorkbench() {
     'save.readText': (runtime, args) => window.electronAPI.readAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
     'save.readBytes': (runtime, args) => window.electronAPI.readAppStorageFileBytes('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? '')),
     'save.writeText': (runtime, args) => window.electronAPI.writeAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), String(args[1] ?? '')),
-    'save.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), args[1] as Uint8Array),
+    'save.writeBytes': (runtime, args) => window.electronAPI.writeAppStorageFileBytes('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), args[1] as ArrayBuffer),
     'save.delete': (runtime, args) => window.electronAPI.deleteAppStoragePath('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), asRecord(args[1])),
     'save.readJson': (runtime, args) => readJsonStorage(runtime, 'save', String(args[0] ?? ''), args[1]),
     'save.writeJson': (runtime, args) => window.electronAPI.writeAppStorageFile('save', runtime.app.manifest.id, runtime.record.id, String(args[0] ?? ''), JSON.stringify(args[1] ?? null, null, 2)),
@@ -766,10 +750,10 @@ export function createProjectWorkbench() {
       runtime.chatSessions = [...runtime.chatSessions, session]
       if (runtime.activeChatSessionId === null) runtime.activeChatSessionId = session.id
       replaceRuntime(runtime)
-      return clone(session)
+      return toStructuredCloneable(session)
     },
-    'chat.listSessions': runtime => clone(runtime.chatSessions),
-    'chat.getSession': (runtime, args) => clone(chatSession(runtime, Number(args[0]))),
+    'chat.listSessions': runtime => toStructuredCloneable(runtime.chatSessions),
+    'chat.getSession': (runtime, args) => toStructuredCloneable(chatSession(runtime, Number(args[0]))),
     'chat.updateSession': (runtime, args) => {
       const id = Number(args[0])
       const patch = asRecord(args[1]) as AppChatSessionUpdatePayload
@@ -781,11 +765,11 @@ export function createProjectWorkbench() {
         options: hasOwn(patch, 'options') ? normalizeOptions(patch.options) : session.options
       })
       if (patch.messages) {
-        session.messages = patch.messages.map(message => clone(message))
+        session.messages = patch.messages.map(message => toStructuredCloneable(message))
         runtime.nextMessageId = Math.max(runtime.nextMessageId, ...session.messages.map(message => message.id + 1), 0)
       }
       replaceRuntime(runtime)
-      return clone(session)
+      return toStructuredCloneable(session)
     },
     'chat.deleteSession': async (runtime, args) => {
       const id = Number(args[0])
@@ -793,7 +777,7 @@ export function createProjectWorkbench() {
       runtime.chatSessions = runtime.chatSessions.filter(session => session.id !== id)
       if (runtime.activeChatSessionId === id) runtime.activeChatSessionId = runtime.chatSessions[0]?.id ?? null
       replaceRuntime(runtime)
-      return clone(runtime.chatSessions)
+      return toStructuredCloneable(runtime.chatSessions)
     },
     'chat.appendMessage': (runtime, args) => {
       const session = chatSession(runtime, Number(args[0]))
@@ -801,7 +785,7 @@ export function createProjectWorkbench() {
       const message = normalizeMessage(runtime.nextMessageId++, asRecord(args[1]) as unknown as AppChatMessageCreatePayload)
       session.messages = [...session.messages, message]
       replaceRuntime(runtime)
-      return clone(message)
+      return toStructuredCloneable(message)
     },
     'chat.updateMessage': (runtime, args) => {
       const session = chatSession(runtime, Number(args[0]))
@@ -815,7 +799,7 @@ export function createProjectWorkbench() {
         updatedAt: nowIso()
       })
       replaceRuntime(runtime)
-      return clone(message)
+      return toStructuredCloneable(message)
     },
     'chat.deleteMessage': (runtime, args) => {
       const session = chatSession(runtime, Number(args[0]))
@@ -823,7 +807,7 @@ export function createProjectWorkbench() {
       const messageId = Number(args[1])
       session.messages = session.messages.filter(message => message.id !== messageId)
       replaceRuntime(runtime)
-      return clone(session)
+      return toStructuredCloneable(session)
     },
     'chat.registerTool': (runtime, args) => {
       const session = chatSession(runtime, Number(args[0]))
@@ -832,7 +816,7 @@ export function createProjectWorkbench() {
       if (!tool) throw new Error('工具定义不合法。')
       session.tools = [...session.tools.filter(item => item.name !== tool.name), tool]
       replaceRuntime(runtime)
-      return clone(session)
+      return toStructuredCloneable(session)
     },
     'chat.triggerLlmReply': (runtime, args) => triggerLlmReply(runtime, Number(args[0])),
     'chat.stopLlmReply': (runtime, args) => stopChatReply(runtime, Number(args[0]))
@@ -865,10 +849,21 @@ export function createProjectWorkbench() {
       const id = Number(data.id)
       const method = String(data.method ?? '')
       const args = Array.isArray(data.args) ? data.args : []
+      const sendResponse = (value: unknown) => {
+        if (runtime.port !== responsePort) return
+        responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value })
+      }
+      const sendTransferredBufferResponse = (value: ArrayBuffer) => {
+        if (runtime.port !== responsePort) return
+        responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value }, [value])
+      }
       void Promise.resolve(handleHostCall(runtime, method, args))
         .then(value => {
-          if (runtime.port !== responsePort) return
-          responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value })
+          if (method.endsWith('.readBytes') && value instanceof ArrayBuffer) {
+            sendTransferredBufferResponse(value)
+          } else {
+            sendResponse(value)
+          }
         })
         .catch(error => {
           if (runtime.port !== responsePort) return
@@ -908,7 +903,7 @@ export function createProjectWorkbench() {
       contentParts: [],
       status: 'generating'
     })
-    const contextMessages = clone(session.messages)
+    const contextMessages = toStructuredCloneable(session.messages)
     session.messages = [...session.messages, assistant]
     session.status = 'generating'
     session.errorText = ''
@@ -923,9 +918,9 @@ export function createProjectWorkbench() {
         assistantMessageId: assistant.id,
         llmInstanceId,
         messages: contextMessages,
-        tools: clone(session.tools)
+        tools: toStructuredCloneable(session.tools)
       })
-      return clone(session)
+      return toStructuredCloneable(session)
     } catch (error) {
       assistant.status = 'error'
       assistant.errorText = errorText(error)
@@ -955,7 +950,7 @@ export function createProjectWorkbench() {
       message.status = 'generating'
       sendFrameEvent(runtime, { type: 'llmReplyStarted', chatSessionId: session.id, assistantMessageId: message.id })
     } else if (event.type === 'delta') {
-      message.contentParts = clone(event.contentParts)
+      message.contentParts = toStructuredCloneable(event.contentParts)
       message.status = 'generating'
       message.updatedAt = nowIso()
       sendFrameEvent(runtime, {
@@ -963,10 +958,10 @@ export function createProjectWorkbench() {
         chatSessionId: session.id,
         assistantMessageId: message.id,
         text: event.text,
-        contentParts: clone(event.contentParts)
+        contentParts: toStructuredCloneable(event.contentParts)
       })
     } else if (event.type === 'finished') {
-      message.contentParts = clone(event.contentParts)
+      message.contentParts = toStructuredCloneable(event.contentParts)
       message.status = 'idle'
       message.updatedAt = nowIso()
       session.status = 'idle'
@@ -975,10 +970,10 @@ export function createProjectWorkbench() {
         type: 'llmReplyFinished',
         chatSessionId: session.id,
         assistantMessageId: message.id,
-        contentParts: clone(event.contentParts)
+        contentParts: toStructuredCloneable(event.contentParts)
       })
     } else if (event.type === 'stopped') {
-      message.contentParts = clone(event.contentParts)
+      message.contentParts = toStructuredCloneable(event.contentParts)
       message.status = 'stopped'
       message.updatedAt = nowIso()
       session.status = 'stopped'
@@ -986,10 +981,10 @@ export function createProjectWorkbench() {
         type: 'llmReplyStopped',
         chatSessionId: session.id,
         assistantMessageId: message.id,
-        contentParts: clone(event.contentParts)
+        contentParts: toStructuredCloneable(event.contentParts)
       })
     } else if (event.type === 'error') {
-      message.contentParts = clone(event.contentParts)
+      message.contentParts = toStructuredCloneable(event.contentParts)
       message.status = 'error'
       message.errorText = event.error
       message.updatedAt = nowIso()
@@ -1000,7 +995,7 @@ export function createProjectWorkbench() {
         type: 'llmReplyError',
         chatSessionId: session.id,
         assistantMessageId: message.id,
-        contentParts: clone(event.contentParts),
+        contentParts: toStructuredCloneable(event.contentParts),
         error: event.error
       })
     }

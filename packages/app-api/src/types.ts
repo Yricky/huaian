@@ -125,9 +125,9 @@ export interface AppStorageApi {
   list(path?: string): Promise<AppFileEntry[]>
   mkdir(path: string): Promise<void>
   readText(path: string): Promise<string>
-  readBytes(path: string): Promise<Uint8Array>
+  readBytes(path: string): Promise<ArrayBuffer>
   writeText(path: string, content: string): Promise<void>
-  writeBytes(path: string, content: Uint8Array): Promise<void>
+  writeBytes(path: string, content: ArrayBuffer): Promise<void>
   delete(path: string, options?: { recursive?: boolean }): Promise<void>
   readJson(path: string, fallback?: unknown): Promise<unknown>
   writeJson(path: string, value: unknown): Promise<void>

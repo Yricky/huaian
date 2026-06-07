@@ -134,7 +134,7 @@ export function registerIpcHandlers(): void {
   handleIpc('haApp:writeStorageFile', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: string) => (
     writeAppStorageFile(kind, appId, appSessionId, path, content)
   ))
-  handleIpc('haApp:writeStorageFileBytes', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: Uint8Array) => (
+  handleIpc('haApp:writeStorageFileBytes', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: ArrayBuffer) => (
     writeAppStorageFileBytes(kind, appId, appSessionId, path, content)
   ))
   handleIpc('haApp:deleteStoragePath', (_, kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, options?: AppStorageDeleteOptions) => (

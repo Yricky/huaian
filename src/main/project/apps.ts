@@ -245,11 +245,12 @@ export async function readAppStorageFileBytes(
   appId: string,
   appSessionId: number | null,
   path: string
-): Promise<Uint8Array> {
+): Promise<ArrayBuffer> {
   try {
-    return new Uint8Array(await readFile(safeChildPath(await ensureStorageRoot(kind, appId, appSessionId), path)))
+    const bytes = await readFile(safeChildPath(await ensureStorageRoot(kind, appId, appSessionId), path))
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   } catch (error) {
-    if (asRecord(error).code === 'ENOENT') return new Uint8Array()
+    if (asRecord(error).code === 'ENOENT') return new ArrayBuffer(0)
     throw error
   }
 }
@@ -271,7 +272,7 @@ export async function writeAppStorageFileBytes(
   appId: string,
   appSessionId: number | null,
   path: string,
-  content: Uint8Array
+  content: ArrayBuffer
 ): Promise<void> {
   const filePath = safeChildPath(await ensureStorageRoot(kind, appId, appSessionId), path)
   await mkdir(dirname(filePath), { recursive: true })

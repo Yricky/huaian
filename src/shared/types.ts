@@ -359,9 +359,9 @@ export interface ElectronApi {
   listAppStorage(kind: AppStorageKind, appId: string, appSessionId: number | null, path?: string): Promise<AppFileEntry[]>
   makeAppStorageDirectory(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<void>
   readAppStorageFile(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<string>
-  readAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<Uint8Array>
+  readAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string): Promise<ArrayBuffer>
   writeAppStorageFile(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: string): Promise<void>
-  writeAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: Uint8Array): Promise<void>
+  writeAppStorageFileBytes(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, content: ArrayBuffer): Promise<void>
   deleteAppStoragePath(kind: AppStorageKind, appId: string, appSessionId: number | null, path: string, options?: AppStorageDeleteOptions): Promise<void>
   appAssetUrl(appId: string, path: string): string
   startAppChatGeneration(payload: AppLlmGenerationRequest): Promise<AppLlmGenerationStartResult>
