@@ -124,7 +124,32 @@ const ha = ensureHuaianAppApi()
 const ha = window.huaian
 ```
 
-SDK 会主动向宿主发送 ready 信号，并等待宿主通过 `MessagePort` 建立连接。因此你可以在页面初始化时立即创建 API 对象，随后 `await` 具体方法。
+SDK 调用会等待宿主通过 `MessagePort` 建立连接。因此你可以在页面初始化时立即创建 API 对象，随后 `await` 具体方法。
+
+推荐在初始 HTML 中尽早加载一个预连接模块：
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <script type="module" src="/src/ensureConnect.ts"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+```
+
+`src/ensureConnect.ts`：
+
+```ts
+import { ensureHuaianAppApi } from '@huaian/app-api'
+
+ensureHuaianAppApi()
+```
+
+不要给这个脚本添加 `async`，也不要等到 `window.load`、框架组件 `mounted` / `effect` 或用户交互后再调用。宿主会在 iframe `load` 后发送连接消息；初始模块脚本会在 `load` 前执行，因此这种写法可以避免错过宿主连接。
 
 ## 6. 运行上下文
 

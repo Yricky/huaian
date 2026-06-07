@@ -18,18 +18,10 @@ import type {
 
 const HOST_SOURCE = 'ha-app-api-host'
 const CLIENT_SOURCE = 'ha-app-api-client'
-const READY_RETRY_INTERVAL_MS = 100
-const CONNECT_TIMEOUT_MS = 20_000
 
 interface PendingCall {
   reject: (error: Error) => void
   resolve: (value: unknown) => void
-}
-
-interface PendingPortWaiter {
-  reject: (error: Error) => void
-  resolve: (port: MessagePort) => void
-  timeoutId: number
 }
 
 declare global {
@@ -46,97 +38,22 @@ function cleanPath(path?: string): string {
   return String(path ?? '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.\//, '')
 }
 
-function randomClientId(target: Window): string {
-  return target.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-}
-
-function messageFrameEpoch(data: JsonRecord): number | null {
-  const value = Number(data.frameEpoch)
-  return Number.isFinite(value) ? value : null
-}
-
 function createHuaianAppApi(target: Window): HuaianAppApi {
-  const clientId = randomClientId(target)
   let port: MessagePort | null = null
   let contextValue: AppFrameContext | null = null
-  let frameEpoch: number | null = null
   let callId = 0
-  let readyTimer: number | null = null
   const pendingCalls = new Map<number, PendingCall>()
-  const pendingPorts: PendingPortWaiter[] = []
+  const pendingPorts: Array<{ resolve: (port: MessagePort) => void }> = []
   const eventHandlers = new Map<string, Set<AppEventHandler>>()
   const toolHandlers = new Map<string, AppToolHandler>()
 
-  function currentFrameEpochPayload(): { frameEpoch?: number } {
-    return frameEpoch === null ? {} : { frameEpoch }
-  }
-
-  function postReady(): void {
-    if (target.parent === target) return
-    target.parent.postMessage({
-      source: CLIENT_SOURCE,
-      type: 'ready',
-      clientId,
-      ...currentFrameEpochPayload()
-    }, '*')
-  }
-
-  function stopReadyLoop(): void {
-    if (readyTimer === null) return
-    target.clearInterval(readyTimer)
-    readyTimer = null
-  }
-
-  function startReadyLoop(): void {
-    if (port || readyTimer !== null) return
-    postReady()
-    readyTimer = target.setInterval(() => {
-      if (port) {
-        stopReadyLoop()
-        return
-      }
-      postReady()
-    }, READY_RETRY_INTERVAL_MS)
-  }
-
-  function removePortWaiter(waiter: PendingPortWaiter): void {
-    const index = pendingPorts.indexOf(waiter)
-    if (index >= 0) pendingPorts.splice(index, 1)
-  }
-
   function waitForPort(): Promise<MessagePort> {
     if (port) return Promise.resolve(port)
-    startReadyLoop()
-    return new Promise((resolve, reject) => {
-      const waiter: PendingPortWaiter = {
-        resolve,
-        reject,
-        timeoutId: target.setTimeout(() => {
-          removePortWaiter(waiter)
-          reject(new Error('等待 Huaian 宿主连接超时。'))
-        }, CONNECT_TIMEOUT_MS)
-      }
-      pendingPorts.push(waiter)
-    })
+    return new Promise(resolve => pendingPorts.push({ resolve }))
   }
 
   function flushPortWaiters(nextPort: MessagePort): void {
-    while (pendingPorts.length) {
-      const waiter = pendingPorts.shift()
-      if (!waiter) continue
-      target.clearTimeout(waiter.timeoutId)
-      waiter.resolve(nextPort)
-    }
-  }
-
-  function rejectPendingCalls(error: Error): void {
-    for (const pending of pendingCalls.values()) pending.reject(error)
-    pendingCalls.clear()
-  }
-
-  function isCurrentFrameMessage(data: JsonRecord): boolean {
-    const messageEpoch = messageFrameEpoch(data)
-    return messageEpoch === null || frameEpoch === null || messageEpoch === frameEpoch
+    while (pendingPorts.length) pendingPorts.shift()?.resolve(nextPort)
   }
 
   function call(method: string, args: unknown[] = []): Promise<unknown> {
@@ -149,8 +66,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
           type: 'call',
           id,
           method,
-          args,
-          ...currentFrameEpochPayload()
+          args
         })
       })
     ))
@@ -190,8 +106,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: false,
-        error: `未注册工具处理器：${event.toolName}`,
-        ...currentFrameEpochPayload()
+        error: `未注册工具处理器：${event.toolName}`
       })
       return
     }
@@ -202,8 +117,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: true,
-        output,
-        ...currentFrameEpochPayload()
+        output
       })
     } catch (error) {
       port?.postMessage({
@@ -211,15 +125,14 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        ...currentFrameEpochPayload()
+        error: error instanceof Error ? error.message : String(error)
       })
     }
   }
 
   function handlePortMessage(event: MessageEvent): void {
     const data = asRecord(event.data)
-    if (data.source !== HOST_SOURCE || !isCurrentFrameMessage(data)) return
+    if (data.source !== HOST_SOURCE) return
     if (data.type === 'response') {
       const id = Number(data.id)
       const pending = pendingCalls.get(id)
@@ -236,38 +149,21 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     }
   }
 
-  function connect(nextPort: MessagePort, context: AppFrameContext, nextFrameEpoch: number | null): void {
-    if (port) rejectPendingCalls(new Error('Huaian API connection was replaced.'))
+  function connect(nextPort: MessagePort, context: AppFrameContext): void {
     port?.close()
     port = nextPort
     contextValue = context
-    frameEpoch = nextFrameEpoch
     port.onmessage = handlePortMessage
     port.start()
-    stopReadyLoop()
-    port.postMessage({
-      source: CLIENT_SOURCE,
-      type: 'connected',
-      clientId,
-      ...currentFrameEpochPayload()
-    })
     flushPortWaiters(port)
   }
 
   target.addEventListener('message', event => {
     const data = asRecord(event.data)
-    if (data.source !== HOST_SOURCE) return
-    const nextFrameEpoch = messageFrameEpoch(data)
-    if (nextFrameEpoch !== null) frameEpoch = nextFrameEpoch
-    if (data.type === 'connectOffer') {
-      startReadyLoop()
-      postReady()
-      return
-    }
-    if (data.type !== 'connect') return
+    if (data.source !== HOST_SOURCE || data.type !== 'connect') return
     const nextPort = event.ports?.[0]
     if (!nextPort) return
-    connect(nextPort, asRecord(data.context) as unknown as AppFrameContext, nextFrameEpoch)
+    connect(nextPort, asRecord(data.context) as unknown as AppFrameContext)
   })
 
   const api: HuaianAppApi = {
@@ -319,7 +215,6 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     }
   }
 
-  startReadyLoop()
   return api
 }
 

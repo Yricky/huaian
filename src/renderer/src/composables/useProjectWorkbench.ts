@@ -53,11 +53,7 @@ export interface RuntimeAppSession {
   nextChatSessionId: number
   nextMessageId: number
   port: MessagePort | null
-  frameWindow: Window | null
   frameLoadCount: number
-  frameConnected: boolean
-  frameClientId: string | null
-  frameConnectSentAt: number
 }
 
 type HostCallHandler = (runtime: RuntimeAppSession, args: unknown[]) => Promise<unknown> | unknown
@@ -78,7 +74,6 @@ export function createProjectWorkbench() {
   let toastId = 0
   let unsubscribeGenerationEvents: (() => void) | null = null
   let unsubscribeToolRequests: (() => void) | null = null
-  const frameConnectOfferTimers = new Map<string, number>()
 
   const apps = computed(() => project.value?.apps ?? [])
   const appSessions = computed(() => project.value?.appSessions ?? [])
@@ -161,17 +156,9 @@ export function createProjectWorkbench() {
     runningAppSessions.value = [...runningAppSessions.value]
   }
 
-  function stopFrameConnectOffers(runtime: RuntimeAppSession): void {
-    const timer = frameConnectOfferTimers.get(runtime.key)
-    if (timer === undefined) return
-    window.clearInterval(timer)
-    frameConnectOfferTimers.delete(runtime.key)
-  }
-
   async function resetRuntimeFrameSessions(runtime: RuntimeAppSession): Promise<void> {
     const appId = runtime.app.manifest.id
     const appSessionId = runtime.record.id
-    stopFrameConnectOffers(runtime)
     runtime.port?.close()
     runtime.port = null
     runtime.chatSessions = []
@@ -179,9 +166,6 @@ export function createProjectWorkbench() {
     runtime.chatPanelOpen = false
     runtime.nextChatSessionId = 0
     runtime.nextMessageId = 0
-    runtime.frameConnected = false
-    runtime.frameClientId = null
-    runtime.frameConnectSentAt = 0
     replaceRuntime(runtime)
     try {
       await window.electronAPI.stopAppChatGeneration(appId, appSessionId)
@@ -192,11 +176,6 @@ export function createProjectWorkbench() {
 
   function runtimeFor(appId: string, appSessionId: number): RuntimeAppSession | null {
     return runningAppSessions.value.find(runtime => runtime.app.manifest.id === appId && runtime.record.id === appSessionId) ?? null
-  }
-
-  function runtimeForFrameSource(source: MessageEventSource | null): RuntimeAppSession | null {
-    if (!source) return null
-    return runningAppSessions.value.find(runtime => runtime.frameWindow === source) ?? null
   }
 
   function chatSession(runtime: RuntimeAppSession, chatSessionId: number): AppChatSessionState {
@@ -288,7 +267,6 @@ export function createProjectWorkbench() {
     runtime.port?.postMessage({
       source: HOST_SOURCE,
       type: 'event',
-      frameEpoch: runtime.frameLoadCount,
       event
     })
   }
@@ -312,7 +290,6 @@ export function createProjectWorkbench() {
     selectedAppId.value = null
     activeRuntimeKey.value = null
     for (const runtime of runningAppSessions.value) {
-      stopFrameConnectOffers(runtime)
       runtime.port?.close()
     }
     runningAppSessions.value = []
@@ -669,11 +646,7 @@ export function createProjectWorkbench() {
         nextChatSessionId: 0,
         nextMessageId: 0,
         port: null,
-        frameWindow: null,
-        frameLoadCount: 0,
-        frameConnected: false,
-        frameClientId: null,
-        frameConnectSentAt: 0
+        frameLoadCount: 0
       }
       runningAppSessions.value = [...runningAppSessions.value, runtime]
       selectedAppId.value = record.appId
@@ -688,7 +661,6 @@ export function createProjectWorkbench() {
     const hasGenerating = runtime.chatSessions.some(session => session.status === 'generating')
     if (hasGenerating && !window.confirm('该存档还有正在生成的回复，关闭会全部终止。继续？')) return
     await window.electronAPI.stopAppChatGeneration(runtime.app.manifest.id, runtime.record.id)
-    stopFrameConnectOffers(runtime)
     runtime.port?.close()
     runningAppSessions.value = runningAppSessions.value.filter(item => item.key !== runtime.key)
     if (activeRuntimeKey.value === runtime.key) {
@@ -872,64 +844,14 @@ export function createProjectWorkbench() {
     return handler(runtime, args)
   }
 
-  function messageFrameEpoch(data: JsonRecord): number | null {
-    const value = Number(data.frameEpoch)
-    return Number.isFinite(value) ? value : null
-  }
-
-  function isCurrentFrameMessage(runtime: RuntimeAppSession, data: JsonRecord): boolean {
-    const frameEpoch = messageFrameEpoch(data)
-    return frameEpoch === null || frameEpoch === runtime.frameLoadCount
-  }
-
-  function sendFrameConnectOffer(runtime: RuntimeAppSession, targetWindow: Window, frameEpoch: number): void {
-    targetWindow.postMessage({
-      source: HOST_SOURCE,
-      type: 'connectOffer',
-      frameEpoch,
-      context: contextForRuntime(runtime)
-    }, '*')
-  }
-
-  function startFrameConnectOffers(runtime: RuntimeAppSession, targetWindow: Window, frameEpoch: number): void {
-    stopFrameConnectOffers(runtime)
-    let attempts = 0
-    const offer = () => {
-      if (runtime.frameLoadCount !== frameEpoch || runtime.frameConnected) {
-        stopFrameConnectOffers(runtime)
-        return
-      }
-      if (attempts >= 80) {
-        stopFrameConnectOffers(runtime)
-        return
-      }
-      attempts += 1
-      sendFrameConnectOffer(runtime, targetWindow, frameEpoch)
-    }
-    offer()
-    frameConnectOfferTimers.set(runtime.key, window.setInterval(offer, 250))
-  }
-
-  function connectAppFrame(runtime: RuntimeAppSession, targetWindow: Window, frameEpoch = runtime.frameLoadCount, clientId: string | null = null) {
-    if (runtime.frameLoadCount !== frameEpoch) return
+  function connectAppFrame(runtime: RuntimeAppSession, targetWindow: Window) {
     runtime.port?.close()
     const channel = new MessageChannel()
     runtime.port = channel.port1
-    runtime.frameConnected = false
-    runtime.frameClientId = clientId
-    runtime.frameConnectSentAt = Date.now()
     const responsePort = channel.port1
     runtime.port.onmessage = event => {
       const data = asRecord(event.data)
       if (data.source !== CLIENT_SOURCE) return
-      if (!isCurrentFrameMessage(runtime, data)) return
-      if (data.type === 'connected') {
-        runtime.frameConnected = true
-        runtime.frameClientId = typeof data.clientId === 'string' ? data.clientId : runtime.frameClientId
-        stopFrameConnectOffers(runtime)
-        replaceRuntime(runtime)
-        return
-      }
       if (data.type === 'toolCallResponse') {
         void window.electronAPI.resolveAppToolCall({
           requestId: String(data.requestId ?? ''),
@@ -943,18 +865,16 @@ export function createProjectWorkbench() {
       const id = Number(data.id)
       const method = String(data.method ?? '')
       const args = Array.isArray(data.args) ? data.args : []
-      const requestEpoch = runtime.frameLoadCount
       void Promise.resolve(handleHostCall(runtime, method, args))
         .then(value => {
-          if (runtime.frameLoadCount !== requestEpoch || runtime.port !== responsePort) return
-          responsePort.postMessage({ source: HOST_SOURCE, type: 'response', frameEpoch: requestEpoch, id, ok: true, value })
+          if (runtime.port !== responsePort) return
+          responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value })
         })
         .catch(error => {
-          if (runtime.frameLoadCount !== requestEpoch || runtime.port !== responsePort) return
+          if (runtime.port !== responsePort) return
           responsePort.postMessage({
             source: HOST_SOURCE,
             type: 'response',
-            frameEpoch: requestEpoch,
             id,
             ok: false,
             error: errorText(error)
@@ -965,7 +885,6 @@ export function createProjectWorkbench() {
     targetWindow.postMessage({
       source: HOST_SOURCE,
       type: 'connect',
-      frameEpoch,
       context: contextForRuntime(runtime)
     }, '*', [channel.port2])
     replaceRuntime(runtime)
@@ -974,28 +893,9 @@ export function createProjectWorkbench() {
   async function handleAppFrameLoaded(runtime: RuntimeAppSession, targetWindow: Window) {
     const frameLoadCount = runtime.frameLoadCount + 1
     runtime.frameLoadCount = frameLoadCount
-    runtime.frameWindow = targetWindow
     await resetRuntimeFrameSessions(runtime)
     if (runtime.frameLoadCount !== frameLoadCount) return
-    connectAppFrame(runtime, targetWindow, frameLoadCount)
-    startFrameConnectOffers(runtime, targetWindow, frameLoadCount)
-  }
-
-  function handleAppApiWindowMessage(event: MessageEvent) {
-    const data = asRecord(event.data)
-    if (data.source !== CLIENT_SOURCE || data.type !== 'ready') return
-    const runtime = runtimeForFrameSource(event.source)
-    if (!runtime?.frameWindow) return
-    const frameEpoch = messageFrameEpoch(data)
-    if (frameEpoch !== null && frameEpoch !== runtime.frameLoadCount) return
-    if (runtime.frameConnected) return
-    if (runtime.port && Date.now() - runtime.frameConnectSentAt < 300) return
-    connectAppFrame(
-      runtime,
-      runtime.frameWindow,
-      runtime.frameLoadCount,
-      typeof data.clientId === 'string' ? data.clientId : null
-    )
+    connectAppFrame(runtime, targetWindow)
   }
 
   async function triggerLlmReply(runtime: RuntimeAppSession, chatSessionId: number) {
@@ -1132,17 +1032,14 @@ export function createProjectWorkbench() {
 
   onMounted(() => {
     void loadProject()
-    window.addEventListener('message', handleAppApiWindowMessage)
     unsubscribeGenerationEvents = window.electronAPI.onAppChatGenerationEvent(applyGenerationEvent)
     unsubscribeToolRequests = window.electronAPI.onAppToolCallRequest(handleToolCallRequest)
   })
 
   onBeforeUnmount(() => {
-    window.removeEventListener('message', handleAppApiWindowMessage)
     unsubscribeGenerationEvents?.()
     unsubscribeToolRequests?.()
     for (const runtime of runningAppSessions.value) {
-      stopFrameConnectOffers(runtime)
       runtime.port?.close()
     }
   })
