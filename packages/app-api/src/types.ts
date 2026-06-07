@@ -1,7 +1,11 @@
 export type JsonRecord = Record<string, unknown>
+export type JsonRecordValue = JsonRecord[string]
 export type CloneablePrimitive = string | number | boolean | null | undefined
 export type CloneableRecord = { [key: string]: CloneableValue }
 export type CloneableValue = CloneablePrimitive | CloneableValue[] | CloneableRecord
+
+export const APP_API_HOST_SOURCE = 'ha-app-api-host'
+export const APP_API_CLIENT_SOURCE = 'ha-app-api-client'
 
 export interface AppFileEntry {
   name: string

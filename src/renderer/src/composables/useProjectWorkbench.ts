@@ -1,21 +1,26 @@
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, toRaw, type InjectionKey } from 'vue'
+import {
+  APP_API_CLIENT_SOURCE,
+  APP_API_HOST_SOURCE,
+  type AppChatContentPart,
+  type AppChatMessage,
+  type AppChatMessageCreatePayload,
+  type AppChatMessageUpdatePayload,
+  type AppChatSessionCreatePayload,
+  type AppChatSessionState,
+  type AppChatSessionUpdatePayload,
+  type AppEvent,
+  type AppFileEntry,
+  type AppFrameContext,
+  type AppLlmInstanceSummary,
+  type AppToolDefinition
+} from '@huaian/app-api'
+import { asRecord, toStructuredCloneable } from '@huaian/app-api/value-utils'
 import type {
-  AppChatContentPart,
-  AppChatMessage,
-  AppChatMessageCreatePayload,
-  AppChatMessageUpdatePayload,
-  AppChatSessionCreatePayload,
-  AppChatSessionState,
-  AppChatSessionUpdatePayload,
   AppDescriptor,
-  AppFileEntry,
-  AppFrameContext,
-  AppFrameEvent,
-  AppLlmInstanceSummary,
   AppLlmGenerationEvent,
   AppSessionRecord,
   AppToolCallRequest,
-  AppToolDefinition,
   AppUninstallOptions,
   LlmInstance,
   LlmInstanceCreatePayload,
@@ -26,7 +31,6 @@ import type {
   RecentProject,
   SidebarView
 } from '@/shared/types'
-import { asRecord, toStructuredCloneable } from '../../../shared/value-utils'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -56,9 +60,6 @@ export interface RuntimeAppSession {
 }
 
 type HostCallHandler = (runtime: RuntimeAppSession, args: unknown[]) => Promise<unknown> | unknown
-
-const HOST_SOURCE = 'ha-app-api-host'
-const CLIENT_SOURCE = 'ha-app-api-client'
 
 export function createProjectWorkbench() {
   const project = ref<ProjectSnapshot | null>(null)
@@ -247,9 +248,9 @@ export function createProjectWorkbench() {
     }
   }
 
-  function sendFrameEvent(runtime: RuntimeAppSession, event: AppFrameEvent): void {
+  function sendFrameEvent(runtime: RuntimeAppSession, event: AppEvent): void {
     runtime.port?.postMessage({
-      source: HOST_SOURCE,
+      source: APP_API_HOST_SOURCE,
       type: 'event',
       event
     })
@@ -835,7 +836,7 @@ export function createProjectWorkbench() {
     const responsePort = channel.port1
     runtime.port.onmessage = event => {
       const data = asRecord(event.data)
-      if (data.source !== CLIENT_SOURCE) return
+      if (data.source !== APP_API_CLIENT_SOURCE) return
       if (data.type === 'toolCallResponse') {
         void window.electronAPI.resolveAppToolCall({
           requestId: String(data.requestId ?? ''),
@@ -851,11 +852,11 @@ export function createProjectWorkbench() {
       const args = Array.isArray(data.args) ? data.args : []
       const sendResponse = (value: unknown) => {
         if (runtime.port !== responsePort) return
-        responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value })
+        responsePort.postMessage({ source: APP_API_HOST_SOURCE, type: 'response', id, ok: true, value })
       }
       const sendTransferredBufferResponse = (value: ArrayBuffer) => {
         if (runtime.port !== responsePort) return
-        responsePort.postMessage({ source: HOST_SOURCE, type: 'response', id, ok: true, value }, [value])
+        responsePort.postMessage({ source: APP_API_HOST_SOURCE, type: 'response', id, ok: true, value }, [value])
       }
       void Promise.resolve(handleHostCall(runtime, method, args))
         .then(value => {
@@ -868,7 +869,7 @@ export function createProjectWorkbench() {
         .catch(error => {
           if (runtime.port !== responsePort) return
           responsePort.postMessage({
-            source: HOST_SOURCE,
+            source: APP_API_HOST_SOURCE,
             type: 'response',
             id,
             ok: false,
@@ -878,7 +879,7 @@ export function createProjectWorkbench() {
     }
     runtime.port.start()
     targetWindow.postMessage({
-      source: HOST_SOURCE,
+      source: APP_API_HOST_SOURCE,
       type: 'connect',
       context: contextForRuntime(runtime)
     }, '*', [channel.port2])

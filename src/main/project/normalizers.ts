@@ -1,5 +1,5 @@
 import type { JsonRecordValue, ProjectConfig } from '../../shared/types'
-import { asBoolean, asRecord } from '../../shared/value-utils'
+import { asBoolean, asRecord } from '@huaian/app-api/value-utils'
 
 export { asRecord }
 

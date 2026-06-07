@@ -9,7 +9,7 @@ import type {
   AppStorageKind,
   JsonRecordValue
 } from '../../shared/types'
-import { asRecord, asString } from '../../shared/value-utils'
+import { asRecord, asString } from '@huaian/app-api/value-utils'
 import { ensureProject, getCurrentProject } from './state'
 import { extractZipFile } from './zip'
 

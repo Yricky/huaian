@@ -1,23 +1,22 @@
-import type {
-  AppChatMessageCreatePayload,
-  AppChatMessageUpdatePayload,
-  AppChatSessionCreatePayload,
-  AppChatSessionState,
-  AppChatSessionUpdatePayload,
-  AppEvent,
-  AppEventHandler,
-  AppFileEntry,
-  AppFrameContext,
-  AppLlmInstanceSummary,
-  AppStorageApi,
-  AppToolDefinition,
-  AppToolHandler,
-  HuaianAppApi,
-  JsonRecord
+import {
+  APP_API_CLIENT_SOURCE,
+  APP_API_HOST_SOURCE,
+  type AppChatMessageCreatePayload,
+  type AppChatMessageUpdatePayload,
+  type AppChatSessionCreatePayload,
+  type AppChatSessionState,
+  type AppChatSessionUpdatePayload,
+  type AppEvent,
+  type AppEventHandler,
+  type AppFileEntry,
+  type AppFrameContext,
+  type AppLlmInstanceSummary,
+  type AppStorageApi,
+  type AppToolDefinition,
+  type AppToolHandler,
+  type HuaianAppApi,
+  type JsonRecord
 } from './types'
-
-const HOST_SOURCE = 'ha-app-api-host'
-const CLIENT_SOURCE = 'ha-app-api-client'
 
 interface PendingCall {
   reject: (error: Error) => void
@@ -61,7 +60,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     return waitForPort().then(nextPort => (
       new Promise((resolve, reject) => {
         const message = {
-          source: CLIENT_SOURCE,
+          source: APP_API_CLIENT_SOURCE,
           type: 'call',
           id,
           method,
@@ -78,7 +77,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     return waitForPort().then(nextPort => (
       new Promise((resolve, reject) => {
         const message = {
-          source: CLIENT_SOURCE,
+          source: APP_API_CLIENT_SOURCE,
           type: 'call',
           id,
           method,
@@ -122,7 +121,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     const handler = toolHandlers.get(toolKey(event.chatSessionId, event.toolName))
     if (!handler) {
       port?.postMessage({
-        source: CLIENT_SOURCE,
+        source: APP_API_CLIENT_SOURCE,
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: false,
@@ -133,7 +132,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
     try {
       const output = await handler(event.input)
       port?.postMessage({
-        source: CLIENT_SOURCE,
+        source: APP_API_CLIENT_SOURCE,
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: true,
@@ -141,7 +140,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
       })
     } catch (error) {
       port?.postMessage({
-        source: CLIENT_SOURCE,
+        source: APP_API_CLIENT_SOURCE,
         type: 'toolCallResponse',
         requestId: event.requestId,
         ok: false,
@@ -152,7 +151,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
 
   function handlePortMessage(event: MessageEvent): void {
     const data = asRecord(event.data)
-    if (data.source !== HOST_SOURCE) return
+    if (data.source !== APP_API_HOST_SOURCE) return
     if (data.type === 'response') {
       const id = Number(data.id)
       const pending = pendingCalls.get(id)
@@ -180,7 +179,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
 
   target.addEventListener('message', event => {
     const data = asRecord(event.data)
-    if (data.source !== HOST_SOURCE || data.type !== 'connect') return
+    if (data.source !== APP_API_HOST_SOURCE || data.type !== 'connect') return
     const nextPort = event.ports?.[0]
     if (!nextPort) return
     connect(nextPort, asRecord(data.context) as unknown as AppFrameContext)

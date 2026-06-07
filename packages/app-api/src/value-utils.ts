@@ -330,7 +330,7 @@ function toStructuredCloneableValue(value: unknown, seen: WeakMap<object, unknow
   return convertObject(objectValue, seen)
 }
 
-export function toStructuredCloneable<T>(value: T): T | undefined {
+export function toStructuredCloneable<T>(value: T): T {
   const cloneable = toStructuredCloneableValue(value, new WeakMap())
-  return (cloneable === SKIP ? undefined : cloneable) as T | undefined
+  return (cloneable === SKIP ? undefined : cloneable) as T
 }

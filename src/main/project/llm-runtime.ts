@@ -16,7 +16,7 @@ import type {
   LlmInstance,
   LlmProvider
 } from '../../shared/types'
-import { asRecord } from '../../shared/value-utils'
+import { asRecord } from '@huaian/app-api/value-utils'
 import {
   createLanguageModel,
   resolveLlmProviderForInstance

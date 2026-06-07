@@ -5,7 +5,7 @@ import type {
   LlmProvider,
   ProviderModelCacheItem
 } from '../../shared/types'
-import { asRecord, asString } from '../../shared/value-utils'
+import { asRecord, asString } from '@huaian/app-api/value-utils'
 import {
   getLlmInstance,
   getLlmProvider,

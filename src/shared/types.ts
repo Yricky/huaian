@@ -1,9 +1,49 @@
-export type JsonRecord = Record<string, unknown>
-export type JsonRecordValue = JsonRecord[string]
+import type {
+  AppChatContentPart,
+  AppChatMessage,
+  AppChatSessionState,
+  AppFileEntry,
+  AppToolDefinition,
+  CloneableValue,
+  JsonRecord
+} from '@huaian/app-api'
 
-export type CloneablePrimitive = string | number | boolean | null | undefined
-export type CloneableRecord = { [key: string]: CloneableValue }
-export type CloneableValue = CloneablePrimitive | CloneableValue[] | CloneableRecord
+export {
+  APP_API_CLIENT_SOURCE,
+  APP_API_HOST_SOURCE
+} from '@huaian/app-api'
+
+export type {
+  AppChatApi,
+  AppChatContentPart,
+  AppChatMessage,
+  AppChatMessageCreatePayload,
+  AppChatMessageStatus,
+  AppChatMessageUpdatePayload,
+  AppChatRole,
+  AppChatSessionCreatePayload,
+  AppChatSessionState,
+  AppChatSessionStatus,
+  AppChatSessionUpdatePayload,
+  AppEvent,
+  AppEventHandler,
+  AppFileEntry,
+  AppFrameContext,
+  AppLlmInstanceSummary,
+  AppStorageApi,
+  AppToolDefinition,
+  AppToolHandler,
+  CloneablePrimitive,
+  CloneableRecord,
+  CloneableValue,
+  HuaianAppApi,
+  JsonRecord,
+  JsonRecordValue,
+  ReasoningContentPart,
+  TextContentPart,
+  ToolCallContentPart,
+  ToolCallContentPartStatus
+} from '@huaian/app-api'
 
 export interface AppManifest {
   id: string
@@ -16,13 +56,6 @@ export interface AppManifest {
 export interface AppDescriptor {
   manifest: AppManifest
   source: 'project'
-}
-
-export interface AppFileEntry {
-  name: string
-  path: string
-  isDirectory: boolean
-  size?: number
 }
 
 export interface AppSessionRecord {
@@ -123,99 +156,6 @@ export interface LlmInstanceCreatePayload {
 
 export type LlmInstanceUpdatePayload = LlmInstanceCreatePayload & { id: number }
 
-export type AppChatRole = 'system' | 'user' | 'assistant'
-export type AppChatSessionStatus = 'idle' | 'generating' | 'stopped' | 'error'
-export type AppChatMessageStatus = 'idle' | 'generating' | 'stopped' | 'error'
-export type ToolCallContentPartStatus = 'pending' | 'success' | 'error'
-
-export interface TextContentPart {
-  type: 'text'
-  text: string
-}
-
-export interface ReasoningContentPart {
-  type: 'reasoning'
-  text: string
-  sendAsContext?: boolean
-}
-
-export interface ToolCallContentPart {
-  type: 'tool_call'
-  toolCallId: string
-  toolName: string
-  status: ToolCallContentPartStatus
-  input: JsonRecord
-  output?: unknown
-  error?: string
-  createdAt: string
-  updatedAt: string
-  extensions?: JsonRecord
-}
-
-export type AppChatContentPart = TextContentPart | ReasoningContentPart | ToolCallContentPart
-
-export interface AppChatMessage {
-  id: number
-  role: AppChatRole
-  contentParts: AppChatContentPart[]
-  status: AppChatMessageStatus
-  metadata: JsonRecord
-  errorText: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface AppToolDefinition {
-  name: string
-  description: string
-  inputSchema: JsonRecord
-}
-
-export interface AppLlmInstanceSummary {
-  id: number
-  name: string
-}
-
-export interface AppChatSessionState {
-  id: number
-  title: string
-  messages: AppChatMessage[]
-  tools: AppToolDefinition[]
-  llmInstanceId: number | null
-  allowUserReply: boolean
-  options: string[]
-  status: AppChatSessionStatus
-  errorText: string
-}
-
-export interface AppChatSessionCreatePayload {
-  title?: string
-  messages?: AppChatMessage[]
-  tools?: AppToolDefinition[]
-  llmInstanceId?: number | null
-  allowUserReply?: boolean
-  options?: string[]
-}
-
-export type AppChatSessionUpdatePayload = Partial<Omit<AppChatSessionState, 'id'>>
-
-export interface AppChatMessageCreatePayload {
-  role: AppChatRole
-  content?: string
-  contentParts?: AppChatContentPart[]
-  status?: AppChatMessageStatus
-  metadata?: JsonRecord
-  errorText?: string
-}
-
-export interface AppChatMessageUpdatePayload {
-  role?: AppChatRole
-  contentParts?: AppChatContentPart[]
-  status?: AppChatMessageStatus
-  metadata?: JsonRecord
-  errorText?: string
-}
-
 export interface AppLlmGenerationRequest {
   appId: string
   appSessionId: number
@@ -276,24 +216,6 @@ export interface AppToolCallResponse {
   ok: boolean
   output?: CloneableValue
   error?: string
-}
-
-export type AppFrameEvent =
-  | { type: 'userMessage'; chatSessionId: number; text: string; source: 'composer' | 'option' }
-  | { type: 'userStoppedReply'; chatSessionId: number }
-  | { type: 'llmInstanceChanged'; chatSessionId: number; llmInstanceId: number }
-  | { type: 'llmReplyStarted'; chatSessionId: number; assistantMessageId: number }
-  | { type: 'llmReplyDelta'; chatSessionId: number; assistantMessageId: number; text: string; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyFinished'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyStopped'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[] }
-  | { type: 'llmReplyError'; chatSessionId: number; assistantMessageId: number; contentParts: AppChatContentPart[]; error: string }
-  | { type: 'toolCall'; requestId: string; chatSessionId: number; toolName: string; input: JsonRecord }
-
-export interface AppFrameContext {
-  appId: string
-  appVersion: number
-  appSessionId: number
-  appSessionTitle: string
 }
 
 export type SidebarView = 'apps' | 'settings'
