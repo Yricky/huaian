@@ -113,24 +113,18 @@ zip -r ../roleplay.studio-demo.zip .
 app 页面不会自动注入全局 API。你需要在 app 代码中安装客户端：
 
 ```ts
-import { installHaAppApi } from '@huaian/app-api'
+import { ensureHuaianAppApi } from '@huaian/app-api'
 
-const ha = installHaAppApi()
+const ha = ensureHuaianAppApi()
 ```
 
-默认情况下，`installHaAppApi()` 也会把 API 暴露到 `window.huaian`：
+`ensureHuaianAppApi()` 会复用已有 API，并把 API 暴露到 `window.huaian`：
 
 ```ts
 const ha = window.huaian
 ```
 
-如果不想暴露全局变量：
-
-```ts
-const ha = installHaAppApi({ exposeGlobal: false })
-```
-
-SDK 调用会等待宿主通过 `MessagePort` 建立连接。因此你可以在页面初始化时立即创建 API 对象，随后 `await` 具体方法。
+SDK 会主动向宿主发送 ready 信号，并等待宿主通过 `MessagePort` 建立连接。因此你可以在页面初始化时立即创建 API 对象，随后 `await` 具体方法。
 
 ## 6. 运行上下文
 
@@ -578,9 +572,9 @@ demo-app/
 `src/main.ts`：
 
 ```ts
-import { installHaAppApi } from '@huaian/app-api'
+import { ensureHuaianAppApi } from '@huaian/app-api'
 
-const ha = installHaAppApi()
+const ha = ensureHuaianAppApi()
 const log = document.querySelector<HTMLPreElement>('#log')!
 const start = document.querySelector<HTMLButtonElement>('#start')!
 

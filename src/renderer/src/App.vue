@@ -17,7 +17,7 @@ const { activeView } = workbench
       <SidebarNav />
 
       <main class="content">
-        <AppsPage v-if="activeView === 'apps'" />
+        <AppsPage v-show="activeView === 'apps'" />
         <SettingsPage v-if="activeView === 'settings'" />
       </main>
     </div>
