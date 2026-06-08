@@ -28,7 +28,6 @@ import type {
   LlmInstanceCreatePayload,
   LlmProvider,
   LlmProviderCreatePayload,
-  ProjectConfigUpdatePayload,
   ProjectSnapshot,
   RecentProject,
   SidebarView
@@ -557,17 +556,6 @@ export function createProjectWorkbench() {
 
   function selectLlmInstance(instance: LlmInstance) {
     selectedLlmInstance.value = toStructuredCloneable(instance)
-  }
-
-  async function saveProjectConfig(payload: ProjectConfigUpdatePayload): Promise<boolean> {
-    if (!project.value) return false
-    try {
-      project.value.config = await window.electronAPI.updateProjectConfig(toStructuredCloneable(payload))
-      return true
-    } catch (error) {
-      showToast(errorText(error), 'error')
-      return false
-    }
   }
 
   function appIconUrl(app: AppDescriptor): string {
@@ -1203,7 +1191,6 @@ export function createProjectWorkbench() {
     runningAppSessions,
     saveLlmInstance,
     saveLlmProvider,
-    saveProjectConfig,
     selectLlmInstance,
     selectLlmProvider,
     selectedApp,

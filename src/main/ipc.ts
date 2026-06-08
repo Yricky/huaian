@@ -11,8 +11,7 @@ import type {
   LlmInstanceCreatePayload,
   LlmInstanceUpdatePayload,
   LlmProviderCreatePayload,
-  LlmProviderUpdatePayload,
-  ProjectConfigUpdatePayload
+  LlmProviderUpdatePayload
 } from '../shared/types'
 import {
   hasActiveGeneration,
@@ -50,7 +49,6 @@ import {
   reorderLlmInstances,
   touchAppSession,
   updateAppSession,
-  updateProjectConfig,
   updateLlmInstance,
   updateLlmProvider
 } from './project/store'
@@ -83,7 +81,6 @@ function handleIpc<TArgs extends unknown[], TResult>(
 export function registerIpcHandlers(): void {
   handleIpc('project:get', async () => hasProject() ? getProjectSnapshot() : await openDefaultProject())
   handleIpc('project:listRecent', () => listRecentProjects())
-  handleIpc('project:updateConfig', (_, payload: ProjectConfigUpdatePayload) => updateProjectConfig(payload))
   handleIpc('project:open', async () => {
     ensureCanSwitchProject()
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })

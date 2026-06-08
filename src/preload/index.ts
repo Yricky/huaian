@@ -42,7 +42,6 @@ function appIdHost(appId: string): string {
 const electronAPI: ElectronApi = {
   getProject: () => invokeIpc('project:get'),
   listRecentProjects: () => invokeIpc('project:listRecent'),
-  updateProjectConfig: payload => invokeIpc('project:updateConfig', payload),
   openProject: () => invokeIpc('project:open'),
   openProjectPath: path => invokeIpc('project:openPath', path),
   createLlmProvider: payload => invokeIpc('llm:createProvider', payload),

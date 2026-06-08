@@ -108,11 +108,6 @@ export interface AppStorageDeleteOptions {
 
 export interface ProjectConfig {
   schemaVersion: number
-  debugMode: boolean
-}
-
-export interface ProjectConfigUpdatePayload {
-  debugMode?: boolean
 }
 
 export interface ProjectSnapshot {
@@ -241,7 +236,6 @@ export type SidebarView = 'apps' | 'settings'
 export type IpcInvokeChannel =
   | 'project:get'
   | 'project:listRecent'
-  | 'project:updateConfig'
   | 'project:open'
   | 'project:openPath'
   | 'llm:createProvider'
@@ -278,7 +272,6 @@ export type IpcRendererEventChannel = 'haAppChat:generationEvent' | 'haAppChat:t
 export interface ElectronApi {
   getProject(): Promise<ProjectSnapshot>
   listRecentProjects(): Promise<RecentProject[]>
-  updateProjectConfig(payload: ProjectConfigUpdatePayload): Promise<ProjectConfig>
   openProject(): Promise<ProjectSnapshot | null>
   openProjectPath(path: string): Promise<ProjectSnapshot>
   createLlmProvider(payload: LlmProviderCreatePayload): Promise<LlmProvider>

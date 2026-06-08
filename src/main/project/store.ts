@@ -15,7 +15,6 @@ import type {
   LlmProviderUpdatePayload,
   ProviderModelCacheItem,
   ProjectConfig,
-  ProjectConfigUpdatePayload,
   ProjectSnapshot,
   RecentProject
 } from '../../shared/types'
@@ -58,16 +57,6 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig> {
 export async function writeProjectConfig(project = getCurrentProject()): Promise<void> {
   if (!project) return
   await writeFile(project.configPath, JSON.stringify(project.config, null, 2), 'utf-8')
-}
-
-export async function updateProjectConfig(payload: ProjectConfigUpdatePayload): Promise<ProjectConfig> {
-  const project = ensureProject()
-  project.config = normalizeProjectConfig({
-    ...project.config,
-    ...payload
-  })
-  await writeProjectConfig(project)
-  return project.config
 }
 
 async function isEmptyDirectory(projectPath: string): Promise<boolean> {

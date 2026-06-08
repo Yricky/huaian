@@ -11,7 +11,6 @@ import {
   MdMemory,
   MdRefresh,
   MdSave,
-  MdSettings,
   MdSmartToy,
   MdTune,
   MdWarningAmber
@@ -45,11 +44,9 @@ const {
   fetchSelectedLlmProviderModels,
   llmInstances,
   llmProviders,
-  project,
   reorderLlmInstances,
   saveLlmInstance,
   saveLlmProvider,
-  saveProjectConfig,
   selectLlmInstance,
   selectLlmProvider,
   selectedLlmInstance,
@@ -57,9 +54,6 @@ const {
   showToast
 } = useProjectWorkbench()
 
-type SettingsSection = 'general' | 'models'
-
-const settingsSection = ref<SettingsSection>('models')
 const providerDialogOpen = ref(false)
 const instanceDialogOpen = ref(false)
 const providerDraft = ref<LlmProvider | null>(null)
@@ -72,7 +66,6 @@ const instanceDirty = ref(false)
 const draggingInstanceId = ref<number | null>(null)
 const dragOverInstanceId = ref<number | null>(null)
 
-const debugMode = computed(() => Boolean(project.value?.config.debugMode))
 const providerTitle = computed(() => providerDraft.value?.name || '模型供应商')
 const providerJsonError = computed(() => jsonRecordError(providerConfigJson.value))
 const instanceJsonError = computed(() => jsonRecordError(instanceExtraJson.value))
@@ -135,10 +128,6 @@ function canDiscardInstanceDraft(): boolean {
   return !instanceDirty.value || window.confirm('有未保存的实例更改，确定放弃？')
 }
 
-function canDiscardDrafts(): boolean {
-  return canDiscardProviderDraft() && canDiscardInstanceDraft()
-}
-
 function setProviderDraft(provider: LlmProvider | null) {
   providerDraft.value = provider ? clone(provider) : null
   providerConfigJson.value = JSON.stringify(providerDraft.value?.config ?? {}, null, 2)
@@ -152,15 +141,8 @@ function setInstanceDraft(instance: LlmInstance | null) {
   instanceDirty.value = false
 }
 
-function selectSection(section: SettingsSection) {
-  if (section === settingsSection.value) return
-  if (!canDiscardDrafts()) return
-  settingsSection.value = section
-}
-
 function openProviderModal(provider: LlmProvider) {
   if (!canDiscardProviderDraft()) return
-  settingsSection.value = 'models'
   selectLlmProvider(provider)
   setProviderDraft(provider)
   providerDialogOpen.value = true
@@ -168,7 +150,6 @@ function openProviderModal(provider: LlmProvider) {
 
 async function openNewProviderModal() {
   if (!canDiscardProviderDraft()) return
-  settingsSection.value = 'models'
   await createLlmProvider()
   if (selectedLlmProvider.value) {
     setProviderDraft(selectedLlmProvider.value)
@@ -184,7 +165,6 @@ function closeProviderModal() {
 
 function openInstanceModal(instance: LlmInstance) {
   if (!canDiscardInstanceDraft()) return
-  settingsSection.value = 'models'
   selectLlmInstance(instance)
   setInstanceDraft(instance)
   instanceDialogOpen.value = true
@@ -192,7 +172,6 @@ function openInstanceModal(instance: LlmInstance) {
 
 async function openNewInstanceModal() {
   if (!canDiscardInstanceDraft()) return
-  settingsSection.value = 'models'
   await createLlmInstance({
     name: '新实例',
     providerId: selectedLlmProvider.value?.id ?? llmProviders.value[0]?.id ?? null,
@@ -260,11 +239,6 @@ async function deleteInstanceDraft() {
     instanceDialogOpen.value = false
     setInstanceDraft(null)
   }
-}
-
-async function setDebugMode(value: boolean) {
-  const ok = await saveProjectConfig({ debugMode: value })
-  if (ok) showToast(value ? '调试模式已开启' : '调试模式已关闭', 'success')
 }
 
 async function createInstanceFromProvider(modelId = modelDraft.value) {
@@ -365,13 +339,7 @@ async function dropInstance(target: LlmInstance) {
   <section class="settings-page">
     <aside class="settings-primary-pane">
       <nav class="settings-primary-nav" aria-label="设置分类">
-        <button class="primary-nav-item" :class="{ active: settingsSection === 'general' }" type="button"
-          @click="selectSection('general')">
-          <MdSettings class="nav-icon" aria-hidden="true" />
-          <span>通用</span>
-        </button>
-        <button class="primary-nav-item" :class="{ active: settingsSection === 'models' }" type="button"
-          @click="selectSection('models')">
+        <button class="primary-nav-item active" type="button">
           <MdCloudQueue class="nav-icon" aria-hidden="true" />
           <span>模型服务</span>
         </button>
@@ -379,61 +347,27 @@ async function dropInstance(target: LlmInstance) {
     </aside>
 
     <aside class="settings-secondary-pane">
-      <template v-if="settingsSection === 'general'">
-        <div class="secondary-title">通用</div>
-        <button class="secondary-item selected" type="button">
-          <span class="provider-avatar muted">
-            <MdTune aria-hidden="true" />
-          </span>
+      <div class="secondary-title">模型供应商</div>
+      <div class="provider-list">
+        <button v-for="provider in llmProviders" :key="provider.id" class="secondary-item provider-item"
+          :class="{ selected: selectedLlmProvider?.id === provider.id }" type="button"
+          @click="openProviderModal(provider)">
+          <span class="provider-avatar">{{ (provider.name || provider.type).trim().slice(0, 1).toUpperCase() }}</span>
           <span class="secondary-copy">
-            <strong>项目设置</strong>
-            <small>{{ debugMode ? '调试模式开启' : '调试模式关闭' }}</small>
+            <strong>{{ provider.name || provider.type }}</strong>
+            <small>{{ provider.type }} · {{ provider.modelsCache.length }} 模型 · {{ providerInstanceCount(provider) }} 实例</small>
           </span>
         </button>
-      </template>
-
-      <template v-else>
-        <div class="secondary-title">模型供应商</div>
-        <div class="provider-list">
-          <button v-for="provider in llmProviders" :key="provider.id" class="secondary-item provider-item"
-            :class="{ selected: selectedLlmProvider?.id === provider.id }" type="button"
-            @click="openProviderModal(provider)">
-            <span class="provider-avatar">{{ (provider.name || provider.type).trim().slice(0, 1).toUpperCase() }}</span>
-            <span class="secondary-copy">
-              <strong>{{ provider.name || provider.type }}</strong>
-              <small>{{ provider.type }} · {{ provider.modelsCache.length }} 模型 · {{ providerInstanceCount(provider) }} 实例</small>
-            </span>
-          </button>
-          <p v-if="!llmProviders.length" class="empty-note">还没有模型供应商。</p>
-        </div>
-        <button class="add-provider-button" type="button" @click="openNewProviderModal">
-          <MdAdd class="inline-icon" aria-hidden="true" />
-          <span>添加</span>
-        </button>
-      </template>
+        <p v-if="!llmProviders.length" class="empty-note">还没有模型供应商。</p>
+      </div>
+      <button class="add-provider-button" type="button" @click="openNewProviderModal">
+        <MdAdd class="inline-icon" aria-hidden="true" />
+        <span>添加</span>
+      </button>
     </aside>
 
     <main class="settings-detail-pane">
-      <section v-if="settingsSection === 'general'" class="detail-section">
-        <header class="detail-header">
-          <div>
-            <h2>项目设置</h2>
-          </div>
-        </header>
-
-        <div class="detail-body compact">
-          <label class="switch-row">
-            <span>
-              <strong>调试模式</strong>
-              <small>应用 iframe 调试信息</small>
-            </span>
-            <input type="checkbox" :checked="debugMode"
-              @change="setDebugMode(($event.target as HTMLInputElement).checked)" />
-          </label>
-        </div>
-      </section>
-
-      <section v-else class="detail-section">
+      <section class="detail-section">
         <header class="detail-header">
           <div class="detail-title">
             <span class="provider-avatar muted large">
@@ -933,10 +867,6 @@ async function dropInstance(target: LlmInstance) {
   padding: 22px 0;
 }
 
-.detail-body.compact {
-  max-width: 640px;
-}
-
 .settings-block {
   display: grid;
   gap: 12px;
@@ -1212,16 +1142,6 @@ button:disabled {
   padding: 9px 11px;
 }
 
-.switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  padding: 12px;
-}
-
 .feature-list {
   display: grid;
   gap: 8px;
@@ -1245,20 +1165,6 @@ button:disabled {
 
 .feature-row small {
   color: var(--text-muted);
-}
-
-.switch-row strong {
-  display: block;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.switch-row small {
-  color: var(--text-muted);
-}
-
-.switch-row input {
-  width: auto;
 }
 
 .feature-row input {

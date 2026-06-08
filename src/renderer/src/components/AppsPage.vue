@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   MdAdd,
   MdApps,
@@ -9,10 +9,7 @@ import {
   MdDriveFileRenameOutline,
   MdFolder,
   MdInventory2,
-  MdMoreVert,
-  MdOpenInNew,
   MdPlayArrow,
-  MdRefresh,
   MdSave,
   MdUploadFile
 } from 'vue-icons-plus/md'
@@ -50,10 +47,6 @@ const renameDialogOpen = ref(false)
 const renameTarget = ref<AppSessionRecord | null>(null)
 const renameTitle = ref('')
 const isRenamingAppSession = ref(false)
-const debugMenuRuntimeKey = ref<string | null>(null)
-const debugUrlDrafts = ref<Record<string, string>>({})
-const frameReloadTicks = ref<Record<string, number>>({})
-const frameUrls = ref<Record<string, string>>({})
 const chatPanelWidth = ref<number | null>(null)
 const isChatPanelResizing = ref(false)
 
@@ -79,14 +72,6 @@ function runtimeTitle(runtime: RuntimeAppSession): string {
 
 function defaultFrameUrl(runtime: RuntimeAppSession): string {
   return window.electronAPI.appAssetUrl(runtime.app.manifest.id, 'index.html')
-}
-
-function frameUrl(runtime: RuntimeAppSession): string {
-  return frameUrls.value[runtime.key] ?? defaultFrameUrl(runtime)
-}
-
-function frameKey(runtime: RuntimeAppSession): string {
-  return `${runtime.key}:${frameUrl(runtime)}:${frameReloadTicks.value[runtime.key] ?? 0}`
 }
 
 function isRuntimeActive(runtime: RuntimeAppSession): boolean {
@@ -123,78 +108,8 @@ function closeRenameDialog() {
   renameTitle.value = ''
 }
 
-function normalizeDebugUrl(value: string): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  try {
-    const url = new URL(trimmed)
-    return ['ha-app:', 'http:', 'https:'].includes(url.protocol) ? url.toString() : null
-  } catch {
-    return null
-  }
-}
-
-function bumpFrameReload(runtime: RuntimeAppSession) {
-  frameReloadTicks.value = {
-    ...frameReloadTicks.value,
-    [runtime.key]: (frameReloadTicks.value[runtime.key] ?? 0) + 1
-  }
-}
-
-function toggleDebugMenu(runtime: RuntimeAppSession) {
-  const nextKey = debugMenuRuntimeKey.value === runtime.key ? null : runtime.key
-  debugMenuRuntimeKey.value = nextKey
-  if (nextKey) {
-    debugUrlDrafts.value = {
-      ...debugUrlDrafts.value,
-      [runtime.key]: debugUrlDrafts.value[runtime.key] ?? frameUrl(runtime)
-    }
-  }
-}
-
-function openDebugUrl(runtime: RuntimeAppSession) {
-  const url = normalizeDebugUrl(debugUrlDrafts.value[runtime.key] ?? '')
-  if (!url) {
-    showToast('请输入 http://、https:// 或 ha-app:// 开头的完整网址。', 'error')
-    return
-  }
-  frameUrls.value = { ...frameUrls.value, [runtime.key]: url }
-  debugUrlDrafts.value = { ...debugUrlDrafts.value, [runtime.key]: url }
-  bumpFrameReload(runtime)
-  debugMenuRuntimeKey.value = null
-}
-
-function refreshFrame(runtime: RuntimeAppSession) {
-  bumpFrameReload(runtime)
-  debugMenuRuntimeKey.value = null
-}
-
-function clearRuntimeFrameState(runtime: RuntimeAppSession) {
-  const { [runtime.key]: _url, ...nextUrls } = frameUrls.value
-  const { [runtime.key]: _draft, ...nextDrafts } = debugUrlDrafts.value
-  const { [runtime.key]: _tick, ...nextTicks } = frameReloadTicks.value
-  frameUrls.value = nextUrls
-  debugUrlDrafts.value = nextDrafts
-  frameReloadTicks.value = nextTicks
-  if (debugMenuRuntimeKey.value === runtime.key) debugMenuRuntimeKey.value = null
-}
-
 async function closeAppRuntime(runtime: RuntimeAppSession) {
-  clearRuntimeFrameState(runtime)
   await closeRuntime(runtime)
-}
-
-function closeDebugMenu() {
-  debugMenuRuntimeKey.value = null
-}
-
-function handleDocumentClick(event: MouseEvent) {
-  const target = event.target instanceof Element ? event.target : null
-  if (!target?.closest('.runtime-debug-menu-shell')) closeDebugMenu()
-}
-
-function handleDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeDebugMenu()
 }
 
 async function confirmUninstall() {
@@ -217,15 +132,6 @@ async function confirmRename() {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('click', handleDocumentClick)
-  document.addEventListener('keydown', handleDocumentKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleDocumentClick)
-  document.removeEventListener('keydown', handleDocumentKeydown)
-})
 </script>
 
 <template>
@@ -350,42 +256,16 @@ onBeforeUnmount(() => {
           <header class="runtime-header">
             <strong>{{ runtimeTitle(runtime) }}</strong>
             <div class="runtime-actions">
-              <div class="runtime-debug-menu-shell" :class="{ open: debugMenuRuntimeKey === runtime.key }">
-                <button class="icon-button" type="button" aria-label="更多" data-tooltip="更多" aria-haspopup="dialog"
-                  :aria-expanded="debugMenuRuntimeKey === runtime.key" @click="toggleDebugMenu(runtime)">
-                  <MdMoreVert aria-hidden="true" />
-                </button>
-                <section v-if="debugMenuRuntimeKey === runtime.key" class="runtime-debug-popover" role="dialog"
-                  aria-label="iframe 调试" @click.stop>
-                  <form class="debug-url-form" @submit.prevent="openDebugUrl(runtime)">
-                    <label class="debug-url-label">
-                      <span>自定义网址</span>
-                      <span class="debug-url-row">
-                        <input v-model="debugUrlDrafts[runtime.key]" class="debug-url-input" type="text" inputmode="url"
-                          spellcheck="false" placeholder="http://localhost:5173" />
-                        <button class="debug-icon-button" type="submit" aria-label="打开" data-tooltip="打开">
-                          <MdOpenInNew aria-hidden="true" />
-                        </button>
-                      </span>
-                    </label>
-                  </form>
-                  <button class="debug-menu-action" type="button" @click="refreshFrame(runtime)">
-                    <MdRefresh aria-hidden="true" />
-                    <span>刷新当前页面</span>
-                  </button>
-                </section>
-              </div>
               <button class="icon-button" type="button" aria-label="关闭存档" data-tooltip="关闭存档"
                 @click="closeAppRuntime(runtime)">
                 <MdClose aria-hidden="true" />
               </button>
             </div>
           </header>
-          <iframe :key="frameKey(runtime)" :src="frameUrl(runtime)"
+          <iframe :src="defaultFrameUrl(runtime)"
             sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads"
             @load="onFrameLoad(runtime, $event)" />
         </article>
-        <div v-if="debugMenuRuntimeKey" class="debug-menu-scrim" aria-hidden="true" @click="closeDebugMenu"></div>
       </main>
       <div v-if="isChatPanelResizing" class="chat-resize-scrim" aria-hidden="true"></div>
 
@@ -795,13 +675,6 @@ onBeforeUnmount(() => {
   background: var(--surface-raised);
 }
 
-.debug-menu-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  background: transparent;
-}
-
 .frame-cell {
   position: absolute;
   inset: 0;
@@ -840,134 +713,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.runtime-debug-menu-shell {
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-
-.runtime-debug-menu-shell.open .icon-button::after {
-  display: none;
-}
-
-.runtime-debug-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 60;
-  width: min(360px, calc(100vw - 32px));
-  display: grid;
-  gap: 10px;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  padding: 12px;
-  box-shadow: 0 14px 36px var(--shadow-color);
-}
-
-.debug-url-form,
-.debug-url-label {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-}
-
-.debug-url-label>span:first-child {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.debug-url-row {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 8px;
-}
-
-.debug-url-input {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid var(--border-default);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  padding: 0 9px;
-  font-size: 12px;
-  outline: none;
-}
-
-.debug-url-input:focus {
-  border-color: var(--accent-solid);
-  box-shadow: 0 0 0 2px var(--accent-ring);
-}
-
-.debug-icon-button {
-  position: relative;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface-panel);
-  color: var(--accent-text);
-  padding: 0;
-}
-
-.debug-icon-button:hover,
-.debug-menu-action:hover {
-  background: var(--accent-soft);
-}
-
-.debug-icon-button svg,
-.debug-menu-action svg {
-  width: 18px;
-  height: 18px;
-}
-
-.debug-icon-button::after {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 70;
-  pointer-events: none;
-  content: attr(data-tooltip);
-  opacity: 0;
-  transform: translateY(-2px);
-  border-radius: 4px;
-  background: var(--tooltip-bg);
-  padding: 5px 8px;
-  color: var(--tooltip-text);
-  font-size: 12px;
-  white-space: nowrap;
-  transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.debug-icon-button:hover::after,
-.debug-icon-button:focus-visible::after {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.debug-menu-action {
-  min-width: 0;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  padding: 0 10px;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: left;
 }
 
 .frame-cell iframe {
