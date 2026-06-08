@@ -22,21 +22,21 @@ const { toasts } = useProjectWorkbench()
 
 .toast {
   max-width: 520px;
-  border: 1px solid #b9c4d1;
+  border: 1px solid var(--border-strong);
   border-radius: 9px;
-  background: #ffffff;
+  background: var(--surface-raised);
   padding: 9px 12px;
-  color: #263342;
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .toast.success {
-  border-color: #47916c;
-  background: #f5fbf7;
+  border-color: var(--success-border);
+  background: var(--success-soft);
 }
 
 .toast.error {
-  border-color: #c85656;
-  background: #fff7f7;
+  border-color: var(--danger-solid);
+  background: var(--danger-soft);
 }
 </style>

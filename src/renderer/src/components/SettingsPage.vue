@@ -699,7 +699,7 @@ async function dropInstance(target: LlmInstance) {
   grid-template-columns: 260px 360px minmax(360px, 1fr);
   height: 100%;
   min-width: 0;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .settings-primary-pane,
@@ -708,12 +708,12 @@ async function dropInstance(target: LlmInstance) {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .settings-primary-pane,
 .settings-secondary-pane {
-  border-right: 1px solid #e5e8ed;
+  border-right: 1px solid var(--border-subtle);
 }
 
 .settings-primary-pane {
@@ -739,7 +739,7 @@ async function dropInstance(target: LlmInstance) {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #242b36;
+  color: var(--text-primary);
   padding: 10px 12px;
   font-size: 15px;
   font-weight: 700;
@@ -747,21 +747,21 @@ async function dropInstance(target: LlmInstance) {
 
 .primary-nav-item:hover,
 .primary-nav-item.active {
-  border-color: #e2e5ea;
-  background: #f4f5f7;
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
 }
 
 .nav-icon {
   width: 20px;
   height: 20px;
-  color: #5d6570;
+  color: var(--text-tertiary);
 }
 
 .secondary-title {
   min-height: 34px;
   display: flex;
   align-items: center;
-  color: #6b7280;
+  color: var(--text-tertiary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -784,7 +784,7 @@ async function dropInstance(target: LlmInstance) {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #1f2430;
+  color: var(--text-primary);
   padding: 9px 10px;
   text-align: left;
 }
@@ -793,8 +793,8 @@ async function dropInstance(target: LlmInstance) {
 .secondary-item.selected,
 .instance-row:hover,
 .instance-row.selected {
-  border-color: #e5e8ed;
-  background: #f4f5f7;
+  border-color: var(--border-subtle);
+  background: var(--surface-muted);
 }
 
 .provider-avatar {
@@ -804,15 +804,15 @@ async function dropInstance(target: LlmInstance) {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: #79c990;
-  color: #12351d;
+  background: var(--success-solid);
+  color: var(--success-on-solid);
   font-size: 15px;
   font-weight: 800;
 }
 
 .provider-avatar.muted {
-  background: #eef1f5;
-  color: #5a6370;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
 }
 
 .provider-avatar.large {
@@ -824,8 +824,8 @@ async function dropInstance(target: LlmInstance) {
 .provider-avatar.small {
   width: 28px;
   height: 28px;
-  background: #edf3ff;
-  color: #315cab;
+  background: var(--accent-soft);
+  color: var(--accent-text);
   font-size: 12px;
 }
 
@@ -848,14 +848,14 @@ async function dropInstance(target: LlmInstance) {
 
 .secondary-copy strong,
 .instance-copy strong {
-  color: #161b22;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 800;
 }
 
 .secondary-copy small,
 .instance-copy small {
-  color: #8a929e;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -866,10 +866,10 @@ async function dropInstance(target: LlmInstance) {
   justify-content: center;
   gap: 8px;
   margin-top: auto;
-  border: 1px solid #d4d9e1;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
-  color: #303743;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
   padding: 10px 12px;
   font-size: 14px;
   font-weight: 600;
@@ -877,7 +877,7 @@ async function dropInstance(target: LlmInstance) {
 
 .add-provider-button:hover,
 .outline-button:hover {
-  background: #f6f7f9;
+  background: var(--surface-panel);
 }
 
 .settings-detail-pane {
@@ -895,8 +895,8 @@ async function dropInstance(target: LlmInstance) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid #e8ebef;
-  background: #ffffff;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
 }
 
 .detail-header {
@@ -915,14 +915,14 @@ async function dropInstance(target: LlmInstance) {
 .detail-header h2,
 .modal-header h2 {
   margin: 0;
-  color: #111827;
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 800;
 }
 
 .detail-header small,
 .modal-header small {
-  color: #8a929e;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -963,7 +963,7 @@ async function dropInstance(target: LlmInstance) {
 
 .block-heading h3 {
   margin: 0;
-  color: #111827;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 800;
 }
@@ -974,8 +974,8 @@ async function dropInstance(target: LlmInstance) {
   height: 22px;
   place-items: center;
   border-radius: 999px;
-  background: #f0f2f5;
-  color: #8a929e;
+  background: var(--surface-muted);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -987,7 +987,7 @@ async function dropInstance(target: LlmInstance) {
 }
 
 .section-icon {
-  color: #59616d;
+  color: var(--text-secondary);
 }
 
 .form-grid {
@@ -1004,25 +1004,25 @@ label,
 .json-label {
   display: grid;
   gap: 5px;
-  color: #536071;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 input,
 select {
   width: 100%;
-  border: 1px solid #d7dce3;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
-  color: #1f2935;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 8px 10px;
   outline: none;
 }
 
 input:focus,
 select:focus {
-  border-color: #8da6d9;
-  box-shadow: 0 0 0 3px rgba(91, 127, 196, 0.14);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 button {
@@ -1036,10 +1036,10 @@ button:disabled {
 
 .outline-button,
 .toolbar-button {
-  border: 1px solid #d4d9e1;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
-  color: #303743;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
 }
 
 .outline-button {
@@ -1066,11 +1066,11 @@ button:disabled {
 }
 
 .toolbar-button:hover {
-  background: #f6f7f9;
+  background: var(--surface-panel);
 }
 
 .toolbar-button.danger {
-  color: #b63b37;
+  color: var(--danger-text);
 }
 
 .toolbar-icon {
@@ -1086,8 +1086,8 @@ button:disabled {
   z-index: 20;
   white-space: nowrap;
   border-radius: 6px;
-  background: #1f2935;
-  color: #ffffff;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
   padding: 5px 7px;
   font-size: 12px;
   font-weight: 600;
@@ -1112,18 +1112,18 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #e3e7ec;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #ffffff;
-  color: #1f2935;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 8px;
   text-align: left;
 }
 
 .model-row:hover,
 .model-row.selected {
-  background: #f4f7fb;
-  border-color: #cad7ef;
+  background: var(--surface-panel);
+  border-color: var(--accent-border);
 }
 
 .global-instance-list {
@@ -1138,13 +1138,13 @@ button:disabled {
   gap: 10px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: #ffffff;
-  color: #1f2430;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 8px 10px 8px 6px;
 }
 
 .instance-row.unavailable {
-  color: #6f4f19;
+  color: var(--warning-text);
 }
 
 .instance-row.dragging {
@@ -1152,8 +1152,8 @@ button:disabled {
 }
 
 .instance-row.dropTarget {
-  border-color: #8da6d9;
-  background: #f5f8ff;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
 .drag-handle {
@@ -1162,13 +1162,13 @@ button:disabled {
   display: grid;
   place-items: center;
   border-radius: 6px;
-  color: #8a929e;
+  color: var(--text-muted);
   cursor: grab;
 }
 
 .drag-handle:hover {
-  background: #edf0f4;
-  color: #536071;
+  background: var(--surface-hover);
+  color: var(--text-tertiary);
 }
 
 .drag-handle:active {
@@ -1197,14 +1197,14 @@ button:disabled {
 
 .status-pill.ok,
 .instance-status.ok {
-  background: #e8f6ec;
-  color: #236638;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .status-pill.warn,
 .instance-status.warn {
-  background: #fff3d8;
-  color: #7a5518;
+  background: var(--warning-soft);
+  color: var(--warning-text);
 }
 
 .instance-status {
@@ -1217,7 +1217,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #e4e8ee;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 12px;
 }
@@ -1232,29 +1232,29 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #e4e8ee;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 10px 12px;
 }
 
 .feature-row strong {
   display: block;
-  color: #1f2935;
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .feature-row small {
-  color: #8a929e;
+  color: var(--text-muted);
 }
 
 .switch-row strong {
   display: block;
-  color: #1f2935;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .switch-row small {
-  color: #8a929e;
+  color: var(--text-muted);
 }
 
 .switch-row input {
@@ -1274,18 +1274,18 @@ button:disabled {
 }
 
 .json-status.error {
-  background: #ffe8e7;
-  color: #ad3934;
+  background: var(--danger-soft);
+  color: var(--danger-text);
 }
 
 .json-status.ok {
-  background: #e8f6ec;
-  color: #24673a;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .empty-note,
 .empty-detail {
-  color: #8a929e;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -1312,7 +1312,7 @@ button:disabled {
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: rgba(17, 24, 39, 0.42);
+  background: var(--overlay-scrim);
   padding: 28px;
 }
 
@@ -1320,10 +1320,10 @@ button:disabled {
   width: min(960px, calc(100vw - 56px));
   max-height: calc(100vh - 56px);
   overflow: auto;
-  border: 1px solid #dfe4ea;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 24px 80px rgba(17, 24, 39, 0.24);
+  background: var(--surface-raised);
+  box-shadow: 0 24px 80px var(--shadow-color-strong);
 }
 
 .instance-modal {

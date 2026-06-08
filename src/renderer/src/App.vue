@@ -33,7 +33,7 @@ const { activeView } = workbench
 
 .workspace {
   display: grid;
-  grid-template-columns: 84px 1fr;
+  grid-template-columns: 72px 1fr;
   height: 100vh;
 }
 

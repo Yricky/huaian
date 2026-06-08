@@ -102,14 +102,14 @@ async function insertIndent(event: KeyboardEvent) {
   position: relative;
   width: 100%;
   min-width: 0;
-  border: 1px solid #cfd7e2;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--surface-panel);
   overflow: hidden;
 }
 
 .json-editor:focus-within {
-  border-color: #2f6fca;
+  border-color: var(--accent-solid);
 }
 
 .json-editor-highlight,
@@ -129,7 +129,7 @@ async function insertIndent(event: KeyboardEvent) {
   z-index: 1;
   pointer-events: none;
   overflow: hidden;
-  color: #1f2935;
+  color: var(--text-primary);
 }
 
 .json-editor-code {
@@ -146,38 +146,38 @@ async function insertIndent(event: KeyboardEvent) {
   border-radius: 0;
   background: transparent;
   color: transparent;
-  caret-color: #1f2935;
+  caret-color: var(--text-primary);
   outline: none;
   resize: vertical;
   -webkit-text-fill-color: transparent;
 }
 
 .json-editor-input::selection {
-  background: rgba(47, 111, 202, 0.22);
+  background: var(--syntax-selection);
 }
 
 :deep(.json-token.key) {
-  color: #8a4b0f;
+  color: var(--syntax-key);
 }
 
 :deep(.json-token.string) {
-  color: #1f7a4d;
+  color: var(--syntax-string);
 }
 
 :deep(.json-token.number) {
-  color: #1f5fbf;
+  color: var(--syntax-number);
 }
 
 :deep(.json-token.boolean) {
-  color: #8d3fb0;
+  color: var(--syntax-boolean);
 }
 
 :deep(.json-token.null) {
-  color: #7d8794;
+  color: var(--syntax-null);
 }
 
 :deep(.json-token.punctuation) {
-  color: #4e5b6c;
+  color: var(--syntax-punctuation);
 }
 
 :deep(.json-token.placeholder) {

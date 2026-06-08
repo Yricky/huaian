@@ -17,6 +17,7 @@ import {
   type HuaianAppApi,
   type JsonRecord
 } from './types'
+import { toStructuredCloneable } from './value-utils'
 
 interface PendingCall {
   reject: (error: Error) => void
@@ -64,7 +65,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
           type: 'call',
           id,
           method,
-          args
+          args: toStructuredCloneable(args)
         }
         pendingCalls.set(id, { resolve, reject })
         nextPort.postMessage(message)
@@ -81,7 +82,7 @@ function createHuaianAppApi(target: Window): HuaianAppApi {
           type: 'call',
           id,
           method,
-          args
+          args: toStructuredCloneable(args)
         }
         pendingCalls.set(id, { resolve, reject })
         nextPort.postMessage(message, transfer)

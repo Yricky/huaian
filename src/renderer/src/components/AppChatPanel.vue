@@ -166,7 +166,7 @@ function startChatPanelResize(event: PointerEvent) {
   chatPanelWidth.value = chatPanelResizeStart.startWidth
   emit('panelWidth', chatPanelWidth.value)
   emit('resizing', true)
-  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
+    ; (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
   document.addEventListener('pointermove', handleChatPanelResizeMove)
   document.addEventListener('pointerup', stopChatPanelResize)
   document.addEventListener('pointercancel', stopChatPanelResize)
@@ -281,7 +281,7 @@ async function uploadComposerAttachments(event: Event) {
     }
     const id = createAttachmentId()
     const extension = imageExtension(mediaType, file.name)
-    const path = `.huaian/uploads/${session.value.id}/${Date.now()}-${id}.${extension}`
+    const path = `.huaian/uploads/${Date.now()}-${id}.${extension}`
     await window.electronAPI.writeAppStorageFileBytes('save', runtime.value.app.manifest.id, runtime.value.record.id, path, await file.arrayBuffer())
     nextAttachments.push({ id, name: file.name || `image.${extension}`, path, mediaType })
     nextOrder.push(id)
@@ -458,7 +458,8 @@ onBeforeUnmount(() => {
           <button type="button" :class="{ active: chatRenderMode() === 'raw' }" @click="setChatRenderMode('raw')">
             原始
           </button>
-          <button type="button" :class="{ active: chatRenderMode() === 'markdown' }" @click="setChatRenderMode('markdown')">
+          <button type="button" :class="{ active: chatRenderMode() === 'markdown' }"
+            @click="setChatRenderMode('markdown')">
             Markdown
           </button>
         </div>
@@ -524,27 +525,25 @@ onBeforeUnmount(() => {
 
     <footer class="chat-composer">
       <form class="composer-form" @submit.prevent="sendComposer">
-        <textarea v-model="composerDrafts[composerKey()]" class="composer-input"
-          rows="2" :placeholder="session.allowUserReply ? '输入消息...' : '当前对话不允许用户回复'"
+        <textarea v-model="composerDrafts[composerKey()]" class="composer-input" rows="2"
+          :placeholder="session.allowUserReply ? '输入消息...' : '当前对话不允许用户回复'"
           :disabled="!session.allowUserReply || session.status === 'generating'"
           @keydown.enter.exact.prevent="sendComposer" />
 
         <div v-if="canShowComposerItems()" class="composer-attachment-list">
-          <div v-for="item in composerItems()" :key="item.id"
-            class="composer-attachment-item" :class="[item.kind, { dragging: draggingComposerItem?.itemId === item.id }]"
-            draggable="true" :title="attachmentTitle(item)"
-            @dragstart="beginComposerItemDrag($event, item.id)"
-            @dragover.prevent
-            @drop.prevent="dropComposerItem(item.id)"
-            @dragend="clearComposerItemDrag">
+          <div v-for="item in composerItems()" :key="item.id" class="composer-attachment-item"
+            :class="[item.kind, { dragging: draggingComposerItem?.itemId === item.id }]" draggable="true"
+            :title="attachmentTitle(item)" @dragstart="beginComposerItemDrag($event, item.id)" @dragover.prevent
+            @drop.prevent="dropComposerItem(item.id)" @dragend="clearComposerItemDrag">
             <span v-if="item.kind === 'text'" class="text-attachment-icon">{{ item.label }}</span>
             <img v-else-if="item.attachment && attachmentPreviewUrl(item.attachment)"
               :src="attachmentPreviewUrl(item.attachment)" :alt="item.attachment.name" />
-            <span v-else class="file-attachment-icon"><MdImage aria-hidden="true" /></span>
+            <span v-else class="file-attachment-icon">
+              <MdImage aria-hidden="true" />
+            </span>
             <MdDragIndicator class="attachment-drag-icon" aria-hidden="true" />
-            <button v-if="item.kind === 'attachment'" class="attachment-remove-button" type="button"
-              aria-label="删除附件" data-tooltip="删除附件"
-              @click.stop="removeComposerAttachment(item.id)">
+            <button v-if="item.kind === 'attachment'" class="attachment-remove-button" type="button" aria-label="删除附件"
+              data-tooltip="删除附件" @click.stop="removeComposerAttachment(item.id)">
               <MdClose aria-hidden="true" />
             </button>
           </div>
@@ -563,8 +562,8 @@ onBeforeUnmount(() => {
                 <MdSmartToy class="model-pill-symbol" />
               </span>
               <select class="llm-select" :value="llmSelectValue()"
-                :disabled="session.status === 'generating' || !availableLlmInstances.length"
-                aria-label="选择 LLM 实例" @change="handleLlmSelect">
+                :disabled="session.status === 'generating' || !availableLlmInstances.length" aria-label="选择 LLM 实例"
+                @change="handleLlmSelect">
                 <option value="" disabled>未选择 LLM</option>
                 <option v-for="instance in availableLlmInstances" :key="instance.id" :value="String(instance.id)">
                   {{ instance.name }}
@@ -580,13 +579,12 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="composer-right">
-            <button v-if="session.status === 'generating'" class="composer-action-button stop"
-              type="button" aria-label="停止" data-tooltip="停止"
-              @click="stopChatReply(runtime, session.id)">
+            <button v-if="session.status === 'generating'" class="composer-action-button stop" type="button"
+              aria-label="停止" data-tooltip="停止" @click="stopChatReply(runtime, session.id)">
               <MdStop size="16" />
             </button>
-            <button v-else class="composer-action-button" type="submit" :disabled="!canSendComposer()"
-              aria-label="发送" data-tooltip="发送">
+            <button v-else class="composer-action-button" type="submit" :disabled="!canSendComposer()" aria-label="发送"
+              data-tooltip="发送">
               <MdSend size="16" />
             </button>
           </div>
@@ -607,9 +605,9 @@ onBeforeUnmount(() => {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-height: 0;
   overflow: hidden;
-  border-right: 1px solid #dfe5ed;
-  border-left: 1px solid #dfe5ed;
-  background: #fbfcfd;
+  border-right: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
 }
 
 .chat-panel-resizer {
@@ -640,7 +638,7 @@ onBeforeUnmount(() => {
 .chat-panel-resizer:hover::before,
 .chat-panel-resizer:focus-visible::before,
 :global(.resizing-chat-panel) .chat-panel-resizer::before {
-  background: #2f6fca;
+  background: var(--accent-solid);
 }
 
 :global(.resizing-chat-panel),
@@ -654,7 +652,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid #e5e9ef;
+  border-bottom: 1px solid var(--border-subtle);
   padding: 8px 10px 8px 14px;
 }
 
@@ -675,9 +673,9 @@ onBeforeUnmount(() => {
   height: 30px;
   display: inline-flex;
   align-items: center;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #eef2f7;
+  background: var(--surface-muted);
   padding: 2px;
 }
 
@@ -686,27 +684,27 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #526071;
+  color: var(--text-tertiary);
   padding: 0 8px;
   font-size: 12px;
   font-weight: 800;
 }
 
 .chat-render-toggle button.active {
-  background: #ffffff;
-  color: #174f99;
-  box-shadow: 0 1px 3px rgba(34, 43, 56, 0.14);
+  background: var(--surface-raised);
+  color: var(--accent-text);
+  box-shadow: 0 1px 3px var(--shadow-color);
 }
 
 .chat-render-toggle button:focus-visible {
-  outline: 2px solid #446bd7;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
 .chat-panel-header strong {
   min-width: 0;
   overflow: hidden;
-  color: #17202d;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -714,7 +712,7 @@ onBeforeUnmount(() => {
 }
 
 .chat-panel-header small {
-  color: #7b8798;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
@@ -733,20 +731,19 @@ onBeforeUnmount(() => {
   max-width: 100%;
   display: grid;
   gap: 7px;
-  border: 1px solid #dce3ec;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #ffffff;
-  color: #202a38;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 10px 12px;
 }
 
 .message-bubble.user {
-  width: auto;
-  min-width: min(240px, 100%);
+  width: 100%;
   max-width: 100%;
   align-self: flex-end;
-  border-color: #bdd4f5;
-  background: #f4f8ff;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
 .message-bubble.assistant {
@@ -759,27 +756,27 @@ onBeforeUnmount(() => {
   width: 100%;
   align-self: center;
   max-width: 100%;
-  background: #f3f5f7;
+  background: var(--surface-muted);
 }
 
 .message-bubble.error {
-  border-color: #e0b9b9;
-  background: #fff8f8;
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
 }
 
-.message-bubble > header {
+.message-bubble>header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #6c7788;
+  color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 700;
 }
 
 .message-markdown {
   min-width: 0;
-  color: #202a38;
+  color: var(--text-primary);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -798,7 +795,7 @@ onBeforeUnmount(() => {
 .message-raw {
   min-width: 0;
   margin: 0;
-  color: #202a38;
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 13px;
   line-height: 1.45;
@@ -818,9 +815,9 @@ onBeforeUnmount(() => {
 .image-placeholder {
   width: 100%;
   max-height: 320px;
-  border: 1px solid #d8e0ea;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #f3f6f9;
+  background: var(--surface-muted);
   object-fit: contain;
 }
 
@@ -828,7 +825,7 @@ onBeforeUnmount(() => {
   aspect-ratio: 1;
   display: grid;
   place-items: center;
-  color: #8a96a8;
+  color: var(--text-muted);
 }
 
 .image-placeholder svg {
@@ -839,23 +836,23 @@ onBeforeUnmount(() => {
 .message-image-part figcaption {
   min-width: 0;
   overflow: hidden;
-  color: #6b7788;
+  color: var(--text-tertiary);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .message-bubble em {
-  color: #a33a3a;
+  color: var(--danger-text);
   font-size: 12px;
   font-style: normal;
 }
 
 .reasoning-part {
   min-width: 0;
-  border: 1px solid #d9e0e8;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #f7f9fb;
+  background: var(--surface-panel);
   padding: 7px 8px;
 }
 
@@ -864,7 +861,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #667286;
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
@@ -872,19 +869,19 @@ onBeforeUnmount(() => {
 
 .reasoning-part summary small {
   flex: 0 0 auto;
-  border: 1px solid #c9d2dc;
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   padding: 2px 7px;
-  color: #6d7888;
-  background: #ffffff;
+  color: var(--text-tertiary);
+  background: var(--surface-raised);
   font-size: 11px;
   line-height: 1.2;
 }
 
 .reasoning-part summary small.active {
-  border-color: #7fb39f;
-  color: #245f51;
-  background: #e6f5ee;
+  border-color: var(--success-border);
+  color: var(--success-text);
+  background: var(--success-soft);
 }
 
 .reasoning-part[open] summary {
@@ -895,9 +892,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: grid;
   gap: 6px;
-  border: 1px solid #d8e0ea;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #f1f4f7;
+  background: var(--surface-muted);
   padding: 8px;
   font-size: 12px;
 }
@@ -912,20 +909,20 @@ onBeforeUnmount(() => {
 .tool-call-header strong {
   min-width: 0;
   overflow: hidden;
-  color: #304054;
+  color: var(--text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tool-call-header span {
   flex: 0 0 auto;
-  color: #657386;
+  color: var(--text-tertiary);
   font-weight: 800;
 }
 
 .tool-call.error {
-  border-color: #e5c4c4;
-  background: #fff0f0;
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
 }
 
 .tool-json {
@@ -934,7 +931,7 @@ onBeforeUnmount(() => {
 
 .tool-json summary {
   cursor: pointer;
-  color: #5c6879;
+  color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 800;
 }
@@ -944,8 +941,8 @@ onBeforeUnmount(() => {
   overflow: auto;
   margin: 5px 0 0;
   border-radius: 6px;
-  background: #ffffff;
-  color: #263141;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 7px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
@@ -956,7 +953,7 @@ onBeforeUnmount(() => {
 
 .tool-error {
   margin: 0;
-  color: #a33a3a;
+  color: var(--danger-text);
   overflow-wrap: anywhere;
 }
 
@@ -964,15 +961,15 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  border-top: 1px solid #e8edf3;
+  border-top: 1px solid var(--border-subtle);
   padding: 8px 10px;
 }
 
 .option-list button {
-  border: 1px solid #cdd7e5;
+  border: 1px solid var(--border-default);
   border-radius: 999px;
-  background: #ffffff;
-  color: #27405f;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
   padding: 6px 9px;
   font-size: 12px;
   font-weight: 700;
@@ -980,22 +977,20 @@ onBeforeUnmount(() => {
 
 .chat-composer {
   min-width: 0;
-  border-top: 1px solid #e8edf3;
-  background: #ffffff;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+  padding: 0px 12px calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
 .composer-form {
   min-width: 0;
   display: grid;
   grid-template-rows: minmax(70px, 1fr) auto auto;
-  gap: 6px;
   min-height: 122px;
   overflow: hidden;
-  border: 1px solid #dddddd;
+  border: 1px solid var(--border-default);
   border-radius: 16px;
-  background: #ffffff;
-  padding: 4px;
+  background: var(--surface-raised);
+  padding: 8px 4px 4px 4px;
 }
 
 .composer-input {
@@ -1007,7 +1002,7 @@ onBeforeUnmount(() => {
   overflow: auto;
   border: 0;
   background: transparent;
-  color: #1f2a38;
+  color: var(--text-primary);
   padding: 2px 4px;
   outline: none;
   line-height: 1.45;
@@ -1037,10 +1032,10 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   overflow: hidden;
-  border: 1px solid #d4dde8;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #344256;
+  background: var(--surface-panel);
+  color: var(--text-secondary);
   cursor: grab;
 }
 
@@ -1064,8 +1059,8 @@ onBeforeUnmount(() => {
   height: 100%;
   display: grid;
   place-items: center;
-  background: #edf4ff;
-  color: #24579b;
+  background: var(--accent-soft);
+  color: var(--accent-text);
   font-size: 17px;
   font-weight: 800;
 }
@@ -1082,8 +1077,8 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 14px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.84);
-  color: #667286;
+  background: var(--surface-glass);
+  color: var(--text-tertiary);
 }
 
 .attachment-remove-button {
@@ -1096,8 +1091,8 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: rgba(30, 36, 46, 0.74);
-  color: #ffffff;
+  background: var(--inverse-glass);
+  color: var(--tooltip-text);
   padding: 0;
 }
 
@@ -1133,13 +1128,13 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: #f0f2f5;
-  color: #4b5a70;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
   cursor: pointer;
 }
 
 .composer-upload-button:hover {
-  background: #e4e8ee;
+  background: var(--surface-hover);
 }
 
 .composer-upload-button svg {
@@ -1173,8 +1168,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 0;
   border-radius: 14px;
-  background: #f5f5f5;
-  color: #1f242b;
+  background: var(--surface-muted);
+  color: var(--text-primary);
   padding: 0 8px 0 0;
   font-size: 13px;
   font-weight: 600;
@@ -1197,8 +1192,8 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   place-items: center;
   border-radius: 50%;
-  background: #c8c8c8;
-  color: #ffffff;
+  background: var(--surface-disabled);
+  color: var(--surface-disabled-text);
 }
 
 .model-pill-symbol {
@@ -1214,11 +1209,12 @@ onBeforeUnmount(() => {
 }
 
 .llm-select {
+  padding-left: 0px;
   min-width: 0;
   flex: 1;
   border: 0;
   background: transparent;
-  color: #1f242b;
+  color: var(--text-primary);
   font: inherit;
   outline: none;
 }
@@ -1236,18 +1232,18 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: #c8c8c8;
-  color: #ffffff;
+  background: var(--surface-disabled);
+  color: var(--surface-disabled-text);
   padding: 6px;
   transition: background 140ms ease, opacity 140ms ease;
 }
 
 .composer-action-button:hover:not(:disabled) {
-  background: #b6b6b6;
+  background: var(--surface-pressed);
 }
 
 .composer-action-button.stop {
-  background: #d66b6b;
+  background: var(--danger-solid);
 }
 
 .composer-action-button:disabled {
@@ -1265,13 +1261,13 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(2px);
   border-radius: 4px;
-  background: #30343a;
+  background: var(--tooltip-bg);
   padding: 5px 8px;
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(32, 36, 42, 0.2);
+  box-shadow: 0 2px 8px var(--shadow-color);
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
@@ -1282,7 +1278,7 @@ onBeforeUnmount(() => {
 }
 
 .composer-action-button:focus-visible {
-  outline: 2px solid #446bd7;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -1295,12 +1291,12 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #4d596b;
+  color: var(--text-secondary);
   padding: 0;
 }
 
 .icon-button:hover {
-  background: #edf2f8;
+  background: var(--surface-muted);
 }
 
 .icon-button svg {
@@ -1318,9 +1314,9 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(-2px);
   border-radius: 4px;
-  background: #30343a;
+  background: var(--tooltip-bg);
   padding: 5px 8px;
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 12px;
   white-space: nowrap;
   transition: opacity 120ms ease, transform 120ms ease;

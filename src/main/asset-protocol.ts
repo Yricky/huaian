@@ -37,10 +37,10 @@ const CONTENT_TYPES: Record<string, string> = {
 const APP_CONTENT_SECURITY_POLICY = [
   "default-src 'self' 'unsafe-inline' data: blob:",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${APP_PROTOCOL}: ${ASSET_PROTOCOL}:`,
-  `font-src 'self' data: ${APP_PROTOCOL}:`,
-  `media-src 'self' data: blob: ${APP_PROTOCOL}:`,
+  "style-src 'self' 'unsafe-inline' https:",
+  `img-src 'self' data: blob: ${APP_PROTOCOL}: ${ASSET_PROTOCOL}: https:`,
+  `font-src 'self' data: ${APP_PROTOCOL}: https:`,
+  `media-src 'self' data: blob: ${APP_PROTOCOL}: https:`,
   `connect-src 'self' data: blob: ${APP_PROTOCOL}: ${ASSET_PROTOCOL}: http: https:`,
   "worker-src 'self' blob:"
 ].join('; ')

@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-width: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .app-content {
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid #e7ebf0;
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 18px;
   padding-bottom: 14px;
 }
@@ -431,7 +431,7 @@ onBeforeUnmount(() => {
 
 .title-cluster h1 {
   margin: 0;
-  color: #161b22;
+  color: var(--text-primary);
   font-size: 20px;
   font-weight: 800;
   letter-spacing: 0;
@@ -441,7 +441,7 @@ onBeforeUnmount(() => {
   display: block;
   min-width: 0;
   overflow: hidden;
-  color: #6d7787;
+  color: var(--text-tertiary);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -455,15 +455,15 @@ onBeforeUnmount(() => {
   place-items: center;
   overflow: hidden;
   border-radius: 8px;
-  background: #daeee2;
-  color: #17452a;
+  background: var(--success-soft);
+  color: var(--success-text);
   font-size: 17px;
   font-weight: 800;
 }
 
 .app-avatar.muted {
-  background: #eef1f5;
-  color: #5a6370;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
 }
 
 .app-avatar img {
@@ -487,30 +487,33 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid #b8c4d2;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #ffffff;
-  color: #273446;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 7px 11px;
   font-size: 13px;
   font-weight: 700;
 }
 
 .primary-action {
-  border-color: #2f6fca;
-  background: #f4f8ff;
-  color: #174f99;
+  border-color: var(--accent-solid);
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 
 .toolbar-action:hover,
-.primary-action:hover,
 .open-button:hover {
-  background: #f1f5fb;
+  background: var(--surface-muted);
+}
+
+.primary-action:hover {
+  background: var(--accent-soft-hover);
 }
 
 .toolbar-action.danger {
-  border-color: #ddc4c4;
-  color: #a33a3a;
+  border-color: var(--danger-border);
+  color: var(--danger-text);
 }
 
 .inline-icon {
@@ -530,10 +533,10 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: grid;
   gap: 8px;
-  border: 1px solid #d9e0e9;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: #ffffff;
-  color: #263141;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 14px;
   text-align: left;
 }
@@ -544,15 +547,15 @@ onBeforeUnmount(() => {
 
 .app-card:hover,
 .save-card:hover {
-  border-color: #bfcada;
-  background: #fbfcfe;
+  border-color: var(--border-strong);
+  background: var(--surface-panel);
 }
 
 .app-card strong,
 .save-copy strong {
   min-width: 0;
   overflow: hidden;
-  color: #161b22;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -563,7 +566,7 @@ onBeforeUnmount(() => {
 .save-copy span {
   min-width: 0;
   overflow: hidden;
-  color: #677386;
+  color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -572,7 +575,7 @@ onBeforeUnmount(() => {
 
 .app-card small,
 .save-copy small {
-  color: #8a94a5;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
@@ -587,8 +590,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #eef5ff;
-  color: #315cab;
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 
 .save-copy {
@@ -612,16 +615,16 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #4d596b;
+  color: var(--text-secondary);
   padding: 0;
 }
 
 .icon-button:hover {
-  background: #edf2f8;
+  background: var(--surface-muted);
 }
 
 .icon-button.danger {
-  color: #a33a3a;
+  color: var(--danger-text);
 }
 
 .icon-button svg,
@@ -640,9 +643,9 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(-2px);
   border-radius: 4px;
-  background: #30343a;
+  background: var(--tooltip-bg);
   padding: 5px 8px;
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 12px;
   white-space: nowrap;
   transition: opacity 120ms ease, transform 120ms ease;
@@ -660,13 +663,13 @@ onBeforeUnmount(() => {
   place-content: center;
   justify-items: center;
   gap: 12px;
-  color: #5e6877;
+  color: var(--text-tertiary);
   text-align: center;
 }
 
 .empty-state h2 {
   margin: 0;
-  color: #253244;
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 800;
 }
@@ -674,7 +677,7 @@ onBeforeUnmount(() => {
 .empty-icon {
   width: 44px;
   height: 44px;
-  color: #96a2b5;
+  color: var(--text-muted);
 }
 
 .runtime-layer {
@@ -688,7 +691,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   visibility: hidden;
   pointer-events: none;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .runtime-layer.visible {
@@ -715,7 +718,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .debug-menu-scrim {
@@ -743,15 +746,15 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-bottom: 1px solid #e3e8ef;
-  background: #ffffff;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
   padding: 0 8px 0 14px;
 }
 
 .runtime-header strong {
   min-width: 0;
   overflow: hidden;
-  color: #1d2633;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -783,11 +786,11 @@ onBeforeUnmount(() => {
   width: min(360px, calc(100vw - 32px));
   display: grid;
   gap: 10px;
-  border: 1px solid #d8e0ea;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-raised);
   padding: 12px;
-  box-shadow: 0 14px 36px rgba(24, 32, 44, 0.18);
+  box-shadow: 0 14px 36px var(--shadow-color);
 }
 
 .debug-url-form,
@@ -798,7 +801,7 @@ onBeforeUnmount(() => {
 }
 
 .debug-url-label > span:first-child {
-  color: #425064;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -814,18 +817,18 @@ onBeforeUnmount(() => {
   width: 100%;
   min-width: 0;
   height: 34px;
-  border: 1px solid #c6d1df;
+  border: 1px solid var(--border-default);
   border-radius: 7px;
-  background: #ffffff;
-  color: #1f2a38;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 0 9px;
   font-size: 12px;
   outline: none;
 }
 
 .debug-url-input:focus {
-  border-color: #2f6fca;
-  box-shadow: 0 0 0 2px rgba(47, 111, 202, 0.14);
+  border-color: var(--accent-solid);
+  box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 .debug-icon-button {
@@ -834,16 +837,16 @@ onBeforeUnmount(() => {
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid #b8c4d2;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #f8fafc;
-  color: #2b5d9f;
+  background: var(--surface-panel);
+  color: var(--accent-text);
   padding: 0;
 }
 
 .debug-icon-button:hover,
 .debug-menu-action:hover {
-  background: #edf4ff;
+  background: var(--accent-soft);
 }
 
 .debug-icon-button svg,
@@ -862,9 +865,9 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(-2px);
   border-radius: 4px;
-  background: #30343a;
+  background: var(--tooltip-bg);
   padding: 5px 8px;
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 12px;
   white-space: nowrap;
   transition: opacity 120ms ease, transform 120ms ease;
@@ -883,10 +886,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  border: 1px solid #b8c4d2;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #ffffff;
-  color: #273446;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 0 10px;
   font-size: 13px;
   font-weight: 700;
@@ -897,7 +900,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #ffffff;
+  background: var(--surface-raised);
 }
 
 .chat-rail {
@@ -909,8 +912,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  border-left: 1px solid #dfe5ed;
-  background: #f8fafc;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
   padding: 8px 3px;
 }
 
@@ -927,7 +930,7 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: #526071;
+  color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 800;
 }
@@ -939,9 +942,9 @@ onBeforeUnmount(() => {
 
 .chat-rail-item.active,
 .chat-rail-item:hover {
-  border-color: #cbd7e6;
-  background: #ffffff;
-  color: #24579b;
+  border-color: var(--border-default);
+  background: var(--surface-raised);
+  color: var(--accent-text);
 }
 
 .chat-rail-item.generating::after {
@@ -951,7 +954,7 @@ onBeforeUnmount(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #2f9d63;
+  background: var(--success-solid);
   content: "";
 }
 
@@ -961,7 +964,7 @@ onBeforeUnmount(() => {
   z-index: 50;
   display: grid;
   place-items: center;
-  background: rgba(28, 35, 45, 0.36);
+  background: var(--overlay-scrim-soft);
 }
 
 .uninstall-dialog {
@@ -969,9 +972,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 10px;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-raised);
   padding: 14px;
-  box-shadow: 0 18px 48px rgba(20, 28, 38, 0.25);
+  box-shadow: 0 18px 48px var(--shadow-color-strong);
 }
 
 .uninstall-dialog header,
@@ -984,7 +987,7 @@ onBeforeUnmount(() => {
 
 .uninstall-dialog h2 {
   margin: 0;
-  color: #1f2a38;
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 800;
 }
@@ -993,14 +996,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #344256;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .check-row input {
   width: 16px;
   height: 16px;
-  accent-color: #2f6fca;
+  accent-color: var(--accent-solid);
 }
 
 @media (max-width: 900px) {

@@ -3,9 +3,9 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   createStreamingMarkdownRenderer,
   getDefaultStyleSheet,
-  getDefaultThemeVars,
   type StreamingMarkdownRenderer
 } from '../../../../packages/streaming-markdown/src'
+import { streamingMarkdownThemeVars } from '../theme'
 
 const props = defineProps<{
   markdown?: string
@@ -26,11 +26,10 @@ function ensureStyle() {
 }
 
 function applyThemeVars(element: HTMLElement) {
-  const vars = getDefaultThemeVars('light')
+  const vars = streamingMarkdownThemeVars()
   for (const [key, value] of Object.entries(vars)) {
     element.style.setProperty(key, value)
   }
-  element.style.setProperty('--sm-bg', 'transparent')
 }
 
 function scheduleLayoutFlush() {

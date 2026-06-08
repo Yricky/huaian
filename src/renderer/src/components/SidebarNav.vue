@@ -157,8 +157,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   height: 100%;
   padding: 8px 0;
-  border-right: 1px solid #d8dee7;
-  background: #f8fafc;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
 }
 
 .sidebar-top,
@@ -187,10 +187,10 @@ onBeforeUnmount(() => {
   height: 48px;
   display: grid;
   place-items: center;
-  border: 1px solid #dbe2eb;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
-  color: #273446;
+  background: var(--surface-raised);
+  color: var(--text-primary);
   overflow: hidden;
   font-size: 16px;
   font-weight: 800;
@@ -198,13 +198,13 @@ onBeforeUnmount(() => {
 
 .recent-app-button:hover,
 .recent-app-button.active {
-  border-color: #c8d3e0;
-  background: #f1f5fb;
+  border-color: var(--border-default);
+  background: var(--surface-muted);
 }
 
 .recent-app-button.active {
-  border-color: #9eb9ef;
-  box-shadow: 0 0 0 3px #dce6ff;
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft-hover);
 }
 
 .recent-app-button img {
@@ -219,12 +219,12 @@ onBeforeUnmount(() => {
   bottom: 2px;
   width: 15px;
   height: 15px;
-  color: #2f9d63;
-  filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.95));
+  color: var(--success-solid);
+  filter: drop-shadow(0 1px 2px var(--surface-glass-strong));
 }
 
 .sidebar-nav-item {
-  width: 76px;
+  width: 64px;
   min-height: 64px;
   display: flex;
   flex-direction: column;
@@ -235,7 +235,7 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #465465;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
@@ -243,17 +243,17 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-nav-item:hover {
-  color: #233246;
+  color: var(--text-primary);
 }
 
 .sidebar-nav-item:focus-visible,
 .recent-app-button:focus-visible {
-  outline: 2px solid #446bd7;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 .sidebar-nav-item.active {
-  color: #173e85;
+  color: var(--accent-text);
 }
 
 .sidebar-icon-shell {
@@ -266,11 +266,11 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-nav-item:hover .sidebar-icon-shell {
-  background: #edf2f8;
+  background: var(--surface-muted);
 }
 
 .sidebar-nav-item.active .sidebar-icon-shell {
-  background: #dce6ff;
+  background: var(--accent-soft-hover);
 }
 
 .sidebar-icon {
@@ -291,11 +291,11 @@ onBeforeUnmount(() => {
 }
 
 .project-switcher-button[aria-expanded="true"] {
-  color: #173e85;
+  color: var(--accent-text);
 }
 
 .project-switcher-button[aria-expanded="true"] .sidebar-icon-shell {
-  background: #dce6ff;
+  background: var(--accent-soft-hover);
 }
 
 .project-popup {
@@ -307,17 +307,17 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #cfd7e2;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 16px 40px rgba(22, 31, 44, 0.18);
+  background: var(--surface-raised);
+  box-shadow: 0 16px 40px var(--shadow-color);
 }
 
 .project-popup-header {
   flex-shrink: 0;
   padding: 10px 12px;
-  border-bottom: 1px solid #edf0f4;
-  color: #263141;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
   font-size: 13px;
 }
 
@@ -338,15 +338,15 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   background: transparent;
   padding: 8px;
-  color: #243041;
+  color: var(--text-primary);
 }
 
 .project-list-item:hover:not(:disabled) {
-  background: #f1f5fb;
+  background: var(--surface-muted);
 }
 
 .project-list-item.current {
-  background: #eef4ff;
+  background: var(--accent-soft);
   cursor: default;
 }
 
@@ -365,13 +365,13 @@ onBeforeUnmount(() => {
 
 .project-list-path {
   grid-column: 1 / -1;
-  color: #708096;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .project-list-item em {
   align-self: start;
-  color: #4169c8;
+  color: var(--accent-solid);
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -382,16 +382,16 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   border: 0;
-  border-top: 1px solid #edf0f4;
-  background: #ffffff;
-  color: #233246;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-primary);
   padding: 10px 12px;
   font-size: 13px;
   font-weight: 700;
 }
 
 .project-open-other:hover {
-  background: #f4f7fb;
+  background: var(--surface-panel);
 }
 
 .project-open-icon {

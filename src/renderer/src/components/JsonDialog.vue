@@ -77,7 +77,7 @@ function tokenizeJson(value: string): JsonToken[] {
   z-index: 160;
   display: grid;
   place-items: center;
-  background: rgba(25, 31, 39, 0.34);
+  background: var(--overlay-scrim-soft);
   padding: 24px;
 }
 
@@ -88,15 +88,15 @@ function tokenizeJson(value: string): JsonToken[] {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 18px 50px rgba(26, 33, 42, 0.26);
+  background: var(--surface-raised);
+  box-shadow: 0 18px 50px var(--shadow-color-strong);
 }
 
 .json-dialog-panel header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #edf0f4;
+  border-bottom: 1px solid var(--border-subtle);
   padding: 8px 10px;
 }
 
@@ -105,8 +105,8 @@ function tokenizeJson(value: string): JsonToken[] {
   overflow: auto;
   margin: 0;
   border: 0;
-  background: #fbfcfd;
-  color: #273245;
+  background: var(--surface-panel);
+  color: var(--text-primary);
   padding: 14px 16px;
   font: 12px/1.55 "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
   tab-size: 2;
@@ -114,31 +114,31 @@ function tokenizeJson(value: string): JsonToken[] {
 }
 
 .json-code:focus-visible {
-  outline: 2px solid #446bd7;
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
 .json-token-key {
-  color: #7b4fa3;
+  color: var(--syntax-key);
 }
 
 .json-token-string {
-  color: #176f52;
+  color: var(--syntax-string);
 }
 
 .json-token-number {
-  color: #1f5fbf;
+  color: var(--syntax-number);
 }
 
 .json-token-boolean {
-  color: #a05a00;
+  color: var(--syntax-boolean);
 }
 
 .json-token-null {
-  color: #7b8794;
+  color: var(--syntax-null);
 }
 
 .json-token-punctuation {
-  color: #526173;
+  color: var(--syntax-punctuation);
 }
 </style>
