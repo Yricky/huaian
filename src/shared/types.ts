@@ -95,6 +95,11 @@ export interface AppUninstallOptions {
   deleteAllSaves: boolean
 }
 
+export interface AppInstallResult {
+  installed: boolean
+  project: ProjectSnapshot
+}
+
 export type AppStorageKind = 'appData' | 'save'
 
 export interface AppStorageDeleteOptions {
@@ -285,7 +290,7 @@ export interface ElectronApi {
   updateLlmInstance(payload: LlmInstanceUpdatePayload): Promise<LlmInstance>
   deleteLlmInstance(id: number): Promise<ProjectSnapshot>
   reorderLlmInstances(ids: number[]): Promise<ProjectSnapshot>
-  installApp(): Promise<ProjectSnapshot>
+  installApp(): Promise<AppInstallResult>
   uninstallApp(appId: string, options: AppUninstallOptions): Promise<ProjectSnapshot>
   createAppSession(payload: AppSessionCreatePayload): Promise<AppSessionRecord>
   updateAppSession(payload: AppSessionUpdatePayload): Promise<AppSessionRecord>

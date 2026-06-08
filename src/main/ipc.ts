@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
   AppLlmGenerationRequest,
   AppSessionCreatePayload,
@@ -61,6 +61,18 @@ function ensureCanSwitchProject(): void {
   }
 }
 
+let appOperationInProgress = false
+
+async function withAppOperation<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+  if (appOperationInProgress) throw new Error('应用安装或卸载正在进行，请稍后再试。')
+  appOperationInProgress = true
+  try {
+    return await operation()
+  } finally {
+    appOperationInProgress = false
+  }
+}
+
 function handleIpc<TArgs extends unknown[], TResult>(
   channel: IpcInvokeChannel,
   handler: (event: IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>
@@ -101,20 +113,24 @@ export function registerIpcHandlers(): void {
   handleIpc('llm:deleteInstance', (_, id: number) => deleteLlmInstance(id))
   handleIpc('llm:reorderInstances', (_, ids: number[]) => reorderLlmInstances(ids))
 
-  handleIpc('haApp:install', async () => {
-    const result = await dialog.showOpenDialog({
+  handleIpc('haApp:install', event => withAppOperation(async () => {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
       filters: [{ name: 'Huaian App', extensions: ['zip'] }],
-      properties: ['openFile']
-    })
-    if (!result.filePaths[0] || result.canceled) return getProjectSnapshot()
+      properties: ['openFile'] as const
+    }
+    const result = ownerWindow
+      ? await dialog.showOpenDialog(ownerWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+    if (!result.filePaths[0] || result.canceled) return { installed: false, project: getProjectSnapshot() }
     await installAppZip(result.filePaths[0])
-    return getProjectSnapshot()
-  })
-  handleIpc('haApp:uninstall', async (_, appId: string, options: AppUninstallOptions) => {
+    return { installed: true, project: getProjectSnapshot() }
+  }))
+  handleIpc('haApp:uninstall', (_, appId: string, options: AppUninstallOptions) => withAppOperation(async () => {
     await uninstallApp(appId, options)
     if (options.deleteAllSaves) await deleteAppSessionsForApp(appId)
     return getProjectSnapshot()
-  })
+  }))
   handleIpc('haApp:createSession', (_, payload: AppSessionCreatePayload) => createAppSession(payload))
   handleIpc('haApp:updateSession', (_, payload: AppSessionUpdatePayload) => updateAppSession(payload))
   handleIpc('haApp:deleteSession', (_, appId: string, id: number) => deleteAppSession(appId, id))

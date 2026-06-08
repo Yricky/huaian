@@ -30,6 +30,8 @@ const {
   deleteAppSession,
   handleAppFrameLoaded,
   installApp,
+  isInstallingApp,
+  isUninstallingApp,
   openApp,
   openAppSession,
   renameAppSession,
@@ -44,6 +46,10 @@ const {
 const uninstallDialogOpen = ref(false)
 const deleteConfigData = ref(false)
 const deleteAllSaves = ref(false)
+const renameDialogOpen = ref(false)
+const renameTarget = ref<AppSessionRecord | null>(null)
+const renameTitle = ref('')
+const isRenamingAppSession = ref(false)
 const debugMenuRuntimeKey = ref<string | null>(null)
 const debugUrlDrafts = ref<Record<string, string>>({})
 const frameReloadTicks = ref<Record<string, number>>({})
@@ -56,6 +62,8 @@ const activeChatSession = computed(() => {
   if (!runtime || runtime.activeChatSessionId === null) return null
   return runtime.chatSessions.find(session => session.id === runtime.activeChatSessionId) ?? null
 })
+
+const appOperationBusy = computed(() => isInstallingApp.value || isUninstallingApp.value)
 
 const runtimeLayerStyle = computed(() => (
   chatPanelWidth.value === null ? {} : { '--chat-panel-width': `${chatPanelWidth.value}px` }
@@ -93,9 +101,26 @@ function onFrameLoad(runtime: RuntimeAppSession, event: Event) {
 }
 
 function openUninstallDialog() {
+  if (appOperationBusy.value) {
+    showToast('应用安装或卸载正在进行，请稍后再试。', 'info')
+    return
+  }
   deleteConfigData.value = false
   deleteAllSaves.value = false
   uninstallDialogOpen.value = true
+}
+
+function openRenameDialog(session: AppSessionRecord) {
+  renameTarget.value = session
+  renameTitle.value = session.title
+  renameDialogOpen.value = true
+}
+
+function closeRenameDialog() {
+  if (isRenamingAppSession.value) return
+  renameDialogOpen.value = false
+  renameTarget.value = null
+  renameTitle.value = ''
 }
 
 function normalizeDebugUrl(value: string): string | null {
@@ -180,6 +205,18 @@ async function confirmUninstall() {
   })
 }
 
+async function confirmRename() {
+  if (!renameTarget.value || isRenamingAppSession.value) return
+  isRenamingAppSession.value = true
+  try {
+    const renamed = await renameAppSession(renameTarget.value, renameTitle.value)
+    isRenamingAppSession.value = false
+    if (renamed) closeRenameDialog()
+  } finally {
+    isRenamingAppSession.value = false
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -203,17 +240,18 @@ onBeforeUnmount(() => {
             </span>
             <span>
               <h1>{{ selectedApp.manifest.name || selectedApp.manifest.id }}</h1>
-              <small>{{ selectedApp.manifest.description || selectedApp.manifest.id }} · v{{ selectedApp.manifest.version }}</small>
+              <small>{{ selectedApp.manifest.description || selectedApp.manifest.id }} · v{{
+                selectedApp.manifest.version }}</small>
             </span>
           </div>
           <div class="header-actions">
-            <button class="toolbar-action" type="button" @click="installApp">
+            <button class="toolbar-action" type="button" :disabled="appOperationBusy" @click="installApp">
               <MdUploadFile class="inline-icon" aria-hidden="true" />
-              安装
+              {{ isInstallingApp ? '安装中' : '安装' }}
             </button>
-            <button class="toolbar-action danger" type="button" @click="openUninstallDialog">
+            <button class="toolbar-action danger" type="button" :disabled="appOperationBusy" @click="openUninstallDialog">
               <MdDeleteOutline class="inline-icon" aria-hidden="true" />
-              卸载
+              {{ isUninstallingApp ? '卸载中' : '卸载' }}
             </button>
             <button class="primary-action" type="button" @click="createAppSession(selectedApp.manifest.id)">
               <MdAdd class="inline-icon" aria-hidden="true" />
@@ -224,7 +262,9 @@ onBeforeUnmount(() => {
 
         <div v-if="selectedAppSessions.length" class="save-grid">
           <article v-for="session in selectedAppSessions" :key="`${session.appId}:${session.id}`" class="save-card">
-            <span class="save-icon"><MdSave aria-hidden="true" /></span>
+            <span class="save-icon">
+              <MdSave aria-hidden="true" />
+            </span>
             <div class="save-copy">
               <strong>{{ session.title }}</strong>
               <span>存档 {{ session.id }} · 创建版本 {{ session.version }}</span>
@@ -232,7 +272,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="save-actions">
               <button class="icon-button" type="button" aria-label="重命名" data-tooltip="重命名"
-                @click="renameAppSession(session)">
+                @click="openRenameDialog(session)">
                 <MdDriveFileRenameOutline aria-hidden="true" />
               </button>
               <button class="icon-button danger" type="button" aria-label="删除" data-tooltip="删除"
@@ -260,15 +300,17 @@ onBeforeUnmount(() => {
       <div v-else class="library-page">
         <header class="page-header">
           <div class="title-cluster">
-            <span class="app-avatar muted"><MdApps aria-hidden="true" /></span>
+            <span class="app-avatar muted">
+              <MdApps aria-hidden="true" />
+            </span>
             <span>
               <h1>应用</h1>
               <small>{{ apps.length }} 个已安装应用</small>
             </span>
           </div>
-          <button class="primary-action" type="button" @click="installApp">
+          <button class="primary-action" type="button" :disabled="appOperationBusy" @click="installApp">
             <MdUploadFile class="inline-icon" aria-hidden="true" />
-            安装应用
+            {{ isInstallingApp ? '安装中' : '安装应用' }}
           </button>
         </header>
 
@@ -288,9 +330,9 @@ onBeforeUnmount(() => {
         <div v-else class="empty-state">
           <MdFolder class="empty-icon" aria-hidden="true" />
           <h2>还没有安装应用</h2>
-          <button class="primary-action" type="button" @click="installApp">
+          <button class="primary-action" type="button" :disabled="appOperationBusy" @click="installApp">
             <MdUploadFile class="inline-icon" aria-hidden="true" />
-            安装应用
+            {{ isInstallingApp ? '安装中' : '安装应用' }}
           </button>
         </div>
       </div>
@@ -298,11 +340,8 @@ onBeforeUnmount(() => {
 
     <section class="runtime-layer" :style="runtimeLayerStyle"
       :class="{ visible: activeRuntime, 'panel-open': activeRuntime?.chatPanelOpen && activeChatSession }">
-      <AppChatPanel v-if="activeRuntime && activeChatSession"
-        v-show="activeRuntime.chatPanelOpen"
-        :runtime="activeRuntime"
-        :session="activeChatSession"
-        @panel-width="chatPanelWidth = $event"
+      <AppChatPanel v-if="activeRuntime && activeChatSession" v-show="activeRuntime.chatPanelOpen"
+        :runtime="activeRuntime" :session="activeChatSession" @panel-width="chatPanelWidth = $event"
         @resizing="isChatPanelResizing = $event" />
 
       <main class="frame-stage">
@@ -322,8 +361,8 @@ onBeforeUnmount(() => {
                     <label class="debug-url-label">
                       <span>自定义网址</span>
                       <span class="debug-url-row">
-                        <input v-model="debugUrlDrafts[runtime.key]" class="debug-url-input" type="text"
-                          inputmode="url" spellcheck="false" placeholder="http://localhost:5173" />
+                        <input v-model="debugUrlDrafts[runtime.key]" class="debug-url-input" type="text" inputmode="url"
+                          spellcheck="false" placeholder="http://localhost:5173" />
                         <button class="debug-icon-button" type="submit" aria-label="打开" data-tooltip="打开">
                           <MdOpenInNew aria-hidden="true" />
                         </button>
@@ -360,27 +399,54 @@ onBeforeUnmount(() => {
       </aside>
     </section>
 
-    <div v-if="uninstallDialogOpen" class="modal-backdrop" @click.self="uninstallDialogOpen = false">
+    <div v-if="uninstallDialogOpen" class="modal-backdrop" @click.self="!isUninstallingApp && (uninstallDialogOpen = false)">
       <section class="uninstall-dialog" role="dialog" aria-modal="true" aria-label="卸载应用">
         <header>
           <h2>卸载应用</h2>
-          <button class="icon-button" type="button" aria-label="关闭" @click="uninstallDialogOpen = false">
+          <button class="icon-button" type="button" aria-label="关闭" :disabled="isUninstallingApp"
+            @click="uninstallDialogOpen = false">
             <MdClose aria-hidden="true" />
           </button>
         </header>
         <label class="check-row">
-          <input v-model="deleteConfigData" type="checkbox" />
+          <input v-model="deleteConfigData" type="checkbox" :disabled="isUninstallingApp" />
           <span>删除配置数据</span>
         </label>
         <label class="check-row">
-          <input v-model="deleteAllSaves" type="checkbox" />
+          <input v-model="deleteAllSaves" type="checkbox" :disabled="isUninstallingApp" />
           <span>删除所有存档</span>
         </label>
         <footer>
-          <button class="toolbar-action" type="button" @click="uninstallDialogOpen = false">取消</button>
-          <button class="toolbar-action danger" type="button" @click="confirmUninstall">卸载</button>
+          <button class="toolbar-action" type="button" :disabled="isUninstallingApp"
+            @click="uninstallDialogOpen = false">取消</button>
+          <button class="toolbar-action danger" type="button" :disabled="isUninstallingApp" @click="confirmUninstall">
+            {{ isUninstallingApp ? '卸载中' : '卸载' }}
+          </button>
         </footer>
       </section>
+    </div>
+
+    <div v-if="renameDialogOpen" class="modal-backdrop" @click.self="closeRenameDialog">
+      <form class="rename-dialog" role="dialog" aria-modal="true" aria-label="重命名存档" @submit.prevent="confirmRename">
+        <header>
+          <h2>重命名存档</h2>
+          <button class="icon-button" type="button" aria-label="关闭" :disabled="isRenamingAppSession"
+            @click="closeRenameDialog">
+            <MdClose aria-hidden="true" />
+          </button>
+        </header>
+        <label class="rename-field">
+          <span>存档名称</span>
+          <input v-model="renameTitle" type="text" :disabled="isRenamingAppSession" autofocus />
+        </label>
+        <footer>
+          <button class="toolbar-action" type="button" :disabled="isRenamingAppSession"
+            @click="closeRenameDialog">取消</button>
+          <button class="primary-action" type="submit" :disabled="isRenamingAppSession">
+            {{ isRenamingAppSession ? '保存中' : '保存' }}
+          </button>
+        </footer>
+      </form>
     </div>
   </section>
 </template>
@@ -502,12 +568,20 @@ onBeforeUnmount(() => {
   color: var(--accent-text);
 }
 
-.toolbar-action:hover,
-.open-button:hover {
+.toolbar-action:hover:not(:disabled),
+.open-button:hover:not(:disabled) {
   background: var(--surface-muted);
 }
 
-.primary-action:hover {
+.primary-action:disabled,
+.toolbar-action:disabled,
+.open-button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.primary-action:hover:not(:disabled) {
   background: var(--accent-soft-hover);
 }
 
@@ -800,7 +874,7 @@ onBeforeUnmount(() => {
   gap: 7px;
 }
 
-.debug-url-label > span:first-child {
+.debug-url-label>span:first-child {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
@@ -912,9 +986,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-left: 1px solid var(--border-subtle);
   background: var(--surface-panel);
   padding: 8px 3px;
+  scrollbar-width: none;
+}
+
+.chat-rail::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .runtime-layer.panel-open .chat-rail {
@@ -925,6 +1008,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 30px;
   height: 36px;
+  flex: 0 0 36px;
   display: grid;
   place-items: center;
   border: 1px solid transparent;
@@ -967,7 +1051,8 @@ onBeforeUnmount(() => {
   background: var(--overlay-scrim-soft);
 }
 
-.uninstall-dialog {
+.uninstall-dialog,
+.rename-dialog {
   width: min(360px, calc(100vw - 32px));
   display: grid;
   gap: 10px;
@@ -978,18 +1063,26 @@ onBeforeUnmount(() => {
 }
 
 .uninstall-dialog header,
-.uninstall-dialog footer {
+.uninstall-dialog footer,
+.rename-dialog header,
+.rename-dialog footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.uninstall-dialog h2 {
+.uninstall-dialog h2,
+.rename-dialog h2 {
   margin: 0;
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 800;
+}
+
+.rename-field {
+  display: grid;
+  gap: 6px;
 }
 
 .check-row {

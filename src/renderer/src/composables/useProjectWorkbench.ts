@@ -75,6 +75,8 @@ export function createProjectWorkbench() {
   const selectedLlmProvider = ref<LlmProvider | null>(null)
   const selectedLlmInstance = ref<LlmInstance | null>(null)
   const toasts = ref<ToastMessage[]>([])
+  const isInstallingApp = ref(false)
+  const isUninstallingApp = ref(false)
   let toastId = 0
   let unsubscribeGenerationEvents: (() => void) | null = null
   let unsubscribeToolRequests: (() => void) | null = null
@@ -590,20 +592,34 @@ export function createProjectWorkbench() {
   }
 
   async function installApp() {
+    if (isInstallingApp.value || isUninstallingApp.value) {
+      showToast('应用安装或卸载正在进行，请稍后再试。', 'info')
+      return
+    }
     if (runningAppSessions.value.length) {
       showToast('请先关闭运行中的应用，再安装或更新应用。', 'error')
       return
     }
+    isInstallingApp.value = true
     try {
-      project.value = await window.electronAPI.installApp()
-      selectInitialProjectItems()
-      showToast('应用已安装', 'success')
+      const result = await window.electronAPI.installApp()
+      project.value = result.project
+      if (result.installed) {
+        selectInitialProjectItems()
+        showToast('应用已安装', 'success')
+      }
     } catch (error) {
       showToast(errorText(error), 'error')
+    } finally {
+      isInstallingApp.value = false
     }
   }
 
   async function uninstallSelectedApp(options: AppUninstallOptions) {
+    if (isInstallingApp.value || isUninstallingApp.value) {
+      showToast('应用安装或卸载正在进行，请稍后再试。', 'info')
+      return
+    }
     const app = selectedApp.value
     if (!app) return
     const appId = app.manifest.id
@@ -611,13 +627,15 @@ export function createProjectWorkbench() {
       showToast('请先关闭该应用正在运行的存档。', 'error')
       return
     }
-    if (!window.confirm(`卸载应用「${app.manifest.name || appId}」？`)) return
+    isUninstallingApp.value = true
     try {
       project.value = await window.electronAPI.uninstallApp(appId, options)
       selectedAppId.value = apps.value[0]?.manifest.id ?? null
       showToast('应用已卸载', 'success')
     } catch (error) {
       showToast(errorText(error), 'error')
+    } finally {
+      isUninstallingApp.value = false
     }
   }
 
@@ -639,11 +657,15 @@ export function createProjectWorkbench() {
     }
   }
 
-  async function renameAppSession(record: AppSessionRecord) {
-    const title = window.prompt('存档名称', record.title)
-    if (title === null) return
+  async function renameAppSession(record: AppSessionRecord, title: string): Promise<boolean> {
+    const nextTitle = title.trim()
+    if (!nextTitle) {
+      showToast('存档名称不能为空。', 'error')
+      return false
+    }
+    if (nextTitle === record.title) return true
     try {
-      const saved = await window.electronAPI.updateAppSession({ appId: record.appId, id: record.id, title })
+      const saved = await window.electronAPI.updateAppSession({ appId: record.appId, id: record.id, title: nextTitle })
       replaceAppSessionRecord(saved)
       const runtime = runtimeFor(saved.appId, saved.id)
       if (runtime) {
@@ -651,8 +673,10 @@ export function createProjectWorkbench() {
         replaceRuntime(runtime)
       }
       showToast('存档已重命名', 'success')
+      return true
     } catch (error) {
       showToast(errorText(error), 'error')
+      return false
     }
   }
 
@@ -1162,6 +1186,8 @@ export function createProjectWorkbench() {
     fetchSelectedLlmProviderModels,
     handleAppFrameLoaded,
     installApp,
+    isInstallingApp,
+    isUninstallingApp,
     llmInstances,
     llmProviders,
     openApp,

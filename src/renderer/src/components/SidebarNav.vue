@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
   flex: 1;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 12px;
   overflow: auto;
   padding: 6px 0;
 }
